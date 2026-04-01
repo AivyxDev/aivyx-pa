@@ -25,9 +25,10 @@ anyhow.workspace     = true
 thiserror.workspace  = true
 reqwest.workspace    = true
 
-# Email (SMTP send)
-lettre.workspace     = true
-native-tls.workspace = true
+# Email (IMAP + SMTP)
+lettre.workspace         = true
+native-tls.workspace     = true
+tokio-native-tls.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

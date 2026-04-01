@@ -12,13 +12,17 @@ use aivyx_agent::rate_limiter::RateLimiter;
 use aivyx_capability::CapabilitySet;
 use aivyx_config::{AivyxConfig, AivyxDirs};
 use aivyx_core::{AgentId, AutonomyTier, ToolRegistry};
-use aivyx_crypto::MasterKey;
-use aivyx_llm::LlmProvider;
+use aivyx_crypto::{EncryptedStore, MasterKey};
+use aivyx_llm::{LlmProvider, create_embedding_provider};
+use aivyx_memory::{MemoryManager, MemoryStore};
 use aivyx_loop::{AgentLoop, LoopConfig, Notification, NotificationKind};
 
 use aivyx_actions::ActionRegistry;
+use aivyx_actions::bridge::register_default_actions;
 
 use chrono::Timelike;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -32,8 +36,10 @@ use tokio::sync::mpsc;
 
 /// Build an Agent from the unlocked key + provider. Shared by TUI and one-shot chat.
 pub fn build_agent(
-    _dirs: &AivyxDirs,
-    _master_key: MasterKey,
+    dirs: &AivyxDirs,
+    config: &AivyxConfig,
+    store: &EncryptedStore,
+    master_key: MasterKey,
     provider: Box<dyn LlmProvider>,
 ) -> anyhow::Result<Agent> {
     let system_prompt = concat!(
@@ -44,14 +50,34 @@ pub fn build_agent(
         "When you take an action, explain what you did briefly.",
     );
 
-    let agent = Agent::new(
-        AgentId::new(),
+    // Register action tools (files, shell, web, reminders)
+    let mut registry = ToolRegistry::new();
+    register_default_actions(&mut registry);
+
+    let agent_id = AgentId::new();
+
+    // Wire memory if an embedding provider is available
+    let memory_manager = match wire_memory(dirs, config, store, &master_key, agent_id) {
+        Ok(mgr) => Some(mgr),
+        Err(e) => {
+            tracing::warn!("Memory system unavailable: {e}");
+            None
+        }
+    };
+
+    // Register memory tools into the tool registry
+    if let Some(ref mgr) = memory_manager {
+        aivyx_memory::register_memory_tools(&mut registry, Arc::clone(mgr), agent_id);
+    }
+
+    let mut agent = Agent::new(
+        agent_id,
         "assistant".to_string(),
         system_prompt.to_string(),
         4096,
         AutonomyTier::Trust,
         provider,
-        ToolRegistry::new(),
+        registry,
         CapabilitySet::new(),
         RateLimiter::new(60),
         CostTracker::new(0.0, 0.0, 0.0),
@@ -60,8 +86,35 @@ pub fn build_agent(
         100,
     );
 
-    // TODO: wire memory, MCP tools, actions as tools
+    // Attach memory manager to the agent for memory-augmented turns
+    if let Some(mgr) = memory_manager {
+        agent.set_memory_manager(mgr);
+    }
+
     Ok(agent)
+}
+
+/// Create embedding provider + MemoryStore + MemoryManager.
+fn wire_memory(
+    dirs: &AivyxDirs,
+    config: &AivyxConfig,
+    store: &EncryptedStore,
+    master_key: &MasterKey,
+    _agent_id: AgentId,
+) -> anyhow::Result<Arc<Mutex<MemoryManager>>> {
+    let embed_config = config.embedding.clone().unwrap_or_default();
+    let embedding_provider = create_embedding_provider(&embed_config, store, master_key)?;
+
+    let memory_key = aivyx_crypto::derive_memory_key(master_key);
+    let memory_store = MemoryStore::open(dirs.memory_dir().join("assistant"))?;
+    let manager = MemoryManager::new(
+        memory_store,
+        Arc::from(embedding_provider),
+        memory_key,
+        0, // unlimited memories
+    )?;
+
+    Ok(Arc::new(Mutex::new(manager)))
 }
 
 // ── TUI state ───────────────────────────────────────────────────
@@ -103,11 +156,12 @@ impl App {
 pub async fn run(
     dirs: &AivyxDirs,
     config: AivyxConfig,
+    store: EncryptedStore,
     master_key: MasterKey,
     provider: Box<dyn LlmProvider>,
 ) -> anyhow::Result<()> {
     // Build agent
-    let mut agent = build_agent(dirs, master_key, provider)?;
+    let mut agent = build_agent(dirs, &config, &store, master_key, provider)?;
 
     // Start the background agent loop
     let actions = ActionRegistry::new();

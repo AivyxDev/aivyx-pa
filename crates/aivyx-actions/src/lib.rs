@@ -7,6 +7,7 @@
 //! Actions are registered with the agent's tool registry so the LLM can
 //! invoke them during conversation or autonomously via the agent loop.
 
+pub mod bridge;
 pub mod email;
 pub mod files;
 pub mod reminders;

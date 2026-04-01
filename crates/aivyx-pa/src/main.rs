@@ -99,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
             let store = EncryptedStore::open(dirs.store_path())?;
             let provider = create_provider(&config.provider, &store, &master_key)?;
 
-            tui::run(&dirs, config, master_key, provider).await?;
+            tui::run(&dirs, config, store, master_key, provider).await?;
         }
 
         Some(Command::Chat { message }) => {
@@ -113,7 +113,7 @@ async fn main() -> anyhow::Result<()> {
             let store = EncryptedStore::open(dirs.store_path())?;
             let provider = create_provider(&config.provider, &store, &master_key)?;
 
-            chat_oneshot(&dirs, config, master_key, provider, &message).await?;
+            chat_oneshot(&dirs, config, store, master_key, provider, &message).await?;
         }
 
         Some(Command::Status) => {
@@ -140,12 +140,13 @@ async fn main() -> anyhow::Result<()> {
 /// One-shot chat: send a message, print the response, exit.
 async fn chat_oneshot(
     dirs: &AivyxDirs,
-    _config: AivyxConfig,
+    config: AivyxConfig,
+    store: aivyx_crypto::EncryptedStore,
     master_key: MasterKey,
     provider: Box<dyn aivyx_llm::LlmProvider>,
     message: &str,
 ) -> anyhow::Result<()> {
-    let mut agent = crate::tui::build_agent(dirs, master_key, provider)?;
+    let mut agent = crate::tui::build_agent(dirs, &config, &store, master_key, provider)?;
     let response = agent.turn(message, None).await?;
     println!("{response}");
     Ok(())
