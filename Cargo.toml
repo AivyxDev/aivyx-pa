@@ -1,0 +1,68 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/aivyx-pa",
+  "crates/aivyx-actions",
+  "crates/aivyx-loop",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/AivyxDev/aivyx-pa"
+
+# ── Workspace dependencies ──────────────────────────────────────
+
+[workspace.dependencies]
+
+# Internal crates
+aivyx-actions = { path = "crates/aivyx-actions" }
+aivyx-loop    = { path = "crates/aivyx-loop" }
+
+# aivyx-core foundation (git, patched to local below)
+aivyx-core       = { git = "https://github.com/AivyxDev/aivyx-core.git", branch = "main" }
+aivyx-crypto     = { git = "https://github.com/AivyxDev/aivyx-core.git", branch = "main" }
+aivyx-config     = { git = "https://github.com/AivyxDev/aivyx-core.git", branch = "main" }
+aivyx-audit      = { git = "https://github.com/AivyxDev/aivyx-core.git", branch = "main" }
+aivyx-capability = { git = "https://github.com/AivyxDev/aivyx-core.git", branch = "main" }
+aivyx-llm        = { git = "https://github.com/AivyxDev/aivyx-core.git", branch = "main" }
+aivyx-mcp        = { git = "https://github.com/AivyxDev/aivyx-core.git", branch = "main" }
+aivyx-memory     = { git = "https://github.com/AivyxDev/aivyx-core.git", branch = "main" }
+aivyx-agent      = { git = "https://github.com/AivyxDev/aivyx-core.git", branch = "main" }
+aivyx-brain      = { git = "https://github.com/AivyxDev/aivyx-core.git", branch = "main" }
+
+# External
+serde         = { version = "1", features = ["derive"] }
+serde_json    = "1"
+tokio         = { version = "1", features = ["full"] }
+chrono        = { version = "0.4", features = ["serde"] }
+uuid          = { version = "1", features = ["v4", "v7", "serde"] }
+tracing       = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-trait   = "0.1"
+anyhow        = "1"
+thiserror     = "2"
+secrecy       = { version = "0.10", features = ["serde"] }
+reqwest       = { version = "0.12", features = ["json", "stream"] }
+toml          = "0.8"
+dirs          = "5"
+ratatui       = "0.29"
+crossterm     = "0.28"
+lettre        = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1-rustls-tls", "hostname", "builder"] }
+native-tls    = "0.2"
+clap          = { version = "4", features = ["derive"] }
+
+# ── Patch aivyx-core to local checkout ──────────────────────────
+
+[patch."https://github.com/AivyxDev/aivyx-core.git"]
+aivyx-core       = { path = "../aivyx-core/crates/aivyx-core" }
+aivyx-crypto     = { path = "../aivyx-core/crates/aivyx-crypto" }
+aivyx-config     = { path = "../aivyx-core/crates/aivyx-config" }
+aivyx-audit      = { path = "../aivyx-core/crates/aivyx-audit" }
+aivyx-capability = { path = "../aivyx-core/crates/aivyx-capability" }
+aivyx-llm        = { path = "../aivyx-core/crates/aivyx-llm" }
+aivyx-mcp        = { path = "../aivyx-core/crates/aivyx-mcp" }
+aivyx-memory     = { path = "../aivyx-core/crates/aivyx-memory" }
+aivyx-agent      = { path = "../aivyx-core/crates/aivyx-agent" }
+aivyx-brain      = { path = "../aivyx-core/crates/aivyx-brain" }

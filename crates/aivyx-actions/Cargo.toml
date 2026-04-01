@@ -1,0 +1,33 @@
+[package]
+name = "aivyx-actions"
+description = "Real-world integrations for the Aivyx personal assistant"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# Foundation
+aivyx-core.workspace       = true
+aivyx-crypto.workspace     = true
+aivyx-config.workspace     = true
+aivyx-audit.workspace      = true
+aivyx-capability.workspace = true
+
+# Runtime
+serde.workspace      = true
+serde_json.workspace = true
+tokio.workspace      = true
+chrono.workspace     = true
+uuid.workspace       = true
+tracing.workspace    = true
+async-trait.workspace = true
+anyhow.workspace     = true
+thiserror.workspace  = true
+reqwest.workspace    = true
+
+# Email (SMTP send)
+lettre.workspace     = true
+native-tls.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
