@@ -10,7 +10,11 @@
 mod init;
 mod tui;
 
+use aivyx_config::{AivyxConfig, AivyxDirs};
+use aivyx_crypto::{EncryptedStore, MasterKey, MasterKeyEnvelope};
+use aivyx_llm::create_provider;
 use clap::{Parser, Subcommand};
+use std::io::{self, BufRead, Write};
 
 #[derive(Parser)]
 #[command(
@@ -39,9 +43,35 @@ enum Command {
     Config,
 }
 
+/// Prompt for passphrase (no echo in future, plain for now).
+fn read_passphrase(msg: &str) -> String {
+    eprint!("{msg}");
+    let _ = io::stderr().flush();
+    let mut input = String::new();
+    if io::stdin().lock().read_line(&mut input).is_err() {
+        eprintln!("\nError reading input.");
+        std::process::exit(1);
+    }
+    input.trim().to_string()
+}
+
+/// Unlock the master key from the encrypted envelope on disk.
+fn unlock(dirs: &AivyxDirs) -> anyhow::Result<MasterKey> {
+    let envelope_json = std::fs::read_to_string(dirs.master_key_path())?;
+    let envelope: MasterKeyEnvelope = serde_json::from_str(&envelope_json)?;
+
+    // Check for AIVYX_PASSPHRASE env var first (for non-interactive use)
+    let passphrase = std::env::var("AIVYX_PASSPHRASE")
+        .unwrap_or_else(|_| read_passphrase("Passphrase: "));
+
+    let master_key = MasterKey::decrypt_from_envelope(passphrase.as_bytes(), &envelope)
+        .map_err(|_| anyhow::anyhow!("Wrong passphrase."))?;
+
+    Ok(master_key)
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -50,37 +80,57 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let cli = Cli::parse();
-
-    // Resolve home directory
-    let home = dirs::home_dir()
-        .expect("could not determine home directory")
-        .join(".aivyx");
+    let dirs = AivyxDirs::from_default()?;
 
     match cli.command {
+        Some(Command::Init) => {
+            init::run(dirs.root()).await?;
+        }
+
         // No subcommand → launch TUI
         None => {
-            // Check if initialized
-            if !home.join("keys").join("master.json").exists() {
+            if !dirs.is_initialized() {
                 eprintln!("Aivyx is not set up yet. Run `aivyx init` first.");
                 std::process::exit(1);
             }
-            tui::run(&home).await?;
+
+            let master_key = unlock(&dirs)?;
+            let config = AivyxConfig::load(dirs.config_path())?;
+            let store = EncryptedStore::open(dirs.store_path())?;
+            let provider = create_provider(&config.provider, &store, &master_key)?;
+
+            tui::run(&dirs, config, master_key, provider).await?;
         }
-        Some(Command::Init) => {
-            init::run(&home).await?;
-        }
+
         Some(Command::Chat { message }) => {
-            if !home.join("keys").join("master.json").exists() {
+            if !dirs.is_initialized() {
                 eprintln!("Aivyx is not set up yet. Run `aivyx init` first.");
                 std::process::exit(1);
             }
-            chat_oneshot(&home, &message).await?;
+
+            let master_key = unlock(&dirs)?;
+            let config = AivyxConfig::load(dirs.config_path())?;
+            let store = EncryptedStore::open(dirs.store_path())?;
+            let provider = create_provider(&config.provider, &store, &master_key)?;
+
+            chat_oneshot(&dirs, config, master_key, provider, &message).await?;
         }
+
         Some(Command::Status) => {
+            if !dirs.is_initialized() {
+                eprintln!("Aivyx is not set up yet. Run `aivyx init` first.");
+                std::process::exit(1);
+            }
             println!("(status view not yet implemented)");
         }
+
         Some(Command::Config) => {
-            println!("(config editor not yet implemented)");
+            if !dirs.is_initialized() {
+                eprintln!("Aivyx is not set up yet. Run `aivyx init` first.");
+                std::process::exit(1);
+            }
+            let config = AivyxConfig::load(dirs.config_path())?;
+            println!("{:#?}", config.provider);
         }
     }
 
@@ -88,9 +138,15 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// One-shot chat: send a message, print the response, exit.
-async fn chat_oneshot(home: &std::path::Path, message: &str) -> anyhow::Result<()> {
-    let _ = (home, message);
-    // TODO: Initialize agent, send message, stream response to stdout
-    println!("(one-shot chat not yet implemented)");
+async fn chat_oneshot(
+    dirs: &AivyxDirs,
+    _config: AivyxConfig,
+    master_key: MasterKey,
+    provider: Box<dyn aivyx_llm::LlmProvider>,
+    message: &str,
+) -> anyhow::Result<()> {
+    let mut agent = crate::tui::build_agent(dirs, master_key, provider)?;
+    let response = agent.turn(message, None).await?;
+    println!("{response}");
     Ok(())
 }

@@ -52,6 +52,7 @@ crossterm     = "0.28"
 lettre        = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1-rustls-tls", "hostname", "builder"] }
 native-tls    = "0.2"
 clap          = { version = "4", features = ["derive"] }
+tokio-util    = { version = "0.7", features = ["rt"] }
 
 # ── Patch aivyx-core to local checkout ──────────────────────────
 

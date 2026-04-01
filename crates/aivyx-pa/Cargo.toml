@@ -42,3 +42,4 @@ anyhow.workspace     = true
 dirs.workspace       = true
 toml.workspace       = true
 secrecy.workspace    = true
+tokio-util.workspace = true

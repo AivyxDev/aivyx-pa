@@ -1,22 +1,70 @@
 //! TUI — the primary interface for the personal assistant.
 //!
 //! Launches a ratatui terminal UI with:
-//! - Home: morning briefing + recent activity
-//! - Chat: conversational interface
+//! - Home: morning briefing + recent notifications
+//! - Chat: conversational interface with streaming
 //! - Activity: audit log of what the assistant has been doing
-//! - Settings: configuration
+//! - Settings: configuration display
 
+use aivyx_agent::agent::Agent;
+use aivyx_agent::cost_tracker::CostTracker;
+use aivyx_agent::rate_limiter::RateLimiter;
+use aivyx_capability::CapabilitySet;
+use aivyx_config::{AivyxConfig, AivyxDirs};
+use aivyx_core::{AgentId, AutonomyTier, ToolRegistry};
+use aivyx_crypto::MasterKey;
+use aivyx_llm::LlmProvider;
+use aivyx_loop::{AgentLoop, LoopConfig, Notification, NotificationKind};
+
+use aivyx_actions::ActionRegistry;
+
+use chrono::Timelike;
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
 };
-use ratatui::{
-    prelude::*,
-    widgets::*,
-};
+use ratatui::{prelude::*, widgets::*};
 use std::io::stdout;
-use std::path::Path;
+use tokio::sync::mpsc;
+
+// ── Agent construction ──────────────────────────────────────────
+
+/// Build an Agent from the unlocked key + provider. Shared by TUI and one-shot chat.
+pub fn build_agent(
+    _dirs: &AivyxDirs,
+    _master_key: MasterKey,
+    provider: Box<dyn LlmProvider>,
+) -> anyhow::Result<Agent> {
+    let system_prompt = concat!(
+        "You are Aivyx, a private AI personal assistant. ",
+        "You help the user manage their life and business: reading email, ",
+        "setting reminders, managing files, searching the web, and taking ",
+        "actions on their behalf. Be concise, helpful, and proactive. ",
+        "When you take an action, explain what you did briefly.",
+    );
+
+    let agent = Agent::new(
+        AgentId::new(),
+        "assistant".to_string(),
+        system_prompt.to_string(),
+        4096,
+        AutonomyTier::Trust,
+        provider,
+        ToolRegistry::new(),
+        CapabilitySet::new(),
+        RateLimiter::new(60),
+        CostTracker::new(0.0, 0.0, 0.0),
+        None, // audit log — TODO: wire up
+        3,
+        100,
+    );
+
+    // TODO: wire memory, MCP tools, actions as tools
+    Ok(agent)
+}
+
+// ── TUI state ───────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum View {
@@ -30,26 +78,66 @@ struct App {
     view: View,
     running: bool,
     chat_input: String,
-    chat_messages: Vec<(String, String)>, // (role, content)
+    chat_messages: Vec<(String, String)>,
     notifications: Vec<String>,
+    streaming: bool,
+    config: AivyxConfig,
 }
 
 impl App {
-    fn new() -> Self {
+    fn new(config: AivyxConfig) -> Self {
         Self {
             view: View::Home,
             running: true,
             chat_input: String::new(),
             chat_messages: Vec::new(),
-            notifications: vec![
-                "Welcome to Aivyx. Your assistant is ready.".into(),
-            ],
+            notifications: vec!["Your assistant is ready.".into()],
+            streaming: false,
+            config,
         }
     }
 }
 
-pub async fn run(home: &Path) -> anyhow::Result<()> {
-    let _ = home; // Will be used to load config, connect to agent, etc.
+// ── Main TUI loop ───────────────────────────────────────────────
+
+pub async fn run(
+    dirs: &AivyxDirs,
+    config: AivyxConfig,
+    master_key: MasterKey,
+    provider: Box<dyn LlmProvider>,
+) -> anyhow::Result<()> {
+    // Build agent
+    let mut agent = build_agent(dirs, master_key, provider)?;
+
+    // Start the background agent loop
+    let actions = ActionRegistry::new();
+    let loop_config = LoopConfig::default();
+    let (_agent_loop, mut notification_rx) = AgentLoop::start(loop_config, actions);
+
+    // Channel for streaming tokens from agent turns
+    let (token_tx, mut token_rx) = mpsc::channel::<String>(256);
+    // Channel for sending user messages to the agent task
+    let (msg_tx, mut msg_rx) = mpsc::channel::<String>(16);
+
+    // Spawn agent turn handler in background
+    tokio::spawn(async move {
+        while let Some(user_msg) = msg_rx.recv().await {
+            let tx = token_tx.clone();
+
+            // Use streaming turn
+            let cancel = tokio_util::sync::CancellationToken::new();
+            match agent.turn_stream(&user_msg, None, tx.clone(), Some(cancel)).await {
+                Ok(_final_text) => {
+                    // Send a sentinel so TUI knows the turn is done
+                    let _ = tx.send("\n[[DONE]]".to_string()).await;
+                }
+                Err(e) => {
+                    let _ = tx.send(format!("\n[Error: {e}]")).await;
+                    let _ = tx.send("\n[[DONE]]".to_string()).await;
+                }
+            }
+        }
+    });
 
     // Setup terminal
     enable_raw_mode()?;
@@ -57,15 +145,32 @@ pub async fn run(home: &Path) -> anyhow::Result<()> {
     let backend = CrosstermBackend::new(stdout());
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new();
+    let mut app = App::new(config);
 
     // Main event loop
     while app.running {
+        // Drain notifications from the agent loop
+        while let Ok(notif) = notification_rx.try_recv() {
+            app.notifications.push(format_notification(&notif));
+        }
+
+        // Drain streaming tokens
+        while let Ok(token) = token_rx.try_recv() {
+            if token.contains("[[DONE]]") {
+                app.streaming = false;
+            } else if let Some(last) = app.chat_messages.last_mut() {
+                if last.0 == "assistant" {
+                    last.1.push_str(&token);
+                }
+            }
+        }
+
         terminal.draw(|frame| render(&app, frame))?;
 
-        if event::poll(std::time::Duration::from_millis(100))? {
+        if event::poll(std::time::Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
-                handle_key(&mut app, key);
+                handle_key(&mut app, &msg_tx);
+                handle_key_event(&mut app, key, &msg_tx);
             }
         }
     }
@@ -77,7 +182,23 @@ pub async fn run(home: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn handle_key(app: &mut App, key: event::KeyEvent) {
+fn format_notification(notif: &Notification) -> String {
+    let icon = match notif.kind {
+        NotificationKind::Info => " ",
+        NotificationKind::ActionTaken => " ",
+        NotificationKind::ApprovalNeeded => " ",
+        NotificationKind::Urgent => " ",
+    };
+    format!("{icon} {}", notif.title)
+}
+
+// ── Key handling ────────────────────────────────────────────────
+
+fn handle_key(_app: &mut App, _msg_tx: &mpsc::Sender<String>) {
+    // Placeholder — actual handling is in handle_key_event
+}
+
+fn handle_key_event(app: &mut App, key: event::KeyEvent, msg_tx: &mpsc::Sender<String>) {
     // Global keys
     match (key.modifiers, key.code) {
         (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
@@ -98,17 +219,19 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
     // View-specific keys
     match app.view {
         View::Chat => match key.code {
-            KeyCode::Char(c) => {
+            KeyCode::Char(c) if !app.streaming => {
                 if app.chat_input.len() < 8192 {
                     app.chat_input.push(c);
                 }
             }
-            KeyCode::Backspace => { app.chat_input.pop(); }
-            KeyCode::Enter if !app.chat_input.is_empty() => {
+            KeyCode::Backspace if !app.streaming => { app.chat_input.pop(); }
+            KeyCode::Enter if !app.chat_input.is_empty() && !app.streaming => {
                 let msg = std::mem::take(&mut app.chat_input);
-                app.chat_messages.push(("you".into(), msg));
-                app.chat_messages.push(("assistant".into(), "(thinking...)".into()));
-                // TODO: send to agent, stream response
+                app.chat_messages.push(("you".into(), msg.clone()));
+                app.chat_messages.push(("assistant".into(), String::new()));
+                app.streaming = true;
+                // Send to agent task (non-blocking)
+                let _ = msg_tx.try_send(msg);
             }
             KeyCode::Esc => { app.view = View::Home; }
             _ => {}
@@ -121,10 +244,11 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
     }
 }
 
+// ── Rendering ───────────────────────────────────────────────────
+
 fn render(app: &App, frame: &mut Frame) {
     let area = frame.area();
 
-    // Split: sidebar (20 cols) | main content
     let layout = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Length(22), Constraint::Min(40)])
@@ -224,70 +348,124 @@ fn render_chat(app: &App, frame: &mut Frame, area: Rect) {
         .constraints([Constraint::Min(4), Constraint::Length(3)])
         .split(area);
 
-    // Messages
     let messages: Vec<Line> = app.chat_messages
         .iter()
-        .map(|(role, content)| {
+        .flat_map(|(role, content)| {
             let style = if role == "you" {
                 Style::default().fg(Color::Cyan)
             } else {
                 Style::default().fg(Color::White)
             };
-            Line::from(Span::styled(format!("  {role}: {content}"), style))
+            let prefix = if role == "you" { "  you: " } else { "  ai:  " };
+            // Wrap long messages into multiple lines
+            let wrapped: Vec<Line> = content
+                .lines()
+                .map(|line| Line::from(Span::styled(format!("{prefix}{line}"), style)))
+                .collect();
+            if wrapped.is_empty() {
+                vec![Line::from(Span::styled(
+                    format!("{prefix}..."),
+                    style.add_modifier(Modifier::DIM),
+                ))]
+            } else {
+                wrapped
+            }
         })
         .collect();
 
-    let messages_widget = if messages.is_empty() {
+    let msg_count = messages.len();
+    let visible_height = layout[0].height as usize;
+    let scroll = msg_count.saturating_sub(visible_height);
+
+    let messages_widget = if app.chat_messages.is_empty() {
         Paragraph::new(vec![
             Line::from(""),
             Line::from(Span::styled("  Start a conversation.", Style::default().fg(Color::DarkGray))),
             Line::from(Span::styled("  Type below and press Enter.", Style::default().fg(Color::DarkGray))),
         ])
     } else {
-        Paragraph::new(messages).scroll((
-            app.chat_messages.len().saturating_sub(layout[0].height as usize) as u16,
-            0,
-        ))
+        Paragraph::new(messages).scroll((scroll as u16, 0))
     };
 
     frame.render_widget(
-        messages_widget.block(Block::default().borders(Borders::BOTTOM).border_style(Style::default().fg(Color::DarkGray))),
+        messages_widget.block(
+            Block::default()
+                .borders(Borders::BOTTOM)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        ),
         layout[0],
     );
 
-    // Input
-    let input = Paragraph::new(format!("  > {}", app.chat_input))
-        .style(Style::default().fg(Color::White));
+    // Input line
+    let input_style = if app.streaming {
+        Style::default().fg(Color::DarkGray)
+    } else {
+        Style::default().fg(Color::White)
+    };
+
+    let input_text = if app.streaming {
+        "  > (streaming...)".to_string()
+    } else {
+        format!("  > {}", app.chat_input)
+    };
+
+    let input = Paragraph::new(input_text).style(input_style);
     frame.render_widget(input, layout[1]);
 
     // Cursor
-    frame.set_cursor_position((
-        (3 + app.chat_input.len()) as u16 + layout[1].x,
-        layout[1].y,
-    ));
+    if !app.streaming {
+        frame.set_cursor_position((
+            (4 + app.chat_input.len()) as u16 + layout[1].x,
+            layout[1].y,
+        ));
+    }
 }
 
-fn render_activity(_app: &App, frame: &mut Frame, area: Rect) {
-    let content = Paragraph::new(vec![
+fn render_activity(app: &App, frame: &mut Frame, area: Rect) {
+    let mut lines = vec![
         Line::from(Span::styled("  Activity Log", Style::default().fg(Color::White).bold())),
         Line::from(""),
-        Line::from(Span::styled("  No activity recorded yet.", Style::default().fg(Color::DarkGray))),
-        Line::from(Span::styled("  Your assistant's actions will appear here.", Style::default().fg(Color::DarkGray))),
-    ])
-    .block(Block::default().padding(Padding::new(1, 1, 1, 1)));
+    ];
+
+    if app.notifications.len() <= 1 {
+        lines.push(Line::from(Span::styled(
+            "  No activity recorded yet.",
+            Style::default().fg(Color::DarkGray),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  Your assistant's actions will appear here.",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        for note in app.notifications.iter().rev() {
+            lines.push(Line::from(format!("  {note}")));
+        }
+    }
+
+    let content = Paragraph::new(lines)
+        .block(Block::default().padding(Padding::new(1, 1, 1, 1)));
 
     frame.render_widget(content, area);
 }
 
-fn render_settings(_app: &App, frame: &mut Frame, area: Rect) {
+fn render_settings(app: &App, frame: &mut Frame, area: Rect) {
+    let provider_info = format!("{:?}", app.config.provider);
+
     let content = Paragraph::new(vec![
         Line::from(Span::styled("  Settings", Style::default().fg(Color::White).bold())),
         Line::from(""),
-        Line::from(Span::styled("  (settings editor coming soon)", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled("  Provider", Style::default().fg(Color::Cyan))),
+        Line::from(format!("  {provider_info}")),
+        Line::from(""),
+        Line::from(Span::styled("  Autonomy", Style::default().fg(Color::Cyan))),
+        Line::from(format!("  {:?}", app.config.autonomy.default_tier)),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  Edit ~/.aivyx/config.toml to change settings.",
+            Style::default().fg(Color::DarkGray),
+        )),
     ])
     .block(Block::default().padding(Padding::new(1, 1, 1, 1)));
 
     frame.render_widget(content, area);
 }
-
-use chrono::Timelike;
