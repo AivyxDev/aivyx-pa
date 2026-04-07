@@ -8,10 +8,12 @@ license.workspace = true
 [dependencies]
 # Foundation
 aivyx-core.workspace       = true
+aivyx-crypto.workspace     = true
 aivyx-config.workspace     = true
 aivyx-audit.workspace      = true
 aivyx-capability.workspace = true
 aivyx-llm.workspace        = true
+aivyx-mcp.workspace        = true
 aivyx-memory.workspace     = true
 aivyx-brain.workspace      = true
 aivyx-agent.workspace      = true
@@ -28,6 +30,7 @@ uuid.workspace       = true
 tracing.workspace    = true
 async-trait.workspace = true
 anyhow.workspace     = true
+croner.workspace     = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

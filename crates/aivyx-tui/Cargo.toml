@@ -1,0 +1,50 @@
+[package]
+name = "aivyx-tui"
+description = "Aivyx Personal Assistant — Terminal UI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "aivyx-tui"
+path = "src/main.rs"
+
+[dependencies]
+# PA library (in-process access to AppState, init, runtime)
+aivyx-pa = { path = "../aivyx-pa" }
+
+# aivyx-core foundation
+aivyx-core.workspace       = true
+aivyx-config.workspace     = true
+aivyx-crypto.workspace     = true
+aivyx-audit.workspace      = true
+aivyx-brain.workspace      = true
+aivyx-llm.workspace        = true
+aivyx-memory.workspace     = true
+aivyx-loop.workspace       = true
+aivyx-agent.workspace      = true
+aivyx-task-engine.workspace = true
+
+# TUI framework
+ratatui.workspace       = true
+crossterm.workspace     = true
+
+# Runtime
+tokio.workspace      = true
+serde.workspace      = true
+serde_json.workspace = true
+chrono.workspace     = true
+anyhow.workspace     = true
+clap.workspace       = true
+rpassword.workspace  = true
+tracing.workspace    = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace   = true
+zeroize.workspace    = true
+dirs.workspace       = true
+toml.workspace       = true
+secrecy.workspace    = true
+uuid.workspace       = true
+tokio-util.workspace = true
+reqwest.workspace    = true
+croner.workspace     = true

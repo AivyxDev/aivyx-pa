@@ -30,5 +30,71 @@ lettre.workspace         = true
 native-tls.workspace     = true
 tokio-native-tls.workspace = true
 
+rand.workspace = true
+dirs.workspace = true
+zeroize.workspace = true
+icalendar.workspace = true
+roxmltree.workspace = true
+pdf-extract.workspace = true
+pulldown-cmark.workspace = true
+sha2.workspace = true
+
+# Memory system (for document indexing)
+aivyx-memory.workspace = true
+aivyx-llm.workspace = true
+
+# MCP (for plugin registry client)
+aivyx-mcp.workspace = true
+
+# Desktop interaction (optional backends)
+tokio-tungstenite = { workspace = true, optional = true }
+futures-util      = { workspace = true, optional = true }
+atspi             = { workspace = true, optional = true }
+zbus              = { workspace = true, optional = true }
+toml              = { workspace = true }
+
+# Windows desktop interaction (only compiled on Windows)
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    # Core
+    "Win32_Foundation",
+    # Input injection (SendInput)
+    "Win32_UI_Input_KeyboardAndMouse",
+    # Window management + system metrics
+    "Win32_UI_WindowsAndMessaging",
+    # UI Automation (UIA)
+    "Win32_UI_Accessibility",
+    # Screenshot (GDI+ BitBlt)
+    "Win32_Graphics_Gdi",
+    # COM (for UIA, WASAPI)
+    "Win32_System_Com",
+    "Win32_System_Variant",
+    # Registry (theme detection)
+    "Win32_System_Registry",
+    # WinRT interop (OCR buffer access)
+    "Win32_System_WinRT",
+    # Volume control (WASAPI)
+    "Win32_Media_Audio",
+    # Shell (ShellExecuteW)
+    "Win32_UI_Shell",
+    # Media control (SMTC) — WinRT
+    "Media_Control",
+    # OCR — WinRT
+    "Media_Ocr",
+    # Screenshot bitmap — WinRT
+    "Graphics_Imaging",
+] }
+
+[features]
+default = []
+accessibility = ["dep:atspi", "dep:zbus"]
+browser-automation = ["dep:tokio-tungstenite", "dep:futures-util"]
+media-control = ["dep:zbus"]
+desktop-full = ["accessibility", "browser-automation", "media-control"]
+
+# Windows-specific: enables UIA and SMTC backends (only effective on Windows)
+windows-automation = []
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+tempfile = "3"

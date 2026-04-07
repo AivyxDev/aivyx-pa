@@ -1,0 +1,271 @@
+@import 'tailwindcss';
+
+/* ── Font Imports ──────────────────────────────────────────────── */
+@import '@fontsource/space-grotesk/300.css';
+@import '@fontsource/space-grotesk/400.css';
+@import '@fontsource/space-grotesk/500.css';
+@import '@fontsource/space-grotesk/600.css';
+@import '@fontsource/space-grotesk/700.css';
+@import '@fontsource/inter/300.css';
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+
+/* ── Kinetic / Stitch Design System ────────────────────────────── */
+/* Theme: "The Neon Cartographer" — Candlelit Kitchen palette      */
+
+@theme {
+  /* ── Font Families ── */
+  --font-headline: 'Space Grotesk', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* ── Border Radii ── */
+  --radius-xs: 0.125rem;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+
+  /* ── Dark Mode Colors (Default) ── */
+  --color-background: #131319;
+  --color-surface: #131319;
+  --color-surface-dim: #131319;
+  --color-surface-bright: #3a3840;
+  --color-surface-container-lowest: #0e0d14;
+  --color-surface-container-low: #1c1b22;
+  --color-surface-container: #201f26;
+  --color-surface-container-high: #2a2930;
+  --color-surface-container-highest: #35343b;
+  --color-surface-variant: #35343b;
+  --color-surface-tint: #ffb77d;
+
+  --color-primary: #ffb77d;
+  --color-primary-container: #d9802b;
+  --color-primary-fixed: #ffdcc3;
+  --color-primary-fixed-dim: #ffb77d;
+  --color-on-primary: #4d2600;
+  --color-on-primary-container: #4a2500;
+  --color-on-primary-fixed: #2f1500;
+  --color-on-primary-fixed-variant: #6e3900;
+  --color-inverse-primary: #904d00;
+
+  --color-secondary: #ccc1e6;
+  --color-secondary-container: #4a4261;
+  --color-secondary-fixed: #e8ddff;
+  --color-secondary-fixed-dim: #ccc1e6;
+  --color-on-secondary: #332c49;
+  --color-on-secondary-container: #bab0d4;
+  --color-on-secondary-fixed: #1e1733;
+  --color-on-secondary-fixed-variant: #4a4261;
+
+  --color-tertiary: #d1c4b7;
+  --color-tertiary-container: #9f9488;
+  --color-tertiary-fixed: #eee0d3;
+  --color-tertiary-fixed-dim: #d1c4b7;
+  --color-on-tertiary: #372f26;
+  --color-on-tertiary-container: #352d24;
+  --color-on-tertiary-fixed: #211a12;
+  --color-on-tertiary-fixed-variant: #4e453c;
+
+  --color-error: #ffb4ab;
+  --color-error-container: #93000a;
+  --color-on-error: #690005;
+  --color-on-error-container: #ffdad6;
+
+  --color-on-surface: #e5e1eb;
+  --color-on-surface-variant: #dac2b2;
+  --color-on-background: #e5e1eb;
+
+  --color-outline: #a28d7e;
+  --color-outline-variant: #544337;
+
+  --color-inverse-surface: #e5e1eb;
+  --color-inverse-on-surface: #312f37;
+
+  /* ── Semantic Aliases ── */
+  --color-accent: #ffb77d;
+  --color-accent-glow: #ffc864;
+  --color-terracotta: #C4553E;
+  --color-sage: #4D8B6A;
+  --color-plum: #7A65A6;
+  --color-sienna: #8B5E3C;
+  --color-teal: #3C8B80;
+  --color-wick-purple: #8B6FBF;
+  --color-warning: #ffc864;
+
+  /* ── Ambient Shadows (Tinted, never black) ── */
+  --shadow-ambient: 0 40px 40px -5px rgba(82, 74, 105, 0.08);
+  --shadow-glow-primary: 0 0 15px 0 rgba(255, 183, 125, 0.3);
+  --shadow-glow-secondary: 0 0 15px 0 rgba(204, 193, 230, 0.2);
+}
+
+/* ── Light Mode Override ───────────────────────────────────────── */
+.light {
+  --color-background: #faf6f0;
+  --color-surface: #faf6f0;
+  --color-surface-dim: #ddd9d4;
+  --color-surface-bright: #faf6f0;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f4f0ea;
+  --color-surface-container: #eee9e3;
+  --color-surface-container-high: #e8e4dd;
+  --color-surface-container-highest: #e2ded8;
+  --color-surface-variant: #d8cfc5;
+  --color-surface-tint: #d48a3c;
+
+  --color-primary: #8a5000;
+  --color-primary-container: #d9802b;
+  --color-primary-fixed: #ffdcc3;
+  --color-primary-fixed-dim: #ffb77d;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #ffffff;
+  --color-on-primary-fixed: #2f1500;
+  --color-on-primary-fixed-variant: #6e3900;
+  --color-inverse-primary: #ffb77d;
+
+  --color-secondary: #5d5475;
+  --color-secondary-container: #e8ddff;
+  --color-secondary-fixed: #e8ddff;
+  --color-secondary-fixed-dim: #ccc1e6;
+  --color-on-secondary: #ffffff;
+  --color-on-secondary-container: #1e1733;
+  --color-on-secondary-fixed: #1e1733;
+  --color-on-secondary-fixed-variant: #4a4261;
+
+  --color-tertiary: #665b4f;
+  --color-tertiary-container: #eee0d3;
+  --color-tertiary-fixed: #eee0d3;
+  --color-tertiary-fixed-dim: #d1c4b7;
+  --color-on-tertiary: #ffffff;
+  --color-on-tertiary-container: #211a12;
+
+  --color-error: #ba1a1a;
+  --color-error-container: #ffdad6;
+  --color-on-error: #ffffff;
+  --color-on-error-container: #410002;
+
+  --color-on-surface: #1c1b22;
+  --color-on-surface-variant: #544337;
+  --color-on-background: #1c1b22;
+
+  --color-outline: #7e6e60;
+  --color-outline-variant: #d8cfc5;
+
+  --color-inverse-surface: #312f37;
+  --color-inverse-on-surface: #f4eff9;
+
+  --color-accent: #d48a3c;
+  --color-accent-glow: #c47820;
+  --color-terracotta: #b04030;
+  --color-sage: #2d8a52;
+  --color-plum: #685890;
+  --color-sienna: #7A5030;
+  --color-teal: #2A7A70;
+  --color-wick-purple: #7A5FAD;
+  --color-warning: #c47820;
+
+  --shadow-ambient: 0 20px 30px -5px rgba(30, 25, 40, 0.06);
+  --shadow-glow-primary: 0 0 12px 0 rgba(212, 138, 60, 0.2);
+  --shadow-glow-secondary: 0 0 12px 0 rgba(104, 88, 144, 0.15);
+}
+
+/* ── Base Styles ───────────────────────────────────────────────── */
+html {
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-on-surface);
+  overflow: hidden;
+}
+
+::selection {
+  background-color: var(--color-primary-container);
+  color: var(--color-on-primary-container);
+}
+
+/* ── Custom Scrollbar ──────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--color-surface-container-lowest); }
+::-webkit-scrollbar-thumb { background: var(--color-surface-container-highest); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-outline); }
+
+/* ── Glassmorphism Utility ─────────────────────────────────────── */
+.glass-panel {
+  background: rgba(53, 52, 59, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(204, 193, 230, 0.1);
+}
+.light .glass-panel {
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(30, 25, 40, 0.08);
+}
+
+/* ── Glow Hover ────────────────────────────────────────────────── */
+.glow-hover:hover {
+  box-shadow: var(--shadow-glow-primary);
+}
+
+/* ── Ambient Shadow ────────────────────────────────────────────── */
+.ambient-glow {
+  box-shadow: var(--shadow-ambient);
+}
+
+/* ── Noise Texture Background ──────────────────────────────────── */
+.noise-bg {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  opacity: 0.03;
+}
+
+/* ── Vector Separator ──────────────────────────────────────────── */
+.vector-separator {
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, var(--color-primary) 50%, transparent 100%);
+  opacity: 0.2;
+  clip-path: polygon(0% 0%, 10% 100%, 90% 100%, 100% 0%);
+}
+
+/* ── Animations ────────────────────────────────────────────────── */
+@keyframes candle-flicker {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  25% { opacity: 0.9; transform: scale(0.98); }
+  50% { opacity: 1; transform: scale(1.02); }
+  75% { opacity: 0.95; transform: scale(0.99); }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+  20%, 40%, 60%, 80% { transform: translateX(4px); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.8; }
+}
+
+.animate-flicker { animation: candle-flicker 3s ease-in-out infinite; }
+.animate-fade-in { animation: fade-in-up 0.4s ease-out both; }
+.animate-shake { animation: shake 0.5s ease-in-out; }
+.animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
+
+/* Staggered cascade for dashboard widgets */
+.stagger-1 { animation-delay: 0.06s; }
+.stagger-2 { animation-delay: 0.12s; }
+.stagger-3 { animation-delay: 0.18s; }
+.stagger-4 { animation-delay: 0.24s; }
+.stagger-5 { animation-delay: 0.30s; }
+.stagger-6 { animation-delay: 0.36s; }

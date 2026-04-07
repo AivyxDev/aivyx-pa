@@ -1,6 +1,8 @@
 //! Morning briefing — aggregates information from all sources into
 //! a concise summary the user sees when they first open the app.
 
+use aivyx_brain::{Goal, GoalStatus};
+use aivyx_llm::{ChatMessage, ChatRequest, LlmProvider};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,24 +24,621 @@ pub struct BriefingItem {
     pub actionable: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Priority {
-    Low,
-    Normal,
-    High,
-    Urgent,
+pub use crate::priority::Priority;
+
+/// Context gathered from all sources before the LLM summarizes it.
+pub struct BriefingContext {
+    /// Active goals from the brain.
+    pub goals: Vec<Goal>,
+    /// Recent email subjects (empty if email not configured).
+    pub email_subjects: Vec<String>,
+    /// Names of schedules that ran since last briefing.
+    pub recent_schedules: Vec<String>,
+    /// Today's calendar events (empty if calendar not configured).
+    pub calendar_events: Vec<CalendarEventSummary>,
+    /// Scheduling conflicts detected in today's calendar events.
+    pub calendar_conflicts: Vec<CalendarConflictSummary>,
+    /// Upcoming unpaid bills (within 7 days).
+    pub upcoming_bills: Vec<String>,
+    /// Categories that have exceeded their monthly budget.
+    pub over_budget: Vec<String>,
 }
 
-/// Build a briefing from raw source data.
+/// Minimal calendar event representation for the briefing context.
+/// Kept separate from the full CalendarEvent to avoid coupling.
+#[derive(Debug, Clone)]
+pub struct CalendarEventSummary {
+    pub time: String,
+    pub summary: String,
+    pub location: Option<String>,
+}
+
+/// A scheduling conflict between two calendar events.
+#[derive(Debug, Clone)]
+pub struct CalendarConflictSummary {
+    pub event_a: String,
+    pub event_b: String,
+    pub overlap: String,
+}
+
+/// Build a morning briefing by gathering context and asking the LLM
+/// to produce a concise, prioritized summary.
 pub async fn build_briefing(
-    _email_summaries: &[serde_json::Value],
-    _reminders: &[serde_json::Value],
-    _calendar: &[serde_json::Value],
+    provider: &dyn LlmProvider,
+    system_prompt: &str,
+    ctx: BriefingContext,
 ) -> Briefing {
-    // TODO: Aggregate sources, call LLM to generate natural summary
+    let user_prompt = compose_briefing_prompt(&ctx);
+
+    let request = ChatRequest {
+        system_prompt: Some(system_prompt.to_string()),
+        messages: vec![ChatMessage::user(user_prompt)],
+        tools: vec![],
+        model: None,
+        max_tokens: 1024,
+    };
+
+    let response_text = match aivyx_actions::retry::retry(
+        &aivyx_actions::retry::RetryConfig::llm(),
+        || async {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(60),
+                provider.chat(&request),
+            ).await
+            .map_err(|_| aivyx_core::AivyxError::LlmProvider("timeout after 60s".into()))?
+        },
+        aivyx_actions::retry::is_transient,
+    ).await {
+        Ok(response) => {
+            tracing::info!(
+                "Morning briefing generated ({} tokens)",
+                response.usage.output_tokens
+            );
+            response.message.content.to_text()
+        }
+        Err(e) => {
+            tracing::warn!("Morning briefing LLM call failed: {e}");
+            return Briefing {
+                summary: fallback_briefing(&ctx),
+                items: vec![],
+                generated_at: chrono::Utc::now(),
+            };
+        }
+    };
+
+    let (summary, items) = parse_briefing_response(&response_text);
+
     Briefing {
-        summary: "No new items to report.".into(),
-        items: vec![],
+        summary,
+        items,
         generated_at: chrono::Utc::now(),
+    }
+}
+
+/// Maximum length for any single external data item embedded in the prompt.
+const MAX_PROMPT_ITEM_LEN: usize = 200;
+
+/// Sanitize an externally-sourced string before embedding in an LLM prompt.
+///
+/// Strips control characters, truncates to `MAX_PROMPT_ITEM_LEN`, and
+/// replaces characters that could confuse prompt parsing.
+pub fn sanitize_for_prompt(s: &str) -> String {
+    let cleaned: String = s.chars()
+        .filter(|c| !c.is_control() || *c == ' ')
+        .take(MAX_PROMPT_ITEM_LEN)
+        .collect();
+    // Replace backticks and angle brackets that could form code fences or tags
+    cleaned.replace('`', "'").replace('<', "[").replace('>', "]")
+}
+
+/// Compose the user-facing prompt that asks the LLM to summarize the day.
+fn compose_briefing_prompt(ctx: &BriefingContext) -> String {
+    let mut parts = vec![
+        "Generate a concise morning briefing for the user. \
+         Be warm but brief — 3-8 bullet points max. \
+         Prioritize actionable items first.\n\n\
+         Respond ONLY with a JSON object in this exact format (no markdown fences):\n\
+         {\"summary\": \"A warm 1-2 sentence overview\", \"items\": [\
+         {\"source\": \"email|goal|schedule\", \"title\": \"Short title\", \
+         \"detail\": \"One sentence detail\", \"priority\": \"Low|Normal|High|Urgent\", \
+         \"actionable\": true}]}\n\
+         If there are no items, return an empty items array.\n"
+            .to_string(),
+    ];
+
+    // Goals section
+    let active: Vec<&Goal> = ctx.goals.iter()
+        .filter(|g| g.status == GoalStatus::Active)
+        .collect();
+    if !active.is_empty() {
+        parts.push("\n## Active Goals".to_string());
+        for goal in &active {
+            parts.push(format!("- {} ({:.0}% complete)", goal.description, goal.progress * 100.0));
+        }
+    }
+
+    // Calendar section
+    if !ctx.calendar_events.is_empty() {
+        parts.push(format!("\n## Today's Calendar ({})", ctx.calendar_events.len()));
+        for event in &ctx.calendar_events {
+            let summary = sanitize_for_prompt(&event.summary);
+            if let Some(ref loc) = event.location {
+                parts.push(format!("- {} {} ({})", event.time, summary, sanitize_for_prompt(loc)));
+            } else {
+                parts.push(format!("- {} {}", event.time, summary));
+            }
+        }
+    }
+
+    // Calendar conflicts section
+    if !ctx.calendar_conflicts.is_empty() {
+        parts.push(format!(
+            "\n## ⚠ Scheduling Conflicts ({})",
+            ctx.calendar_conflicts.len()
+        ));
+        for conflict in &ctx.calendar_conflicts {
+            parts.push(format!(
+                "- CONFLICT: \"{}\" and \"{}\" overlap ({})",
+                sanitize_for_prompt(&conflict.event_a),
+                sanitize_for_prompt(&conflict.event_b),
+                sanitize_for_prompt(&conflict.overlap),
+            ));
+        }
+    }
+
+    // Email section
+    if !ctx.email_subjects.is_empty() {
+        parts.push(format!("\n## Unread Emails ({})", ctx.email_subjects.len()));
+        for (i, subject) in ctx.email_subjects.iter().take(10).enumerate() {
+            parts.push(format!("{}. {}", i + 1, sanitize_for_prompt(subject)));
+        }
+        if ctx.email_subjects.len() > 10 {
+            parts.push(format!("...and {} more", ctx.email_subjects.len() - 10));
+        }
+    }
+
+    // Schedule section
+    if !ctx.recent_schedules.is_empty() {
+        parts.push("\n## Recent Scheduled Tasks".to_string());
+        for name in &ctx.recent_schedules {
+            parts.push(format!("- {name} (completed)"));
+        }
+    }
+
+    // Finance section
+    if !ctx.upcoming_bills.is_empty() {
+        parts.push(format!("\n## Upcoming Bills ({})", ctx.upcoming_bills.len()));
+        for bill in &ctx.upcoming_bills {
+            parts.push(format!("- {}", sanitize_for_prompt(bill)));
+        }
+    }
+    if !ctx.over_budget.is_empty() {
+        parts.push("\n## Budget Alerts".to_string());
+        for alert in &ctx.over_budget {
+            parts.push(format!("- {}", sanitize_for_prompt(alert)));
+        }
+    }
+
+    if active.is_empty() && ctx.calendar_events.is_empty() && ctx.email_subjects.is_empty() && ctx.recent_schedules.is_empty() && ctx.upcoming_bills.is_empty() {
+        parts.push("\nNo pending items. Give a brief, friendly good-morning message.".to_string());
+    }
+
+    parts.join("\n")
+}
+
+/// Parse the LLM response into a summary string and structured items.
+/// Attempts JSON extraction first, falls back to using raw text as summary.
+fn parse_briefing_response(text: &str) -> (String, Vec<BriefingItem>) {
+    // Strip markdown code fences if present.
+    let cleaned = strip_code_fences(text);
+
+    // Try to find and parse a JSON object.
+    if let Some(json_str) = crate::extract_json_object(&cleaned)
+        && let Ok(parsed) = serde_json::from_str::<BriefingJson>(json_str) {
+            let items = parsed.items.into_iter().map(|i| BriefingItem {
+                source: i.source,
+                title: i.title,
+                detail: i.detail,
+                priority: parse_priority(&i.priority),
+                actionable: i.actionable,
+            }).collect();
+            return (parsed.summary, items);
+        }
+
+    // Fallback: use raw text as summary, no structured items.
+    tracing::debug!("Briefing response was not valid JSON, using raw text as summary");
+    (cleaned.trim().to_string(), vec![])
+}
+
+/// Intermediate deserialization target for the LLM's JSON response.
+#[derive(Deserialize)]
+struct BriefingJson {
+    summary: String,
+    #[serde(default)]
+    items: Vec<BriefingItemJson>,
+}
+
+#[derive(Deserialize)]
+struct BriefingItemJson {
+    source: String,
+    title: String,
+    detail: String,
+    #[serde(default = "default_priority_str")]
+    priority: String,
+    #[serde(default)]
+    actionable: bool,
+}
+
+fn default_priority_str() -> String { "Normal".to_string() }
+
+fn parse_priority(s: &str) -> Priority {
+    match s.to_ascii_lowercase().as_str() {
+        "low" => Priority::Low,
+        "high" => Priority::High,
+        "urgent" => Priority::Urgent,
+        _ => Priority::Normal,
+    }
+}
+
+/// Strip markdown code fences (```json ... ``` or ``` ... ```).
+fn strip_code_fences(text: &str) -> String {
+    let trimmed = text.trim();
+    if let Some(rest) = trimmed.strip_prefix("```") {
+        // Skip optional language tag on first line.
+        let rest = if let Some(pos) = rest.find('\n') {
+            &rest[pos + 1..]
+        } else {
+            rest
+        };
+        if let Some(content) = rest.strip_suffix("```") {
+            return content.trim().to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+
+/// Fallback briefing when the LLM call fails — plain text from raw data.
+fn fallback_briefing(ctx: &BriefingContext) -> String {
+    let mut lines = vec!["Good morning! Here's what I know:".to_string()];
+
+    let active_count = ctx.goals.iter().filter(|g| g.status == GoalStatus::Active).count();
+    if active_count > 0 {
+        lines.push(format!("- {active_count} active goal(s)"));
+    }
+    if !ctx.calendar_events.is_empty() {
+        lines.push(format!("- {} calendar event(s) today", ctx.calendar_events.len()));
+    }
+    if !ctx.calendar_conflicts.is_empty() {
+        lines.push(format!("- {} scheduling conflict(s) detected!", ctx.calendar_conflicts.len()));
+    }
+    if !ctx.email_subjects.is_empty() {
+        lines.push(format!("- {} unread email(s)", ctx.email_subjects.len()));
+    }
+    if !ctx.recent_schedules.is_empty() {
+        lines.push(format!("- {} schedule(s) ran recently", ctx.recent_schedules.len()));
+    }
+    if !ctx.upcoming_bills.is_empty() {
+        lines.push(format!("- {} upcoming bill(s)", ctx.upcoming_bills.len()));
+    }
+    if !ctx.over_budget.is_empty() {
+        lines.push(format!("- {} category budget(s) exceeded", ctx.over_budget.len()));
+    }
+    if active_count == 0 && ctx.calendar_events.is_empty() && ctx.email_subjects.is_empty() && ctx.recent_schedules.is_empty() && ctx.upcoming_bills.is_empty() {
+        lines.push("- No pending items. Have a great day!".to_string());
+    }
+
+    lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::extract_json_object;
+    use aivyx_brain::Priority as BrainPriority;
+    use aivyx_core::{GoalId, Result};
+
+    /// Mock LLM provider that returns a fixed response.
+    struct MockProvider {
+        response: String,
+    }
+
+    #[async_trait::async_trait]
+    impl LlmProvider for MockProvider {
+        fn name(&self) -> &str { "mock" }
+
+        async fn chat(&self, _request: &aivyx_llm::ChatRequest) -> Result<aivyx_llm::ChatResponse> {
+            Ok(aivyx_llm::ChatResponse {
+                message: aivyx_llm::ChatMessage::assistant(&self.response),
+                usage: aivyx_llm::TokenUsage {
+                    input_tokens: 100,
+                    output_tokens: 50,
+                },
+                stop_reason: aivyx_llm::StopReason::EndTurn,
+            })
+        }
+    }
+
+    /// Mock that always fails.
+    struct FailProvider;
+
+    #[async_trait::async_trait]
+    impl LlmProvider for FailProvider {
+        fn name(&self) -> &str { "fail" }
+
+        async fn chat(&self, _request: &aivyx_llm::ChatRequest) -> Result<aivyx_llm::ChatResponse> {
+            Err(aivyx_core::AivyxError::LlmProvider("connection refused".into()))
+        }
+    }
+
+    fn make_goal(desc: &str, progress: f32) -> Goal {
+        Goal {
+            id: GoalId::new(),
+            description: desc.into(),
+            priority: BrainPriority::Medium,
+            status: GoalStatus::Active,
+            parent: None,
+            success_criteria: String::new(),
+            progress,
+            tags: vec![],
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            deadline: None,
+            failure_count: 0,
+            consecutive_failures: 0,
+            cooldown_until: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn briefing_with_goals_and_emails() {
+        let provider = MockProvider {
+            response: r#"{"summary": "Good morning! You have 2 goals and 3 emails.", "items": [{"source": "goal", "title": "Learn user preferences", "detail": "50% complete", "priority": "Normal", "actionable": true}]}"#.into(),
+        };
+        let ctx = BriefingContext {
+            goals: vec![
+                make_goal("Learn user preferences", 0.5),
+                make_goal("Monitor inbox", 0.25),
+            ],
+            email_subjects: vec![
+                "Boss: Q2 report".into(),
+                "Newsletter: Weekly digest".into(),
+                "Support: Ticket #42".into(),
+            ],
+            recent_schedules: vec!["daily-check".into()],
+            calendar_events: vec![],
+            calendar_conflicts: vec![],
+            upcoming_bills: vec![],
+            over_budget: vec![],
+        };
+
+        let briefing = build_briefing(&provider, "You are helpful.", ctx).await;
+        assert_eq!(briefing.summary, "Good morning! You have 2 goals and 3 emails.");
+        assert_eq!(briefing.items.len(), 1);
+        assert_eq!(briefing.items[0].source, "goal");
+        assert!(briefing.items[0].actionable);
+        assert!(briefing.generated_at <= chrono::Utc::now());
+    }
+
+    #[tokio::test]
+    async fn briefing_falls_back_on_llm_failure() {
+        let provider = FailProvider;
+        let ctx = BriefingContext {
+            goals: vec![make_goal("Active goal", 0.0)],
+            email_subjects: vec!["Important email".into()],
+            recent_schedules: vec![],
+            calendar_events: vec![],
+            calendar_conflicts: vec![],
+            upcoming_bills: vec![],
+            over_budget: vec![],
+        };
+
+        let briefing = build_briefing(&provider, "You are helpful.", ctx).await;
+        // Should use fallback (not crash)
+        assert!(briefing.summary.contains("1 active goal"));
+        assert!(briefing.summary.contains("1 unread email"));
+    }
+
+    #[tokio::test]
+    async fn briefing_empty_context() {
+        let provider = MockProvider {
+            response: r#"{"summary": "Nothing to report, have a great day!", "items": []}"#.into(),
+        };
+        let ctx = BriefingContext {
+            goals: vec![],
+            email_subjects: vec![],
+            recent_schedules: vec![],
+            calendar_events: vec![],
+            calendar_conflicts: vec![],
+            upcoming_bills: vec![],
+            over_budget: vec![],
+        };
+
+        let briefing = build_briefing(&provider, "You are helpful.", ctx).await;
+        assert_eq!(briefing.summary, "Nothing to report, have a great day!");
+        assert!(briefing.items.is_empty());
+    }
+
+    #[test]
+    fn compose_prompt_includes_progress_percentage() {
+        let ctx = BriefingContext {
+            goals: vec![make_goal("Test goal", 0.75)],
+            email_subjects: vec![],
+            recent_schedules: vec![],
+            calendar_events: vec![],
+            calendar_conflicts: vec![],
+            upcoming_bills: vec![],
+            over_budget: vec![],
+        };
+        let prompt = compose_briefing_prompt(&ctx);
+        assert!(prompt.contains("75% complete"), "Got: {prompt}");
+    }
+
+    #[test]
+    fn compose_prompt_includes_emails() {
+        let ctx = BriefingContext {
+            goals: vec![],
+            email_subjects: vec![
+                "Subject 1".into(),
+                "Subject 2".into(),
+            ],
+            recent_schedules: vec![],
+            calendar_events: vec![],
+            calendar_conflicts: vec![],
+            upcoming_bills: vec![],
+            over_budget: vec![],
+        };
+        let prompt = compose_briefing_prompt(&ctx);
+        assert!(prompt.contains("Unread Emails (2)"));
+        assert!(prompt.contains("Subject 1"));
+        assert!(prompt.contains("Subject 2"));
+    }
+
+    #[test]
+    fn compose_prompt_includes_schedules() {
+        let ctx = BriefingContext {
+            goals: vec![],
+            email_subjects: vec![],
+            recent_schedules: vec!["backup-check".into()],
+            calendar_events: vec![],
+            calendar_conflicts: vec![],
+            upcoming_bills: vec![],
+            over_budget: vec![],
+        };
+        let prompt = compose_briefing_prompt(&ctx);
+        assert!(prompt.contains("backup-check"));
+        assert!(prompt.contains("completed"));
+    }
+
+    #[test]
+    fn compose_prompt_empty_context_friendly() {
+        let ctx = BriefingContext {
+            goals: vec![],
+            email_subjects: vec![],
+            recent_schedules: vec![],
+            calendar_events: vec![],
+            calendar_conflicts: vec![],
+            upcoming_bills: vec![],
+            over_budget: vec![],
+        };
+        let prompt = compose_briefing_prompt(&ctx);
+        assert!(prompt.contains("good-morning") || prompt.contains("No pending items"));
+    }
+
+    #[test]
+    fn fallback_briefing_format() {
+        let ctx = BriefingContext {
+            goals: vec![make_goal("Goal 1", 0.0), make_goal("Goal 2", 0.5)],
+            email_subjects: vec!["Email 1".into()],
+            recent_schedules: vec!["sched-1".into(), "sched-2".into()],
+            calendar_events: vec![],
+            calendar_conflicts: vec![],
+            upcoming_bills: vec![],
+            over_budget: vec![],
+        };
+        let text = fallback_briefing(&ctx);
+        assert!(text.contains("2 active goal"));
+        assert!(text.contains("1 unread email"));
+        assert!(text.contains("2 schedule"));
+    }
+
+    // --- parse_briefing_response tests ---
+
+    #[test]
+    fn parse_valid_json_response() {
+        let json = r#"{"summary": "Good morning!", "items": [
+            {"source": "email", "title": "Q2 report", "detail": "From boss", "priority": "High", "actionable": true},
+            {"source": "goal", "title": "Learn prefs", "detail": "50%", "priority": "Normal", "actionable": false}
+        ]}"#;
+        let (summary, items) = parse_briefing_response(json);
+        assert_eq!(summary, "Good morning!");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].priority, Priority::High);
+        assert!(items[0].actionable);
+        assert_eq!(items[1].priority, Priority::Normal);
+        assert!(!items[1].actionable);
+    }
+
+    #[test]
+    fn parse_json_with_markdown_fences() {
+        let text = "```json\n{\"summary\": \"Hello!\", \"items\": []}\n```";
+        let (summary, items) = parse_briefing_response(text);
+        assert_eq!(summary, "Hello!");
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn parse_json_with_preamble_text() {
+        let text = "Here is your briefing:\n{\"summary\": \"3 items today\", \"items\": [{\"source\": \"schedule\", \"title\": \"Backup\", \"detail\": \"Ran ok\", \"priority\": \"Low\", \"actionable\": false}]}";
+        let (summary, items) = parse_briefing_response(text);
+        assert_eq!(summary, "3 items today");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].priority, Priority::Low);
+    }
+
+    #[test]
+    fn parse_plain_text_fallback() {
+        let text = "Good morning! Nothing special today.";
+        let (summary, items) = parse_briefing_response(text);
+        assert_eq!(summary, "Good morning! Nothing special today.");
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn parse_priority_variants() {
+        assert_eq!(parse_priority("Low"), Priority::Low);
+        assert_eq!(parse_priority("low"), Priority::Low);
+        assert_eq!(parse_priority("HIGH"), Priority::High);
+        assert_eq!(parse_priority("Urgent"), Priority::Urgent);
+        assert_eq!(parse_priority("Normal"), Priority::Normal);
+        assert_eq!(parse_priority("unknown"), Priority::Normal);
+    }
+
+    #[test]
+    fn strip_fences_no_fences() {
+        assert_eq!(strip_code_fences("hello"), "hello");
+    }
+
+    #[test]
+    fn strip_fences_with_lang_tag() {
+        let input = "```json\n{\"a\": 1}\n```";
+        assert_eq!(strip_code_fences(input), "{\"a\": 1}");
+    }
+
+    #[test]
+    fn extract_json_nested_braces() {
+        let text = "blah {\"a\": {\"b\": 1}} rest";
+        assert_eq!(extract_json_object(text), Some("{\"a\": {\"b\": 1}}"));
+    }
+
+    #[test]
+    fn extract_json_with_string_braces() {
+        let text = r#"{"msg": "hello {world}"}"#;
+        assert_eq!(extract_json_object(text), Some(r#"{"msg": "hello {world}"}"#));
+    }
+
+    #[test]
+    fn extract_json_none_when_no_braces() {
+        assert_eq!(extract_json_object("no json here"), None);
+    }
+
+    #[tokio::test]
+    async fn briefing_non_json_llm_response_falls_back() {
+        let provider = MockProvider {
+            response: "Good morning! I couldn't format JSON but here's your briefing.".into(),
+        };
+        let ctx = BriefingContext {
+            goals: vec![make_goal("Active goal", 0.0)],
+            email_subjects: vec![],
+            recent_schedules: vec![],
+            calendar_events: vec![],
+            calendar_conflicts: vec![],
+            upcoming_bills: vec![],
+            over_budget: vec![],
+        };
+        let briefing = build_briefing(&provider, "You are helpful.", ctx).await;
+        // Falls back to raw text as summary, no structured items
+        assert!(briefing.summary.contains("Good morning"));
+        assert!(briefing.items.is_empty());
     }
 }

@@ -8,13 +8,55 @@
 //! invoke them during conversation or autonomously via the agent loop.
 
 pub mod bridge;
+pub mod calendar;
+pub mod contacts;
+pub mod desktop;
+pub mod devtools;
+pub mod documents;
 pub mod email;
+pub mod finance;
 pub mod files;
+pub mod knowledge;
+pub mod messaging;
+pub mod plugin;
 pub mod reminders;
+pub mod retry;
 pub mod shell;
+pub mod triage_tools;
+pub mod undo;
 pub mod web;
+pub mod workflow;
 
 use aivyx_core::{AivyxError, Result};
+
+/// Shared reqwest::Client — reused across all HTTP-making actions to avoid
+/// per-request TLS/connection-pool setup overhead.
+pub fn http_client() -> &'static reqwest::Client {
+    use std::sync::LazyLock;
+    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .expect("Failed to build shared HTTP client")
+    });
+    &CLIENT
+}
+
+/// Resolve a potentially-relative `href` against a `base` URL.
+///
+/// If `href` is already absolute (starts with `http://` or `https://`), returns it as-is.
+/// Otherwise, extracts the origin (scheme + host) from `base` and prepends it to `href`.
+pub fn resolve_url(base: &str, href: &str) -> String {
+    if href.starts_with("http://") || href.starts_with("https://") {
+        return href.to_string();
+    }
+    if let Some(pos) = base.find("://")
+        && let Some(slash) = base[pos + 3..].find('/') {
+            let origin = &base[..pos + 3 + slash];
+            return format!("{origin}{href}");
+        }
+    format!("{}/{}", base.trim_end_matches('/'), href.trim_start_matches('/'))
+}
 
 /// Describes an action the assistant can take in the real world.
 #[async_trait::async_trait]

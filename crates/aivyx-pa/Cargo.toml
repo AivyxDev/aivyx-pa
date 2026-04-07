@@ -21,15 +21,15 @@ aivyx-mcp.workspace        = true
 aivyx-memory.workspace     = true
 aivyx-agent.workspace      = true
 aivyx-brain.workspace      = true
+aivyx-task-engine.workspace = true
+aivyx-team.workspace       = true
 
 # PA crates
 aivyx-actions.workspace = true
 aivyx-loop.workspace    = true
 
-# CLI + TUI
+# CLI
 clap.workspace    = true
-ratatui.workspace = true
-crossterm.workspace = true
 
 # Runtime
 serde.workspace      = true
@@ -38,8 +38,28 @@ tokio.workspace      = true
 chrono.workspace     = true
 tracing.workspace    = true
 tracing-subscriber.workspace = true
+tracing-appender.workspace   = true
 anyhow.workspace     = true
 dirs.workspace       = true
 toml.workspace       = true
 secrecy.workspace    = true
 tokio-util.workspace = true
+zeroize.workspace    = true
+rpassword.workspace  = true
+uuid.workspace       = true
+async-trait.workspace = true
+axum.workspace       = true
+tower.workspace      = true
+tower-http.workspace = true
+hmac.workspace       = true
+sha2.workspace       = true
+async-stream.workspace = true
+futures-core.workspace = true
+reqwest.workspace      = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tempfile = "3"
