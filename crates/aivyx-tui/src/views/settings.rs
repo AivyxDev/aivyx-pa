@@ -26,8 +26,26 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
     let Some(ref settings) = app.settings else {
         let msg = app.settings_error.as_deref().unwrap_or("Unknown error");
-        let err = Line::from(Span::styled(format!("  Could not load settings: {msg}"), theme::error()));
-        buf.set_line(body.x + 1, body.y + 1, &err, body.width - 2);
+        // Truncate error to fit body width, wrapping to multiple lines if needed
+        let max_w = (body.width as usize).saturating_sub(4);
+        let full_msg = format!("Could not load settings: {msg}");
+        let mut row = 1u16;
+        for chunk in full_msg.as_bytes().chunks(max_w) {
+            if row >= body.height { break; }
+            let text = String::from_utf8_lossy(chunk);
+            buf.set_line(body.x + 2, body.y + row, &Line::from(Span::styled(text.to_string(), theme::error())), body.width - 4);
+            row += 1;
+        }
+        row += 1;
+        if row < body.height {
+            let hint = Line::from(Span::styled(
+                "Press 'e' to open config.toml in $EDITOR, or 'r' to reload after fixing.",
+                theme::dim(),
+            ));
+            buf.set_line(body.x + 2, body.y + row, &hint, body.width - 4);
+        }
+        let help = Line::from(Span::styled("e open editor  r reload  Tab sidebar", theme::dim()));
+        buf.set_line(help_bar.x + 1, help_bar.y, &help, help_bar.width - 2);
         return;
     };
 
@@ -39,7 +57,9 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
     let mut ly = left_col.y;
     let mut ry = right_col.y;
-    let ci = app.settings_card_index;
+    // Only highlight cards when content area is focused — prevents confusion
+    // when the sidebar is focused and the user hasn't entered the card area.
+    let ci = if app.focus == crate::app::Focus::Content { app.settings_card_index } else { usize::MAX };
 
     // ── LLM Provider (left, card 0) ──────────────────────────
     ly = render_card("LLM Provider", left_col.x, ly, left_col.width, 6, ci == 0, buf, |inner, buf| {
@@ -372,6 +392,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     let _ = (ly, ry);
 
     // ── Help bar ─────────────────────────────────────────────
+    let content_focused = app.focus == crate::app::Focus::Content;
     let help_text = if app.settings_popup.is_some() {
         match &app.settings_popup {
             Some(SettingsPopup::MultiLineInput { .. }) => "Ctrl+S save  Esc cancel",
@@ -380,6 +401,8 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             Some(SettingsPopup::Confirm { .. }) => "y confirm  n/Esc cancel",
             _ => "Enter confirm  Esc cancel",
         }
+    } else if !content_focused {
+        "Tab or → to edit settings cards  ↑↓ sidebar"
     } else if ci == 5 && app.settings_item_count(5) > 0 {
         "Enter setup  d remove  ↑↓ navigate"
     } else if ci == 9 && app.settings_item_count(9) > 0 {
@@ -387,9 +410,9 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     } else if ci == 7 && app.settings_item_count(7) > 0 {
         "←→ adjust  ↑↓ navigate  Tab sidebar"
     } else if app.settings_item_count(ci) > 0 {
-        "↑↓ navigate  ←→ cards  Enter edit  Tab sidebar"
+        "↑↓ navigate  Enter edit  Tab sidebar"
     } else {
-        "←→ cards  Tab sidebar"
+        "↑↓ cards  Tab sidebar"
     };
     let help = Line::from(vec![
         Span::styled(help_text, theme::dim()),

@@ -621,8 +621,14 @@ pub fn write_integration_config(
     content.push_str(&format!("[{section_name}]\n"));
     for (key, value) in fields {
         if value.is_empty() { continue; }
-        if value.parse::<u16>().is_ok() {
+        // Write booleans and numbers without quotes.
+        // Comma-separated values are written as TOML arrays.
+        if value == "true" || value == "false" || value.parse::<u16>().is_ok() {
             content.push_str(&format!("{key} = {value}\n"));
+        } else if value.contains(',') {
+            let items: Vec<&str> = value.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+            let array = items.iter().map(|s| format!("\"{s}\"")).collect::<Vec<_>>().join(", ");
+            content.push_str(&format!("{key} = [{array}]\n"));
         } else {
             let safe: String = value.chars()
                 .filter(|c| !c.is_control())
@@ -1243,6 +1249,34 @@ prompt = \"Second task\"
         let content = std::fs::read_to_string(f.path()).unwrap();
         assert!(content.contains("firefox = \"Blocked\""));
         assert!(!content.contains("firefox = \"Full\""));
+    }
+
+    /// write_integration_config must write booleans unquoted and comma-separated
+    /// values as TOML arrays, not quoted strings.
+    #[test]
+    fn write_integration_config_types() {
+        let f = temp_config("[agent]\nname = \"test\"\npersona = \"assistant\"\n");
+        // Desktop: booleans
+        write_integration_config(f.path(), IntegrationKind::Desktop, &[
+            ("clipboard".into(), "true".into()),
+            ("windows".into(), "false".into()),
+            ("notifications".into(), "true".into()),
+        ]).unwrap();
+        let content = std::fs::read_to_string(f.path()).unwrap();
+        assert!(content.contains("clipboard = true\n"), "bool should be unquoted: {content}");
+        assert!(content.contains("windows = false\n"), "bool should be unquoted: {content}");
+        // Vault: comma-separated → array
+        let _ = remove_integration_config(f.path(), IntegrationKind::Desktop);
+        write_integration_config(f.path(), IntegrationKind::Vault, &[
+            ("path".into(), "~/docs".into()),
+            ("extensions".into(), "md,txt,pdf".into()),
+        ]).unwrap();
+        let content = std::fs::read_to_string(f.path()).unwrap();
+        assert!(content.contains(r#"extensions = ["md", "txt", "pdf"]"#), "comma list should be array: {content}");
+        // Verify the resulting config parses
+        let pa: crate::config::PaConfig = toml::from_str(&content).unwrap();
+        let vault = pa.vault.expect("vault section missing");
+        assert_eq!(vault.extensions, vec!["md", "txt", "pdf"]);
     }
 
     /// Regression test: a realistic full config (Jarvis coder persona, Ollama) must

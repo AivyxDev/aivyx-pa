@@ -650,6 +650,33 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                     }
                 }
 
+                // Settings error recovery: 'e' opens config in editor, 'r' reloads
+                KeyCode::Char('e') if app.view == View::Settings && app.settings.is_none() => {
+                    if let Some(ref state) = app.state {
+                        let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".into());
+                        let path = state.config_path.clone();
+                        // Suspend TUI, open editor, resume
+                        let _ = crossterm::terminal::disable_raw_mode();
+                        let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen);
+                        let _ = std::process::Command::new(&editor).arg(&path).status();
+                        let _ = crossterm::terminal::enable_raw_mode();
+                        let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen);
+                        // Reload after editing
+                        match aivyx_pa::settings::reload_settings_snapshot(&path) {
+                            Ok(s) => { app.settings = Some(s); app.settings_error = None; }
+                            Err(e) => { app.settings = None; app.settings_error = Some(e); }
+                        }
+                    }
+                }
+                KeyCode::Char('r') if app.view == View::Settings && app.settings.is_none() => {
+                    if let Some(ref state) = app.state {
+                        match aivyx_pa::settings::reload_settings_snapshot(&state.config_path) {
+                            Ok(s) => { app.settings = Some(s); app.settings_error = None; }
+                            Err(e) => { app.settings = None; app.settings_error = Some(e); }
+                        }
+                    }
+                }
+
                 // Settings: 'd' to remove a configured integration
                 KeyCode::Char('d') if app.view == View::Settings && app.settings_card_index == 5 && app.settings_popup.is_none() => {
                     if let Some(ref settings) = app.settings {

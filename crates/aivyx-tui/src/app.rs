@@ -3111,6 +3111,20 @@ mod tests {
         app.settings_cycle_app_access(false); // same
     }
 
+    #[test]
+    fn integration_setup_popup_opens_on_card5_enter() {
+        let mut app = App::new_test();
+        // Give it a default snapshot so settings != None
+        app.settings = Some(SettingsSnapshot::default());
+        app.settings_card_index = 5;
+        app.settings_item_index = 0; // Email
+        app.settings_activate_current();
+        assert!(
+            matches!(app.settings_popup, Some(SettingsPopup::IntegrationSetup { .. })),
+            "Expected IntegrationSetup popup, got {:?}", app.settings_popup.is_some(),
+        );
+    }
+
     // ── Filtered missions ────────────────────────────────────
 
     fn test_mission_meta(status: MissionStatus) -> TaskMetadata {
