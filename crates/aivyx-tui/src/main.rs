@@ -177,6 +177,9 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| "assistant".into());
 
     let (_agent_loop, mut notification_rx) = AgentLoop::start(loop_config, loop_context);
+    // Extract the approval sender so the TUI can feed decisions back to the loop.
+    // _agent_loop must remain alive until end of main() to keep the loop running.
+    let approval_tx = _agent_loop.approval_tx.clone();
 
     // Shared approval queue and notification history
     let approvals: Arc<tokio::sync::Mutex<Vec<api::ApprovalItem>>> =
@@ -193,6 +196,7 @@ async fn main() -> anyhow::Result<()> {
         while let Some(notif) = notification_rx.recv().await {
             if notif.requires_approval {
                 bridge_approvals.lock().await.push(api::ApprovalItem {
+                    expires_at: Some(notif.timestamp + chrono::TimeDelta::try_seconds(120).unwrap()),
                     notification: notif.clone(),
                     status: api::ApprovalStatus::Pending,
                     resolved_at: None,
@@ -250,6 +254,7 @@ async fn main() -> anyhow::Result<()> {
         agent_name: agent_name.clone(),
         mission_ctx: mission_ctx_for_ui,
         health,
+        approval_tx: Some(approval_tx),
     });
 
     // Optionally start HTTP API server alongside TUI
@@ -326,7 +331,9 @@ async fn run_loop(
 
         // Poll for streamed chat tokens and agent lifecycle events
         app.poll_chat_tokens();
+        app.poll_voice_transcripts();
         app.poll_agent_events();
+        app.poll_approval_expiries();
 
         // Periodic data refresh (every 2 seconds)
         if app.last_refresh.elapsed() > Duration::from_secs(2) {
@@ -448,6 +455,7 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                 KeyCode::Char('p') => { app.open_system_prompt_preview(); return; }
                 KeyCode::Char('e') => { app.export_chat_markdown(); return; }
                 KeyCode::Char('b') => { app.open_branch_manager(); return; }
+                KeyCode::Char('r') => { app.toggle_voice_recording(); return; }
                 _ => {}
             }
         }
@@ -582,12 +590,17 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                     }
                 }
 
-                // Approve / Deny in Approvals view
+                // Approve / Deny / Detail in Approvals view
                 KeyCode::Char('a') if app.view == View::Approvals => {
                     app.resolve_approval(ApprovalStatus::Approved);
                 }
                 KeyCode::Char('d') if app.view == View::Approvals => {
                     app.resolve_approval(ApprovalStatus::Denied);
+                }
+                // [V] toggles the body detail pane for the selected approval
+                KeyCode::Char('v') if app.view == View::Approvals => {
+                    app.approval_detail_open = !app.approval_detail_open;
+                    app.approval_detail_scroll = 0;
                 }
 
                 // Goals: create / edit / complete / abandon
@@ -733,7 +746,14 @@ fn content_up(app: &mut App) {
         View::Missions => {
             if app.mission_selected > 0 { app.mission_selected -= 1; app.load_mission_detail(); }
         }
-        View::Approvals => { if app.approval_selected > 0 { app.approval_selected -= 1; } }
+        View::Approvals => {
+            if app.approval_detail_open {
+                // Scroll the detail pane body
+                app.approval_detail_scroll = app.approval_detail_scroll.saturating_sub(1);
+            } else if app.approval_selected > 0 {
+                app.approval_selected -= 1;
+            }
+        }
         View::Activity => { if app.activity_selected > 0 { app.activity_selected -= 1; } }
         View::Audit => { if app.audit_selected > 0 { app.audit_selected -= 1; } }
         View::Memory => { if app.memory_selected > 0 { app.memory_selected -= 1; } }
@@ -769,8 +789,12 @@ fn content_down(app: &mut App) {
             if app.mission_selected < max { app.mission_selected += 1; app.load_mission_detail(); }
         }
         View::Approvals => {
-            let max = app.approvals.len().saturating_sub(1);
-            if app.approval_selected < max { app.approval_selected += 1; }
+            if app.approval_detail_open {
+                app.approval_detail_scroll = app.approval_detail_scroll.saturating_add(1);
+            } else {
+                let max = app.approvals.len().saturating_sub(1);
+                if app.approval_selected < max { app.approval_selected += 1; }
+            }
         }
         View::Activity => {
             let max = app.filtered_notifications().len().saturating_sub(1);
@@ -795,7 +819,7 @@ fn content_down(app: &mut App) {
             } else {
                 // Move to next card, select first item
                 let next = app.settings_card_index + 1;
-                if next <= 8 {
+                if next <= 9 {
                     app.settings_card_index = next;
                     app.settings_item_index = 0;
                 }

@@ -252,8 +252,66 @@ impl Action for ListDirectory {
     }
 }
 
+
+pub struct ReplaceFileContent;
+
+#[async_trait::async_trait]
+impl Action for ReplaceFileContent {
+    fn name(&self) -> &str { "replace_file_content" }
+
+    fn description(&self) -> &str {
+        "Edit an existing file by replacing a specific target string with a new string. \
+         The target_content must match exactly. Useful for partial code updates without hallucination."
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "Absolute path to the file" },
+                "target_content": { "type": "string", "description": "Exact text chunk to be replaced" },
+                "replacement_content": { "type": "string", "description": "New text to insert" }
+            },
+            "required": ["path", "target_content", "replacement_content"]
+        })
+    }
+
+    async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
+        let path = input["path"]
+            .as_str()
+            .ok_or_else(|| aivyx_core::AivyxError::Validation("path required".into()))?;
+        let target = input["target_content"]
+            .as_str()
+            .ok_or_else(|| aivyx_core::AivyxError::Validation("target_content required".into()))?;
+        let replacement = input["replacement_content"]
+            .as_str()
+            .ok_or_else(|| aivyx_core::AivyxError::Validation("replacement_content required".into()))?;
+
+        validate_path(path)?;
+
+        let contents = tokio::fs::read_to_string(path)
+            .await
+            .map_err(aivyx_core::AivyxError::Io)?;
+
+        if !contents.contains(target) {
+            return Err(aivyx_core::AivyxError::Validation("target_content not found in file".into()));
+        }
+
+        // Only replace first occurrence or error if multiple? Let's just replace all.
+        // Usually, the LLM provides enough context so it matches uniquely.
+        let new_contents = contents.replacen(target, replacement, 1);
+
+        tokio::fs::write(path, new_contents)
+            .await
+            .map_err(aivyx_core::AivyxError::Io)?;
+
+        Ok(serde_json::json!({ "status": "replaced", "path": path }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]

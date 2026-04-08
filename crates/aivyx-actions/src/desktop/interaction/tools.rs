@@ -64,6 +64,7 @@ impl Action for UiInspect {
         );
         let max_depth = input["max_depth"].as_u64().unwrap_or(5) as u32;
 
+        self.ctx.enforce_access(&window, false).await?;
         let backend = self.ctx.router.route(&window).await;
         let tree = backend.inspect(&window, max_depth).await?;
 
@@ -139,6 +140,7 @@ impl Action for UiFindElement {
             ));
         }
 
+        self.ctx.enforce_access(&window, false).await?;
         let backend = self.ctx.router.route(&window).await;
         let elements = backend.find_element(&window, &query).await?;
 
@@ -221,6 +223,7 @@ impl Action for UiClick {
             })?
         };
 
+        self.ctx.enforce_access(&window, true).await?;
         let backend = self.ctx.router.route(&window).await;
         // Try semantic click; fall back to ydotool coordinate click.
         match backend.click(&element).await {
@@ -302,6 +305,7 @@ impl Action for UiTypeText {
         });
 
         let window = WindowRef::Active;
+        self.ctx.enforce_access(&window, true).await?;
         let backend = self.ctx.router.route(&window).await;
 
         match backend.type_text(element.as_ref(), text).await {
@@ -369,6 +373,7 @@ impl Action for UiReadText {
         };
 
         let window = WindowRef::from_input(input["window"].as_str(), None);
+        self.ctx.enforce_access(&window, false).await?;
         let backend = self.ctx.router.route(&window).await;
         let text = backend.read_text(&element).await?;
 
@@ -417,6 +422,7 @@ impl Action for UiKeyCombo {
             return Err(AivyxError::Validation("keys must not be empty".into()));
         }
 
+        self.ctx.enforce_access(&WindowRef::Active, true).await?;
         self.ctx.router.input_backend().key_combo(keys).await?;
 
         Ok(serde_json::json!({
@@ -956,7 +962,7 @@ impl Action for UiScroll {
         let direction = ScrollDirection::parse(direction_str)?;
         let amount = input["amount"].as_u64().unwrap_or(3) as u32;
         let window = WindowRef::from_input(input["window"].as_str(), None);
-
+        self.ctx.enforce_access(&window, true).await?;
         let backend = self.ctx.router.route(&window).await;
         backend.scroll(&window, direction, amount).await?;
 
@@ -1011,7 +1017,7 @@ impl Action for UiRightClick {
 
         let window = WindowRef::from_input(input["window"].as_str(), None);
         let element = resolve_element_input(&self.ctx, &input, &window).await?;
-
+        self.ctx.enforce_access(&window, true).await?;
         let backend = self.ctx.router.route(&window).await;
         backend.right_click(&element).await?;
 
@@ -1065,7 +1071,7 @@ impl Action for UiHover {
 
         let window = WindowRef::from_input(input["window"].as_str(), None);
         let element = resolve_element_input(&self.ctx, &input, &window).await?;
-
+        self.ctx.enforce_access(&window, false).await?;
         let backend = self.ctx.router.route(&window).await;
         backend.hover(&element).await?;
 
@@ -1154,6 +1160,7 @@ impl Action for UiDrag {
         };
 
         let window = WindowRef::Active;
+        self.ctx.enforce_access(&window, true).await?;
         let backend = self.ctx.router.route(&window).await;
         backend.drag(&from, &to).await?;
 
@@ -1506,6 +1513,7 @@ impl Action for UiDoubleClick {
 
         let window = WindowRef::from_input(input["window"].as_str(), None);
         let element = resolve_element_input(&self.ctx, &input, &window).await?;
+        self.ctx.enforce_access(&window, true).await?;
         let backend = self.ctx.router.route(&window).await;
         backend.double_click(&element).await?;
 
@@ -1554,6 +1562,7 @@ impl Action for UiMiddleClick {
 
         let window = WindowRef::from_input(input["window"].as_str(), None);
         let element = resolve_element_input(&self.ctx, &input, &window).await?;
+        self.ctx.enforce_access(&window, true).await?;
         let backend = self.ctx.router.route(&window).await;
         backend.middle_click(&element).await?;
 

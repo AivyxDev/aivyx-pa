@@ -304,6 +304,7 @@ pub(crate) trait InputBackend: Send + Sync {
     async fn mouse_move_to(&self, x: i32, y: i32) -> Result<()>;
 
     /// Scroll the mouse wheel in a direction.
+    #[allow(dead_code)]
     async fn scroll(&self, direction: ScrollDirection, amount: u32) -> Result<()>;
 
     /// Drag from one position to another (left-button hold + move + release).
@@ -404,6 +405,7 @@ pub(crate) trait UiBackend: Send + Sync {
     }
 
     /// Move the mouse to absolute screen coordinates.
+    #[allow(dead_code)]
     async fn mouse_move(&self, _x: i32, _y: i32) -> Result<()> {
         Err(AivyxError::Other(format!(
             "{} does not support mouse_move",
@@ -412,6 +414,7 @@ pub(crate) trait UiBackend: Send + Sync {
     }
 
     /// Take a screenshot of a window. Returns base64-encoded image data.
+    #[allow(dead_code)]
     async fn screenshot_window(&self, _window: &WindowRef) -> Result<String> {
         Err(AivyxError::Other(format!(
             "{} does not support window screenshots",
@@ -552,13 +555,34 @@ impl BackendRouter {
 /// Shared state for all interaction tools. Passed via `Arc`.
 pub struct InteractionContext {
     pub config: InteractionConfig,
+    pub desktop_config: crate::desktop::DesktopConfig,
     pub router: BackendRouter,
 }
 
 impl InteractionContext {
-    pub fn new(config: InteractionConfig) -> Arc<Self> {
+    pub fn new(config: InteractionConfig, desktop_config: crate::desktop::DesktopConfig) -> Arc<Self> {
         let router = BackendRouter::new(&config);
-        Arc::new(Self { config, router })
+        Arc::new(Self { config, desktop_config, router })
+    }
+
+    /// Evaluates if the agent's interaction tools are permitted to manipulate this window.
+    pub async fn enforce_access(&self, window: &WindowRef, require_interact: bool) -> Result<()> {
+        if let Ok(Some(class)) = get_window_class(window).await {
+            let access = crate::desktop::resolve_app_access(&class, &self.desktop_config);
+            
+            if access == crate::desktop::AppAccess::Blocked {
+                return Err(aivyx_core::AivyxError::CapabilityDenied(format!(
+                    "Application {} is Blocked. Interaction denied.", class
+                )));
+            }
+
+            if require_interact && access == crate::desktop::AppAccess::ViewOnly {
+                return Err(aivyx_core::AivyxError::CapabilityDenied(format!(
+                    "Application {} is View-Only. Click / Type interaction denied.", class
+                )));
+            }
+        }
+        Ok(())
     }
 }
 

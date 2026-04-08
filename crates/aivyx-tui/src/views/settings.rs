@@ -311,8 +311,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         });
     }
 
-    // ── Applications (left, card 9) ────────────────────────────
-    if settings.desktop_configured && ly + 4 < left_col.y + left_col.height {
+    if ly + 4 < left_col.y + left_col.height {
         let app_count = settings.desktop_app_access.len();
         let visible = if ci == 9 { app_count.min(12) } else { 3 };
         let card_height = (visible as u16 + 2).max(4);

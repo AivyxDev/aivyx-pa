@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 # PA library (in-process access to AppState, init, runtime)
 aivyx-pa = { path = "../aivyx-pa" }
+aivyx-actions = { path = "../aivyx-actions" }
 
 # aivyx-core foundation
 aivyx-core.workspace       = true

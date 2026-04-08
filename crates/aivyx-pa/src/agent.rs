@@ -1331,6 +1331,29 @@ pub async fn build_agent(
     registry.register(Box::new(crate::schedule_tools::ScheduleDeleteTool::new(config_path)));
     system_prompt.push_str(&crate::config::pa_prompt_schedules(tier));
 
+    // Register background task execution tools.
+    // Lets the agent spawn long-running shell commands asynchronously and
+    // report back when they finish, without blocking the conversation.
+    //
+    // Tasks are persisted to tasks.json so completed task history survives
+    // process restarts. Running tasks are marked TimedOut on reload.
+    let tasks_path = dirs.root().join("tasks.json");
+    let task_persist_path = std::sync::Arc::new(tasks_path.clone());
+    let task_registry = aivyx_actions::tasks::new_registry_from_path(&tasks_path);
+    aivyx_actions::bridge::register_task_actions(
+        &mut registry,
+        task_registry,
+        Some(task_persist_path),
+    );
+    system_prompt.push_str(crate::config::PA_PROMPT_TASKS);
+
+    // Register system monitoring tools.
+    // Proactive diagnostics: disk space, process health, log tailing,
+    // URL health checks, and system stats snapshot.
+    aivyx_actions::bridge::register_monitor_actions(&mut registry);
+    system_prompt.push_str(crate::config::PA_PROMPT_MONITOR);
+
+
     // Build capability set — grant all scopes required by registered tools.
     let principal = Principal::Agent(agent_id);
     let mut caps = CapabilitySet::new();
@@ -1357,6 +1380,16 @@ pub async fn build_agent(
     caps.grant(grant(CapabilityScope::Filesystem { root: std::path::PathBuf::from("/") }, &principal));
     caps.grant(grant(CapabilityScope::Network { hosts: vec![], ports: vec![] }, &principal));
     caps.grant(grant(CapabilityScope::Custom("admin".into()), &principal));
+
+    // Grant the "desktop" capability only when desktop tools are actually registered.
+    // All desktop and interaction tools (open_application, clipboard, ui_inspect,
+    // browser_navigate, etc.) require this scope. Without it every call fails at the
+    // capability checker even though the tools are registered in the registry.
+    if pa_config.desktop.is_some() {
+        caps.grant(grant(CapabilityScope::Custom("desktop".into()), &principal));
+        tracing::debug!("Desktop capability scope granted — desktop tools are active");
+    }
+
 
     let mut agent = Agent::new(
         agent_id,
@@ -1416,7 +1449,35 @@ pub async fn build_agent(
                                 {
                                     index.upsert(tool.id(), emb.vector, text);
                                 }
-                                let engine_config = td_config.to_engine_config();
+                                let mut engine_config = td_config.to_engine_config();
+
+                                // When desktop tools are registered, ensure the most
+                                // commonly needed ones are always visible to the LLM,
+                                // regardless of how low top_k is set. Without this,
+                                // a message like "open Firefox" may score below the
+                                // threshold and the agent will never see open_application.
+                                if has_desktop {
+                                    let desktop_essentials: &[&str] = &[
+                                        "open_application",
+                                        "clipboard_read",
+                                        "clipboard_write",
+                                        "list_windows",
+                                        "send_notification",
+                                        "ui_inspect",
+                                        "ui_click",
+                                        "ui_find_element",
+                                        "browser_navigate",
+                                        "browser_list_tabs",
+                                        "window_screenshot",
+                                    ];
+                                    for &tool in desktop_essentials {
+                                        let name = tool.to_string();
+                                        if !engine_config.always_include.contains(&name) {
+                                            engine_config.always_include.push(name);
+                                        }
+                                    }
+                                }
+
                                 tracing::info!(
                                     mode = ?engine_config.mode,
                                     top_k = engine_config.top_k,

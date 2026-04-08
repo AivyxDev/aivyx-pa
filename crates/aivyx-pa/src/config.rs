@@ -903,9 +903,93 @@ pub const PA_PROMPT_ENVIRONMENT_DEDICATED: &str = concat!(
     "tidying up files, or working on background missions.",
 );
 
+/// Extra system prompt instructions for background task execution tools.
+pub const PA_PROMPT_TASKS: &str = concat!(
+    "\n\nBACKGROUND TASKS: You can run shell commands asynchronously so the conversation \
+     is not blocked. Use spawn_task for long-running operations.\n\n",
+    "- spawn_task(command, label, timeout_secs?) — starts a background command, returns task_id immediately\n",
+    "- list_tasks(state_filter?) — see all running and recent tasks\n",
+    "- get_task_status(task_id) — check completion status and output tail\n",
+    "- cancel_task(task_id) — stop a running task\n\n",
+    "USE WHEN: command takes >5 seconds, user says 'in the background'/'let me know when done', \
+     or you want to run things in parallel. spawn_task → return task_id immediately → \
+     tell user you'll check back → use get_task_status later to report.\n\n",
+    "EXAMPLES: 'Run the test suite' → spawn_task(command='cargo test', label='Tests', timeout_secs=600) \
+     | 'Download this' → spawn_task(command='wget -O file.zip https://...', label='Download')\n",
+);
+
+/// Extra system prompt instructions for system monitoring tools.
+pub const PA_PROMPT_MONITOR: &str = concat!(
+    "\n\nSYSTEM MONITORING: You can proactively check host system health.\n\n",
+    "- check_disk_space(path?, warn_threshold_pct?) — disk usage per filesystem\n",
+    "- check_process(process_name, restart_command?) — verify/restart a process\n",
+    "- tail_log(path, lines?, pattern?) — read end of any log file with filtering\n",
+    "- check_url_health(url, timeout_secs?) — HTTP health check with latency\n",
+    "- system_stats() — CPU load, memory usage, uptime, top processes\n\n",
+    "USE PROACTIVELY: After deploys, check URL health. After bulk operations, check disk. \
+     If the user mentions slowness, run system_stats. \
+     EXAMPLES: 'Is my site up?' → check_url_health(url='https://...') \
+     | 'Check disk' → check_disk_space() | 'Is nginx running?' → check_process(process_name='nginx')\n",
+);
+
+/// Proactive notification dispatch configuration.
+///
+/// Controls which output channels the agent loop uses to alert
+/// the user when something happens outside of a conversation turn.
+///
+/// ```toml
+/// [notifications]
+/// desktop = true               # notify-send desktop popups
+/// urgency_level = "normal"     # low | normal | critical
+/// telegram = false             # forward to Telegram chat
+/// signal = false               # forward to Signal
+/// quiet_hours_start = 22       # 10 PM local time
+/// quiet_hours_end = 8          # 8 AM local time
+/// min_kind = "Info"            # Info | ActionTaken | ApprovalNeeded | Urgent
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaNotificationsConfig {
+    #[serde(default = "default_notify_desktop")]
+    pub desktop: bool,
+    #[serde(default = "default_urgency")]
+    pub urgency_level: String,
+    #[serde(default)]
+    pub telegram: bool,
+    #[serde(default)]
+    pub signal: bool,
+    #[serde(default)]
+    pub quiet_hours_start: Option<u8>,
+    #[serde(default)]
+    pub quiet_hours_end: Option<u8>,
+    #[serde(default = "default_min_notify_kind")]
+    pub min_kind: aivyx_loop::notify_dispatch::MinNotificationKind,
+}
+
+fn default_notify_desktop() -> bool { true }
+fn default_urgency() -> String { "normal".into() }
+fn default_min_notify_kind() -> aivyx_loop::notify_dispatch::MinNotificationKind {
+    aivyx_loop::notify_dispatch::MinNotificationKind::Info
+}
+
+/// Push-To-Talk Voice Loop configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaVoiceConfig {
+    #[serde(default = "default_voice_enabled")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub stt_model_path: Option<String>,
+    #[serde(default)]
+    pub tts_model_path: Option<String>,
+}
+
+fn default_voice_enabled() -> bool { true }
+
 /// PA-specific fields extracted from config.toml.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PaConfig {
+    /// Voice module configuration.
+    /// `None` if `[voice]` section is missing from config.toml.
+    pub voice: Option<PaVoiceConfig>,
     /// Agent identity and personality.
     /// `None` if `[agent]` section is missing — uses defaults.
     pub agent: Option<PaAgentConfig>,
@@ -1024,6 +1108,10 @@ pub struct PaConfig {
     /// Desktop interaction — app launching, clipboard, window management, notifications.
     /// `None` if `[desktop]` section is missing — no desktop tools registered.
     pub desktop: Option<aivyx_actions::desktop::DesktopConfig>,
+
+    /// Proactive notification dispatch — alert user on desktop/Telegram/Signal.
+    /// `None` if `[notifications]` section is missing — notifications remain in TUI only.
+    pub notifications: Option<PaNotificationsConfig>,
 
     /// Environment configuration — describes the deployment context.
     /// `None` if `[environment]` section is missing — no environment prompt injected.
@@ -1797,7 +1885,7 @@ impl PaConfig {
     /// Auto-enable desktop tools when a display server is detected and no
     /// explicit `[desktop]` section exists in config.toml. Headless systems
     /// (no $DISPLAY / $WAYLAND_DISPLAY) remain without desktop tools.
-    fn with_auto_desktop(mut self) -> Self {
+    pub(crate) fn with_auto_desktop(mut self) -> Self {
         if self.desktop.is_none() {
             let has_display = std::env::var("DISPLAY").is_ok()
                 || std::env::var("WAYLAND_DISPLAY").is_ok();
@@ -1806,6 +1894,18 @@ impl PaConfig {
                 self.desktop = Some(aivyx_actions::desktop::DesktopConfig::default());
             }
         }
+
+        // Default-enable interaction (UI automation, browser, etc.) if desktop is enabled,
+        // but respect explicit `enabled = false` configurations.
+        if let Some(ref mut desktop) = self.desktop {
+            if desktop.interaction.is_none() {
+                desktop.interaction = Some(aivyx_actions::desktop::interaction::InteractionConfig {
+                    enabled: true,
+                    ..Default::default()
+                });
+            }
+        }
+
         self
     }
 

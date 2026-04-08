@@ -7,11 +7,15 @@
 
 pub mod briefing;
 pub mod heartbeat;
+pub mod notify_dispatch;
 pub mod pacing;
 pub mod priority;
 pub mod schedule;
 pub mod trigger;
 pub mod triage;
+
+pub use notify_dispatch::{DispatchContext, NotificationDispatchConfig};
+// ApprovalResponse is defined in this module (lib.rs) directly.
 
 use aivyx_actions::email::{EmailConfig, EmailSummary, ReadInbox};
 use aivyx_actions::reminders;
@@ -71,6 +75,20 @@ pub struct Notification {
     /// If this notification was triggered by a goal, its ID.
     #[serde(default)]
     pub goal_id: Option<String>,
+}
+
+/// The decision a user makes on a pending `ApprovalNeeded` notification.
+///
+/// Sent from the TUI (or API) back to the agent loop when the user
+/// presses `[A]` Approve or `[D]` Deny in the Approvals view.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApprovalResponse {
+    /// Matches `Notification.id` of the pending item.
+    pub notification_id: String,
+    /// `true` = approved, `false` = denied.
+    pub approved: bool,
+    /// Optional reason or comment from the user.
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -258,6 +276,11 @@ pub struct AgentLoop {
     config: LoopConfig,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
     trigger_tx: mpsc::Sender<()>,
+    /// Send approval decisions (Approve/Deny) from the UI back into the loop.
+    ///
+    /// Clone this sender and give it to the TUI/API at startup so the user's
+    /// decisions flow back to the heartbeat without polling a shared mutex.
+    pub approval_tx: mpsc::Sender<ApprovalResponse>,
 }
 
 // ── LLM JSON extraction utilities ────────────────────────────
@@ -708,6 +731,11 @@ pub struct LoopContext {
     /// the next heartbeat tick to gather extended context.
     pub strategy_review_pending: bool,
 
+    /// Proactive notification dispatch configuration.
+    /// When `Some`, notifications are forwarded to desktop/Telegram/Signal.
+    /// When `None`, notifications remain in-process only (TUI display).
+    pub dispatch_config: Option<NotificationDispatchConfig>,
+
     // ── Error tracking (for graceful degradation) ───────────────
     /// Consecutive IMAP login failures (reset on success).
     pub imap_consecutive_failures: u32,
@@ -721,6 +749,15 @@ pub struct LoopContext {
     pub tick_email_cache: Option<Vec<EmailSummary>>,
     /// Cached calendar events for the current tick.
     pub tick_calendar_cache: Option<Vec<aivyx_actions::calendar::CalendarEvent>>,
+
+    // ── Bidirectional approval channel ──────────────────────────
+    /// Receives `ApprovalResponse` decisions from the TUI or API.
+    /// The heartbeat drains this each tick and acts on pending decisions.
+    /// `None` until `AgentLoop::start()` threads the receiver in.
+    pub approval_rx: Option<mpsc::Receiver<ApprovalResponse>>,
+    /// In-memory buffer for approval responses that arrived before
+    /// the heartbeat was looking for a specific notification_id.
+    pub pending_approval_responses: Vec<ApprovalResponse>,
 }
 
 impl AgentLoop {
@@ -733,18 +770,27 @@ impl AgentLoop {
         let (notification_tx, notification_rx) = mpsc::channel(500);
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
         let (trigger_tx, trigger_rx) = mpsc::channel(50);
+        let (approval_tx, approval_rx) = mpsc::channel::<ApprovalResponse>(64);
+
+        // Thread the approval receiver into the loop context so the
+        // heartbeat can await decisions without polling a shared mutex.
+        let context_with_approval = context.map(|mut ctx| {
+            ctx.approval_rx = Some(approval_rx);
+            ctx
+        });
 
         let tx = notification_tx.clone();
         let cfg = config.clone();
 
         tokio::spawn(async move {
-            run_loop(cfg, tx, shutdown_rx, trigger_rx, context).await;
+            run_loop(cfg, tx, shutdown_rx, trigger_rx, context_with_approval).await;
         });
 
         let handle = Self {
             config,
             shutdown_tx: Some(shutdown_tx),
             trigger_tx,
+            approval_tx,
         };
 
         (handle, notification_rx)
@@ -771,6 +817,81 @@ impl AgentLoop {
 impl Drop for AgentLoop {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+// ── Approval Helpers ─────────────────────────────────────────────
+
+/// Drain all pending `ApprovalResponse` items for a specific notification ID
+/// from the context buffer. Consumes the matching entries.
+///
+/// Used by `heartbeat.rs` after emitting an `ApprovalNeeded` notification
+/// to check if the user has responded yet.
+///
+/// Returns `Some(response)` if a decision was found, `None` if still pending.
+pub fn poll_approval(ctx: &mut LoopContext, notification_id: &str) -> Option<ApprovalResponse> {
+    // Drain the live channel first
+    if let Some(ref mut rx) = ctx.approval_rx {
+        while let Ok(resp) = rx.try_recv() {
+            tracing::debug!(
+                notification_id = %resp.notification_id,
+                approved = resp.approved,
+                "Buffering approval response"
+            );
+            ctx.pending_approval_responses.push(resp);
+        }
+    }
+
+    // Check the buffer for a matching decision
+    if let Some(pos) = ctx.pending_approval_responses
+        .iter()
+        .position(|r| r.notification_id == notification_id)
+    {
+        return Some(ctx.pending_approval_responses.remove(pos));
+    }
+
+    None
+}
+
+/// Async-wait for a user approval decision on a specific notification ID.
+///
+/// Polls every 500ms up to `timeout`. Returns `Some(response)` when the
+/// user approves or denies, or `None` if the timeout elapses.
+///
+/// **Example (heartbeat):**
+/// ```rust
+/// let notif_id = uuid::Uuid::new_v4().to_string();
+/// send_notification(&tx, Notification {
+///     id: notif_id.clone(),
+///     kind: NotificationKind::ApprovalNeeded,
+///     requires_approval: true,
+///     title: "Delete these 200 files?".into(),
+///     // ...
+/// });
+/// if let Some(resp) = await_approval(ctx, &notif_id, Duration::from_secs(300)).await {
+///     if resp.approved {
+///         // proceed with deletion
+///     }
+/// }
+/// ```
+pub async fn await_approval(
+    ctx: &mut LoopContext,
+    notification_id: &str,
+    timeout: std::time::Duration,
+) -> Option<ApprovalResponse> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        if let Some(resp) = poll_approval(ctx, notification_id) {
+            return Some(resp);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            tracing::warn!(
+                notification_id = %notification_id,
+                "Approval wait timed out — proceeding without user decision"
+            );
+            return None;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
 }
 
@@ -847,6 +968,19 @@ async fn run_tick(
     if let Some(ref mut ctx) = context {
         ctx.tick_email_cache = None;
         ctx.tick_calendar_cache = None;
+
+        // Drain any pending approval responses from the TUI/API into the
+        // context buffer so the heartbeat can check them.
+        if let Some(ref mut rx) = ctx.approval_rx {
+            while let Ok(resp) = rx.try_recv() {
+                tracing::info!(
+                    notification_id = %resp.notification_id,
+                    approved = resp.approved,
+                    "Approval response received from user"
+                );
+                ctx.pending_approval_responses.push(resp);
+            }
+        }
     }
 
     // Check if it's morning briefing time (only fire once per day)

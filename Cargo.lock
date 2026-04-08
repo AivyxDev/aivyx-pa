@@ -438,6 +438,7 @@ dependencies = [
 name = "aivyx-tui"
 version = "0.1.0"
 dependencies = [
+ "aivyx-actions",
  "aivyx-agent",
  "aivyx-audit",
  "aivyx-brain",

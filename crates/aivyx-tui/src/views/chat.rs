@@ -232,21 +232,33 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     buf.set_line(context_bar.x, context_bar.y, &ctx_line, context_bar.width);
 
     // ── Input field ────────────────────────────────────────────
-    let input_title = if app.chat_streaming {
+    let input_title = if app.voice_recording {
+        " [🔴 RECORDING] Voice Input (Ctrl+R to send/stop) "
+    } else if app.voice_transcribing {
+        " [⚙ TRANSCRIBING] "
+    } else if app.chat_streaming {
         " Streaming... "
     } else {
         " Message (Esc to leave) "
     };
+    
+    let border_style = if app.voice_recording { Style::default().fg(theme::ERROR) } else if app.voice_transcribing || app.chat_streaming { theme::border_active() } else { theme::border() };
+    let text_style = if app.voice_recording { Style::default().fg(theme::ERROR) } else if app.voice_transcribing || app.chat_streaming { theme::primary() } else { theme::dim() };
+
     let input_block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(if app.chat_streaming { theme::border_active() } else { theme::border() })
-        .title(Line::from(Span::styled(input_title, if app.chat_streaming { theme::primary() } else { theme::dim() })));
+        .border_style(border_style)
+        .title(Line::from(Span::styled(input_title, text_style)));
     let input_inner = input_block.inner(input_area);
     input_block.render(input_area, buf);
 
-    let display = if app.chat_input.is_empty() {
-        Span::styled("Type a message...", theme::dim())
+    let display = if app.voice_recording {
+        Span::styled("Listening... speak now.", Style::default().fg(theme::ERROR))
+    } else if app.voice_transcribing {
+        Span::styled("Transcribing audio...", theme::primary())
+    } else if app.chat_input.is_empty() {
+        Span::styled("Type a message or press Ctrl+R to talk...", theme::dim())
     } else {
         Span::styled(&app.chat_input, theme::text())
     };

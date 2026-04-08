@@ -406,6 +406,143 @@ impl Action for GitBranches {
     }
 }
 
+
+// ── GitCommit ─────────────────────────────────────────────────
+
+pub struct GitCommit {
+    pub config: DevToolsConfig,
+}
+
+#[async_trait::async_trait]
+impl Action for GitCommit {
+    fn name(&self) -> &str { "git_commit" }
+
+    fn description(&self) -> &str {
+        "Commit changes to the local git repository. Use add_all=true to stage all modified files first."
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "repo_path": { "type": "string", "description": "Absolute path to git repo (optional)" },
+                "message": { "type": "string", "description": "Commit message" },
+                "add_all": { "type": "boolean", "description": "Run 'git add .' before committing" }
+            },
+            "required": ["message"]
+        })
+    }
+
+    async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
+        let repo = resolve_repo(&self.config, &input)?;
+        let message = input["message"].as_str().unwrap_or("Update");
+        let add_all = input["add_all"].as_bool().unwrap_or(false);
+
+        if add_all {
+            let _ = run_git(&repo, &["add", "."]).await?;
+        }
+
+        let output = run_git(&repo, &["commit", "-m", message]).await?;
+        
+        Ok(serde_json::json!({
+            "repo": repo.display().to_string(),
+            "output": output,
+        }))
+    }
+}
+
+// ── GitPush ───────────────────────────────────────────────────
+
+pub struct GitPush {
+    pub config: DevToolsConfig,
+}
+
+#[async_trait::async_trait]
+impl Action for GitPush {
+    fn name(&self) -> &str { "git_push" }
+
+    fn description(&self) -> &str {
+        "Push local commits to the remote repository. Note: If your SSH key requires a passphrase, this tool will timeout. You must use spawn_background_command to push interactively."
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "repo_path": { "type": "string", "description": "Absolute path to git repo (optional)" },
+                "remote": { "type": "string", "description": "Remote name (default: origin)" },
+                "branch": { "type": "string", "description": "Branch name (optional)" }
+            }
+        })
+    }
+
+    async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
+        let repo = resolve_repo(&self.config, &input)?;
+        let remote = input["remote"].as_str().unwrap_or("origin");
+        
+        let mut args = vec!["push", remote];
+        if let Some(branch) = input.get("branch").and_then(|v| v.as_str()) {
+            args.push(branch);
+        }
+
+        let output = match run_git(&repo, &args).await {
+            Ok(o) => o,
+            Err(e) => return Err(aivyx_core::AivyxError::Other(format!("Push failed or timed out: {e}"))),
+        };
+        
+        Ok(serde_json::json!({
+            "repo": repo.display().to_string(),
+            "output": output,
+        }))
+    }
+}
+
+// ── GitPull ───────────────────────────────────────────────────
+
+pub struct GitPull {
+    pub config: DevToolsConfig,
+}
+
+#[async_trait::async_trait]
+impl Action for GitPull {
+    fn name(&self) -> &str { "git_pull" }
+
+    fn description(&self) -> &str {
+        "Pull (fetch and merge) changes from the remote repository."
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "repo_path": { "type": "string", "description": "Absolute path to git repo (optional)" },
+                "remote": { "type": "string", "description": "Remote name (default: origin)" },
+                "branch": { "type": "string", "description": "Branch name (optional)" }
+            }
+        })
+    }
+
+    async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
+        let repo = resolve_repo(&self.config, &input)?;
+        let remote = input["remote"].as_str().unwrap_or("origin");
+        
+        let mut args = vec!["pull", remote];
+        if let Some(branch) = input.get("branch").and_then(|v| v.as_str()) {
+            args.push(branch);
+        }
+
+        let output = match run_git(&repo, &args).await {
+            Ok(o) => o,
+            Err(e) => return Err(aivyx_core::AivyxError::Other(format!("Pull failed or timed out: {e}"))),
+        };
+        
+        Ok(serde_json::json!({
+            "repo": repo.display().to_string(),
+            "output": output,
+        }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

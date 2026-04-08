@@ -288,6 +288,20 @@ pub fn build_loop_context(
         heartbeat_consecutive_failures: 0,
         tick_email_cache: None,
         tick_calendar_cache: None,
+        dispatch_config: pa_config.notifications
+            .as_ref()
+            .map(|n| aivyx_loop::NotificationDispatchConfig {
+                desktop: n.desktop,
+                urgency_level: n.urgency_level.clone(),
+                telegram: n.telegram,
+                signal: n.signal,
+                quiet_hours_start: n.quiet_hours_start,
+                quiet_hours_end: n.quiet_hours_end,
+                min_kind: n.min_kind.clone(),
+            }),
+        // Injected by AgentLoop::start() — starts as None here.
+        approval_rx: None,
+        pending_approval_responses: Vec::new(),
     })
 }
 

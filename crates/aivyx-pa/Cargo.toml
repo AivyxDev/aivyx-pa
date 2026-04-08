@@ -25,7 +25,7 @@ aivyx-task-engine.workspace = true
 aivyx-team.workspace       = true
 
 # PA crates
-aivyx-actions.workspace = true
+aivyx-actions = { workspace = true, features = ["desktop-full"] }
 aivyx-loop.workspace    = true
 
 # CLI

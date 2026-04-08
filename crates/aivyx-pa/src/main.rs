@@ -524,15 +524,44 @@ async fn serve_api(
         std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new()));
 
     // Bridge mpsc notifications into broadcast + approval queue + history buffer
+    // Also tee to the proactive dispatcher if [notifications] is configured.
     let (notification_tx, _) = broadcast::channel::<aivyx_loop::Notification>(256);
     let broadcast_tx = notification_tx.clone();
     let bridge_approvals = std::sync::Arc::clone(&approvals);
     let bridge_history = std::sync::Arc::clone(&notification_history);
+
+    // Build dispatcher channel if notification dispatch is configured.
+    let dispatch_sender = pa_config.notifications.as_ref().map(|n| {
+        let (tx, rx) = tokio::sync::mpsc::channel::<aivyx_loop::Notification>(256);
+        let dispatch_ctx = aivyx_loop::DispatchContext {
+            config: aivyx_loop::NotificationDispatchConfig {
+                desktop: n.desktop,
+                urgency_level: n.urgency_level.clone(),
+                telegram: n.telegram,
+                signal: n.signal,
+                quiet_hours_start: n.quiet_hours_start,
+                quiet_hours_end: n.quiet_hours_end,
+                min_kind: n.min_kind.clone(),
+            },
+            // Provide messaging context for Telegram/Signal forwarding.
+            telegram: None, // TODO: thread MessagingCtx through if telegram/signal enabled
+        };
+        aivyx_loop::notify_dispatch::spawn_dispatcher(rx, dispatch_ctx);
+        tracing::info!(
+            desktop = n.desktop,
+            telegram = n.telegram,
+            signal = n.signal,
+            "Proactive notification dispatcher started"
+        );
+        tx
+    });
+
     tokio::spawn(async move {
         while let Some(notif) = notification_rx.recv().await {
             // Route approval-requiring notifications to the queue
             if notif.requires_approval {
                 bridge_approvals.lock().await.push(api::ApprovalItem {
+                    expires_at: Some(notif.timestamp + chrono::TimeDelta::try_seconds(120).unwrap()),
                     notification: notif.clone(),
                     status: api::ApprovalStatus::Pending,
                     resolved_at: None,
@@ -548,9 +577,45 @@ async fn serve_api(
                 hist.drain(..excess);
             }
 
+            // Forward to proactive dispatcher (desktop/Telegram/Signal)
+            if let Some(ref tx) = dispatch_sender {
+                let _ = tx.try_send(notif.clone());
+            }
+
             let _ = broadcast_tx.send(notif);
         }
     });
+
+
+    // Start webhook HTTP server if [webhook] is configured and enabled.
+    // The server receives POST /webhooks/{name} requests from external services
+    // (GitHub, Stripe, smart home hubs, IFTTT, etc.) and queues them as
+    // agent notifications. The webhook key was derived above but not yet used.
+    if let Some(ref webhook_cfg) = pa_config.webhook {
+        if webhook_cfg.enabled {
+            let wh_store = std::sync::Arc::clone(&store);
+            let wh_key = keys.webhook_key.take().unwrap_or_else(|| {
+                MasterKey::from_bytes([0u8; 32]) // should not happen if derive_all_keys ran
+            });
+            // Give the webhook server an mpsc sender that feeds into the notification broadcast.
+            let (wh_tx, mut wh_rx) = tokio::sync::mpsc::channel::<aivyx_loop::Notification>(64);
+            let wh_broadcast_tx = notification_tx.clone();
+            tokio::spawn(async move {
+                while let Some(n) = wh_rx.recv().await {
+                    let _ = wh_broadcast_tx.send(n);
+                }
+            });
+            match aivyx_pa::webhook::spawn_webhook_server(webhook_cfg, wh_store, &wh_key, wh_tx).await {
+                Ok(_handle) => {
+                    eprintln!("  Webhook server on http://127.0.0.1:{}", webhook_cfg.port);
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to start webhook server — webhooks disabled");
+                    eprintln!("  ⚠ Webhook server failed to start: {e}");
+                }
+            }
+        }
+    }
 
     let config_path = dirs.config_path();
 
@@ -572,6 +637,7 @@ async fn serve_api(
         agent_name,
         mission_ctx: mission_ctx_for_api,
         health: std::sync::Arc::new(tokio::sync::RwLock::new(api::HealthStatus::default())),
+        approval_tx: Some(_agent_loop.approval_tx.clone()),
     };
 
     let (_handle, cancel) = api::spawn_api_server(state, port).await?;

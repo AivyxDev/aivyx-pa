@@ -55,7 +55,7 @@ pub enum IntegrationKind {
 // ── Persona Dimensions ────────────────────────────────────────
 
 /// Persona dimension values for settings display.
-#[derive(serde::Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub struct PaPersonaDimensions {
     pub formality: f32,
     pub verbosity: f32,
@@ -77,7 +77,7 @@ pub struct PaPersonaDimensions {
 /// Reconstructed from `config.toml` on demand (not cached). Gives the
 /// frontend a complete picture of the agent's configuration without
 /// needing to understand nested TOML sections.
-#[derive(Default, serde::Serialize)]
+#[derive(Debug, Default, serde::Serialize)]
 pub struct SettingsSnapshot {
     // Agent
     pub agent_name: String,
@@ -149,6 +149,10 @@ pub struct SettingsSnapshot {
     pub desktop_configured: bool,
     pub desktop_app_access: Vec<(String, String, String)>, // (binary, display_name, access_level)
     pub devtools_configured: bool,
+    // Voice
+    pub voice_enabled: bool,
+    pub stt_model_path: Option<String>,
+    pub tts_model_path: Option<String>,
     // Webhooks
     pub webhook_configured: bool,
     // Triage
@@ -179,6 +183,18 @@ pub struct SettingsSnapshot {
 
 // ── Config Writers ────────────────────────────────────────────
 
+/// Ensure a TOML section exists in the content, appending it if it doesn't.
+fn ensure_section(content: &mut String, section: &str) {
+    if !content.lines().any(|l| l.trim() == section || l.trim().starts_with(&format!("{section}]"))) {
+        if !content.ends_with('\n') && !content.is_empty() {
+            content.push('\n');
+        }
+        content.push('\n');
+        content.push_str(section);
+        content.push('\n');
+    }
+}
+
 /// Toggle a boolean value in config.toml.
 ///
 /// Finds the key within the given `[section]` header (e.g. `[heartbeat]`)
@@ -186,23 +202,27 @@ pub struct SettingsSnapshot {
 ///
 /// This preserves all comments and formatting — only the value changes.
 pub fn toggle_config_bool(config_path: &Path, section: &str, key: &str, new_val: bool) -> Result<(), std::io::Error> {
-    let content = std::fs::read_to_string(config_path)?;
+    let mut content = std::fs::read_to_string(config_path)?;
+    ensure_section(&mut content, section);
     let mut lines: Vec<String> = content.lines().map(String::from).collect();
     let val_str = if new_val { "true" } else { "false" };
 
     let mut in_section = false;
-    for line in &mut lines {
+    let mut found = false;
+    let mut section_end = lines.len();
+    for (i, line) in lines.iter_mut().enumerate() {
         let trimmed = line.trim();
 
         if trimmed.starts_with('[') {
+            if in_section && !found { section_end = i; }
             in_section = trimmed == section ||
                 trimmed.starts_with(&format!("{section}]"));
         }
 
-        if in_section {
+        if in_section && !found {
             let stripped = trimmed.split('#').next().unwrap_or("").trim();
             if let Some((k, _v)) = stripped.split_once('=')
-                && k.trim() == key {
+                && k.trim().trim_matches('"') == key.trim_matches('"') {
                     let leading: String = line.chars().take_while(|c| c.is_whitespace()).collect();
                     let comment = if let Some(hash_pos) = line.find('#') {
                         &line[hash_pos..]
@@ -214,9 +234,12 @@ pub fn toggle_config_bool(config_path: &Path, section: &str, key: &str, new_val:
                     } else {
                         *line = format!("{leading}{key} = {val_str}  {comment}");
                     }
-                    break;
+                    found = true;
                 }
         }
+    }
+    if !found {
+        lines.insert(section_end, format!("{key} = {val_str}"));
     }
 
     let mut output = lines.join("\n");
@@ -232,7 +255,8 @@ pub fn toggle_config_bool(config_path: &Path, section: &str, key: &str, new_val:
 /// Finds `key = "..."` within the given `[section]` and replaces the value.
 /// If the key doesn't exist in the section, appends it before the next section.
 pub fn write_toml_string(config_path: &Path, section: &str, key: &str, value: &str) -> Result<(), std::io::Error> {
-    let content = std::fs::read_to_string(config_path)?;
+    let mut content = std::fs::read_to_string(config_path)?;
+    ensure_section(&mut content, section);
     let mut lines: Vec<String> = content.lines().map(String::from).collect();
     let safe: String = value.chars()
         .filter(|c| !c.is_control())
@@ -251,7 +275,7 @@ pub fn write_toml_string(config_path: &Path, section: &str, key: &str, value: &s
         if in_section && !found {
             let stripped = trimmed.split('#').next().unwrap_or("").trim();
             if let Some((k, _)) = stripped.split_once('=')
-                && k.trim() == key {
+                && k.trim().trim_matches('"') == key.trim_matches('"') {
                     let leading: String = line.chars().take_while(|c| c.is_whitespace()).collect();
                     let comment = line.find('#').map(|p| &line[p..]).filter(|_| stripped.contains('=')).unwrap_or("");
                     *line = if comment.is_empty() {
@@ -277,17 +301,6 @@ pub fn write_toml_string(config_path: &Path, section: &str, key: &str, value: &s
 /// exist yet.  Useful for optional sections like `[tool_discovery]` that may be
 /// absent in the config file.
 pub fn write_toml_string_create(config_path: &Path, section: &str, key: &str, value: &str) -> Result<(), std::io::Error> {
-    let content = std::fs::read_to_string(config_path)?;
-    // If the section doesn't exist, append it before writing the key.
-    let section_present = content.lines().any(|l| l.trim() == section);
-    if !section_present {
-        let mut out = content.clone();
-        if !out.ends_with('\n') { out.push('\n'); }
-        out.push('\n');
-        out.push_str(section);
-        out.push('\n');
-        validated_atomic_write(config_path, &out)?;
-    }
     write_toml_string(config_path, section, key, value)
 }
 
@@ -297,7 +310,8 @@ pub fn write_toml_string_create(config_path: &Path, section: &str, key: &str, va
 /// If the key doesn't exist in the section, appends it before the next section.
 /// The caller formats the number as a string (e.g. `"30"`, `"0.5"`).
 pub fn write_toml_number(config_path: &Path, section: &str, key: &str, value: &str) -> Result<(), std::io::Error> {
-    let content = std::fs::read_to_string(config_path)?;
+    let mut content = std::fs::read_to_string(config_path)?;
+    ensure_section(&mut content, section);
     let mut lines: Vec<String> = content.lines().map(String::from).collect();
 
     let mut in_section = false;
@@ -312,7 +326,7 @@ pub fn write_toml_number(config_path: &Path, section: &str, key: &str, value: &s
         if in_section && !found {
             let stripped = trimmed.split('#').next().unwrap_or("").trim();
             if let Some((k, _)) = stripped.split_once('=')
-                && k.trim() == key {
+                && k.trim().trim_matches('"') == key.trim_matches('"') {
                     let leading: String = line.chars().take_while(|c| c.is_whitespace()).collect();
                     let comment = line.find('#').map(|p| &line[p..]).filter(|_| stripped.contains('=')).unwrap_or("");
                     *line = if comment.is_empty() {
@@ -344,7 +358,8 @@ pub fn write_toml_multiline_string(
     key: &str,
     value: &str,
 ) -> Result<(), std::io::Error> {
-    let content = std::fs::read_to_string(config_path)?;
+    let mut content = std::fs::read_to_string(config_path)?;
+    ensure_section(&mut content, section);
     let mut lines: Vec<String> = content.lines().map(String::from).collect();
 
     let mut in_section = false;
@@ -374,7 +389,7 @@ pub fn write_toml_multiline_string(
         if in_section {
             let stripped = trimmed.split('#').next().unwrap_or("").trim();
             if let Some((k, _)) = stripped.split_once('=')
-                && k.trim() == key {
+                && k.trim().trim_matches('"') == key.trim_matches('"') {
                     found = true;
                     let leading: String = lines[i].chars().take_while(|c| c.is_whitespace()).collect();
                     // Check if this is a triple-quoted string that spans lines
@@ -434,7 +449,8 @@ pub fn write_toml_multiline_string(
 /// Finds `key = [...]` in the given section and replaces it with the new values.
 /// If the key doesn't exist, appends it to the section.
 pub fn write_toml_string_array(config_path: &Path, section: &str, key: &str, values: &[String]) {
-    let Ok(content) = std::fs::read_to_string(config_path) else { return };
+    let Ok(mut content) = std::fs::read_to_string(config_path) else { return };
+    ensure_section(&mut content, section);
     let mut lines: Vec<String> = content.lines().map(String::from).collect();
 
     let formatted = if values.is_empty() {
@@ -462,7 +478,7 @@ pub fn write_toml_string_array(config_path: &Path, section: &str, key: &str, val
         if in_section {
             let stripped = trimmed.split('#').next().unwrap_or("").trim();
             if let Some((k, _)) = stripped.split_once('=')
-                && k.trim() == key {
+                && k.trim().trim_matches('"') == key.trim_matches('"') {
                     let leading: String = lines[i].chars().take_while(|c| c.is_whitespace()).collect();
                     lines.remove(i);
                     while i < lines.len() {
@@ -575,12 +591,12 @@ fn write_lines(config_path: &Path, lines: &[String]) -> Result<(), std::io::Erro
     validated_atomic_write(config_path, &output)
 }
 
-/// Write a per-application access level to `[desktop.app_access]` in config.toml.
-///
-/// Creates the `[desktop.app_access]` sub-table if it doesn't exist yet.
-/// The access level is stored as a quoted string matching `AppAccess::to_string()`.
 pub fn write_app_access(config_path: &Path, binary: &str, access: &str) -> Result<(), std::io::Error> {
-    write_toml_string_create(config_path, "[desktop.app_access]", binary, access)
+    let serde_access = if access == "View Only" { "ViewOnly" } else { access };
+    // We MUST quote the binary name if it contains dots or special characters 
+    // to prevent TOML from interpreting it as nested child tables (`org: {gnome: {Terminal...}}`)
+    let quoted_binary = format!("\"{}\"", binary.replace('"', "\\\""));
+    write_toml_string_create(config_path, "[desktop.app_access]", &quoted_binary, serde_access)
 }
 
 /// Resolve the TOML section name for an integration kind.
@@ -665,9 +681,18 @@ pub fn remove_integration_config(
     };
 
     // Find end: next `[` header or EOF.
+    // Skip any headers that are sub-tables of this section (e.g. `[desktop.interaction]`).
     let end = lines[start + 1..]
         .iter()
-        .position(|l| l.starts_with('['))
+        .position(|l| {
+            let t = l.trim();
+            if !t.starts_with('[') {
+                return false;
+            }
+            // If it's a sub-table of the section we're removing (e.g., `[desktop.interaction]`), keep going
+            let is_subtable_or_array = t.starts_with(&format!("[{section_name}.")) || t.starts_with(&format!("[[{section_name}."));
+            !is_subtable_or_array
+        })
         .map(|offset| start + 1 + offset)
         .unwrap_or(lines.len());
 
@@ -908,8 +933,9 @@ pub fn reload_settings_snapshot(config_path: &Path) -> Result<SettingsSnapshot, 
         .map_err(|e| format!("Cannot read {}: {e}", config_path.display()))?;
     let core_config: AivyxConfig = toml::from_str(&toml_str)
         .map_err(|e| format!("Core config parse error: {e}"))?;
-    let pa_config: PaConfig = toml::from_str(&toml_str)
-        .map_err(|e| format!("PA config parse error: {e}"))?;
+    let pa_config: PaConfig = toml::from_str::<PaConfig>(&toml_str)
+        .map_err(|e| format!("PA config parse error: {e}"))?
+        .with_auto_desktop();
 
     let agent_cfg_ref = pa_config.agent.as_ref();
     let hb_ref = pa_config.heartbeat.as_ref();
@@ -1016,6 +1042,9 @@ pub fn reload_settings_snapshot(config_path: &Path) -> Result<SettingsSnapshot, 
             entries
         },
         devtools_configured: pa_config.devtools.is_some(),
+        voice_enabled: pa_config.voice.as_ref().map(|v| v.enabled).unwrap_or(true),
+        stt_model_path: pa_config.voice.as_ref().and_then(|v| v.stt_model_path.clone()),
+        tts_model_path: pa_config.voice.as_ref().and_then(|v| v.tts_model_path.clone()),
         webhook_configured: pa_config.webhook.is_some(),
         triage_configured: pa_config.triage.is_some(),
         mcp_servers: pa_config.mcp_servers.iter().map(|s| s.name.clone()).collect(),

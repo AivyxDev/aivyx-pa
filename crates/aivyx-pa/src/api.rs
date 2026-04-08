@@ -281,6 +281,10 @@ pub struct AppState {
     pub mission_ctx: Option<MissionToolContext>,
     /// Startup health check results (refreshed periodically).
     pub health: Arc<tokio::sync::RwLock<HealthStatus>>,
+    /// Channel back to the agent loop for bidirectional approval decisions.
+    /// When the user approves or denies something in the TUI or HTTP API,
+    /// the response is sent here so the heartbeat can react immediately.
+    pub approval_tx: Option<tokio::sync::mpsc::Sender<aivyx_loop::ApprovalResponse>>,
 }
 
 // ── Approval Types ────────────────────────────────────────────
@@ -292,6 +296,7 @@ pub enum ApprovalStatus {
     Pending,
     Approved,
     Denied,
+    Expired,
 }
 
 /// An item in the approval queue.
@@ -303,6 +308,8 @@ pub struct ApprovalItem {
     pub status: ApprovalStatus,
     /// When the approval was resolved (None if still pending).
     pub resolved_at: Option<DateTime<Utc>>,
+    /// When the pending approval expires. Computed at creation time.
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 // ── Router ─────────────────────────────────────────────────────
@@ -1145,6 +1152,16 @@ async fn approve_item(
 
     item.status = ApprovalStatus::Approved;
     item.resolved_at = Some(Utc::now());
+
+    // Send back to the agent loop for immediate reaction
+    if let Some(ref tx) = state.approval_tx {
+        let _ = tx.try_send(aivyx_loop::ApprovalResponse {
+            notification_id: id.clone(),
+            approved: true,
+            message: None,
+        });
+    }
+
     Ok(Json(serde_json::json!({ "status": "approved", "id": id })))
 }
 
@@ -1160,6 +1177,16 @@ async fn deny_item(
 
     item.status = ApprovalStatus::Denied;
     item.resolved_at = Some(Utc::now());
+
+    // Send back to the agent loop for immediate reaction
+    if let Some(ref tx) = state.approval_tx {
+        let _ = tx.try_send(aivyx_loop::ApprovalResponse {
+            notification_id: id.clone(),
+            approved: false,
+            message: None,
+        });
+    }
+
     Ok(Json(serde_json::json!({ "status": "denied", "id": id })))
 }
 

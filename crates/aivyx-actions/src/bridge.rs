@@ -680,7 +680,7 @@ pub fn register_desktop_actions(
     // Deep interaction tools (AT-SPI2/UIA, CDP, MPRIS/SMTC, ydotool/SendInput).
     if let Some(ref ic) = config.interaction {
         if ic.enabled {
-            register_interaction_actions(registry, ic.clone());
+            register_interaction_actions(registry, ic.clone(), config.clone());
         }
     }
 }
@@ -695,12 +695,13 @@ pub fn register_desktop_actions(
 fn register_interaction_actions(
     registry: &mut aivyx_core::ToolRegistry,
     config: crate::desktop::interaction::InteractionConfig,
+    desktop_config: crate::desktop::DesktopConfig,
 ) {
     use aivyx_core::CapabilityScope;
     use crate::desktop::interaction::{InteractionContext, tools::*};
 
     let scope = || CapabilityScope::Custom("desktop".into());
-    let ctx = InteractionContext::new(config.clone());
+    let ctx = InteractionContext::new(config.clone(), desktop_config);
 
     // Semantic UI tools (always registered — fall back to ydotool on Linux, SendInput on Windows).
     registry.register(Box::new(
@@ -882,4 +883,39 @@ fn register_interaction_actions(
             ActionTool::new(Box::new(MediaInfo { ctx })).with_scope(scope()),
         ));
     }
+}
+
+/// Register OS background task management tools.
+pub fn register_task_actions(
+    registry: &mut aivyx_core::ToolRegistry,
+    task_registry: crate::tasks::TaskRegistry,
+    persist_path: Option<std::sync::Arc<std::path::PathBuf>>,
+) {
+    use crate::tasks::{CancelTask, GetTaskStatus, ListTasks, SpawnTask};
+    
+    registry.register(Box::new(ActionTool::new(Box::new(SpawnTask {
+        registry: task_registry.clone(),
+        persist_path: persist_path.clone(),
+    }))));
+    registry.register(Box::new(ActionTool::new(Box::new(GetTaskStatus {
+        registry: task_registry.clone(),
+    }))));
+    registry.register(Box::new(ActionTool::new(Box::new(ListTasks {
+        registry: task_registry.clone(),
+    }))));
+    registry.register(Box::new(ActionTool::new(Box::new(CancelTask {
+        registry: task_registry,
+        persist_path,
+    }))));
+}
+
+/// Register read-only system monitoring tools.
+pub fn register_monitor_actions(registry: &mut aivyx_core::ToolRegistry) {
+    use crate::monitor::{CheckDiskSpace, CheckProcess, CheckUrlHealth, SystemStats, TailLog};
+
+    registry.register(Box::new(ActionTool::new(Box::new(CheckDiskSpace))));
+    registry.register(Box::new(ActionTool::new(Box::new(CheckProcess))));
+    registry.register(Box::new(ActionTool::new(Box::new(TailLog))));
+    registry.register(Box::new(ActionTool::new(Box::new(CheckUrlHealth))));
+    registry.register(Box::new(ActionTool::new(Box::new(SystemStats))));
 }

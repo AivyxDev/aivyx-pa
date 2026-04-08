@@ -1039,12 +1039,33 @@ model = "{safe_model}""#
         || std::env::var("WAYLAND_DISPLAY").is_ok();
     if has_display || desktop_interaction_setup.is_some() {
         config_toml.push_str("\n[desktop]\n# Auto-enabled: display server detected\nclipboard = true\nwindows = true\nnotifications = true\n");
-        if let Some(ref di) = desktop_interaction_setup {
-            if di.enabled {
-                config_toml.push_str("\n[desktop.interaction]\nenabled = true\n");
-            }
+
+        // Determine whether to enable deep interaction:
+        // - User explicitly chose option 10 → respect their choice (yes or no)
+        // - User skipped option 10, but display server is present → auto-enable
+        //   (AT-SPI2/CDP/ydotool are now compiled in; runtime deps may still be needed)
+        let enable_interaction = match &desktop_interaction_setup {
+            Some(di) => di.enabled, // explicit user choice always wins
+            None => has_display,    // auto-enable when display detected
+        };
+        if enable_interaction {
+            config_toml.push_str(concat!(
+                "\n[desktop.interaction]\n",
+                "enabled = true\n",
+                "# Backends (all enabled by default — disable if not installed):\n",
+                "# [desktop.interaction.accessibility]  # AT-SPI2: requires at-spi2-core\n",
+                "# enabled = true\n",
+                "# [desktop.interaction.browser]        # CDP: requires Chrome --remote-debugging-port=9222\n",
+                "# enabled = true\n",
+                "# debug_port = 9222\n",
+                "# [desktop.interaction.media]          # MPRIS: requires D-Bus + media player\n",
+                "# enabled = true\n",
+                "# [desktop.interaction.input]          # ydotool: requires ydotoold daemon\n",
+                "# enabled = true\n",
+            ));
         }
     }
+
 
     std::fs::write(dirs.config_path(), config_toml)?;
 
@@ -1287,5 +1308,224 @@ enabled = true
         write!(f, "[agent]\nname = \"test\"\npersona = \"assistant\"\n\n[heartbeat]\nenabled = true\ninterval_minutes = 30\n").unwrap();
         let warnings = PaConfig::lint(f.path(), None, None);
         assert!(warnings.is_empty(), "Expected no warnings, got: {:?}", warnings);
+    }
+
+    /// End-to-end test: build a full genesis config for every persona with
+    /// all integrations enabled, then parse through both AivyxConfig and
+    /// PaConfig and verify the SettingsSnapshot.
+    #[test]
+    fn genesis_config_end_to_end_all_personas() {
+        use aivyx_config::AivyxConfig;
+        use crate::settings::reload_settings_snapshot;
+
+        let personas = ["assistant", "coder", "researcher", "writer", "coach", "companion", "ops", "analyst"];
+        let providers = [
+            ("Ollama", r#"type = "Ollama"
+base_url = "http://localhost:11434"
+model = "qwen3:8b""#),
+            ("Claude", r#"type = "Claude"
+api_key_ref = "ANTHROPIC_API_KEY"
+model = "claude-sonnet-4-20250514""#),
+            ("OpenAI", r#"type = "OpenAI"
+api_key_ref = "OPENAI_API_KEY"
+model = "gpt-4o""#),
+            ("OpenAICompatible", r#"type = "OpenAICompatible"
+api_key_ref = "OPENROUTER_API_KEY"
+base_url = "https://openrouter.ai/api"
+model = "deepseek/deepseek-r1""#),
+        ];
+
+        for persona in &personas {
+            for (provider_label, provider_toml) in &providers {
+                let bundle = persona_defaults::for_persona(persona);
+                let safe_agent = "TestAgent";
+
+                // Build config.toml exactly as genesis does
+                let mut config = format!("# Genesis E2E test: {persona} + {provider_label}\n\n[provider]\n{provider_toml}\n");
+
+                config.push_str("\n[autonomy]\ndefault_tier = \"Trust\"\n");
+
+                // Agent
+                config.push_str(&format!(
+                    "\n[agent]\nname = \"{safe_agent}\"\npersona = \"{persona}\"\n"
+                ));
+                config.push_str(&format_soul_line(bundle.soul_template));
+                config.push('\n');
+                let skills: Vec<&str> = bundle.skills.iter().copied().collect();
+                config.push_str(&format_skills_line(&skills));
+                config.push('\n');
+
+                // Loop
+                config.push_str("\n[loop]\ncheck_interval_minutes = 15\nmorning_briefing = true\nbriefing_hour = 8\n");
+
+                // Heartbeat
+                config.push_str(&format_heartbeat_section(&bundle.heartbeat));
+
+                // Persona dimensions
+                config.push_str(&format_persona_section(persona));
+
+                // Goals
+                config.push_str(&format_goals_section(bundle.goals));
+
+                // Schedules — all integrations "configured" so nothing is skipped
+                let all_integrations = vec!["email", "calendar", "contacts", "telegram",
+                    "matrix", "signal", "sms", "vault", "finance", "devtools"];
+                config.push_str(&format_schedules_section(bundle.schedules, safe_agent, &all_integrations));
+
+                // All integration sections
+                config.push_str(r#"
+[email]
+imap_host = "imap.example.com"
+imap_port = 993
+smtp_host = "smtp.example.com"
+smtp_port = 587
+address = "user@example.com"
+username = "user@example.com"
+# Password stored encrypted as EMAIL_PASSWORD
+
+[calendar]
+url = "https://dav.example.com/calendars/user"
+username = "user"
+# Password stored encrypted as CALENDAR_PASSWORD
+
+[contacts]
+url = "https://dav.example.com/contacts/user"
+username = "user"
+# Password stored encrypted as CONTACTS_PASSWORD
+
+[telegram]
+# Bot token stored encrypted as TELEGRAM_BOT_TOKEN
+default_chat_id = "123456789"
+
+[matrix]
+homeserver = "https://matrix.example.com"
+# Access token stored encrypted as MATRIX_ACCESS_TOKEN
+default_room_id = "!abc:example.com"
+
+[signal]
+account = "+1234567890"
+socket_path = "/run/signald/signald.sock"
+
+[sms]
+provider = "twilio"
+account_id = "AC1234"
+from_number = "+15555555555"
+# Auth token stored encrypted as SMS_AUTH_TOKEN
+
+[vault]
+path = "~/Documents/vault"
+# extensions = ["md", "txt", "pdf"]
+
+[finance]
+enabled = true
+receipt_folder = "~/receipts"
+
+[devtools]
+repo_path = "/home/user/project"
+forge = "github"
+repo = "user/project"
+# Forge token stored encrypted as FORGE_TOKEN
+
+[desktop]
+# Auto-enabled: display server detected
+clipboard = true
+windows = true
+notifications = true
+"#);
+
+                // ── Step 1: Verify raw TOML parses ──────────────
+                let core_result = toml::from_str::<AivyxConfig>(&config);
+                assert!(core_result.is_ok(),
+                    "AivyxConfig parse FAILED for {persona}+{provider_label}:\n{}\nConfig:\n{config}",
+                    core_result.unwrap_err());
+
+                let pa_result = toml::from_str::<PaConfig>(&config);
+                assert!(pa_result.is_ok(),
+                    "PaConfig parse FAILED for {persona}+{provider_label}:\n{}\nConfig:\n{config}",
+                    pa_result.unwrap_err());
+
+                // ── Step 2: Verify via reload_settings_snapshot ─
+                let mut f = tempfile::NamedTempFile::new().unwrap();
+                std::io::Write::write_all(&mut f, config.as_bytes()).unwrap();
+                let snapshot = reload_settings_snapshot(f.path());
+                assert!(snapshot.is_ok(),
+                    "reload_settings_snapshot FAILED for {persona}+{provider_label}: {}",
+                    snapshot.unwrap_err());
+                let s = snapshot.unwrap();
+
+                // ── Step 3: Verify snapshot fields ──────────────
+                assert_eq!(s.agent_name, "TestAgent", "{persona}+{provider_label}: agent_name");
+                assert_eq!(s.agent_persona, *persona, "{persona}+{provider_label}: persona");
+                assert_eq!(s.provider_label, match *provider_label {
+                    "Ollama" => "Ollama",
+                    "Claude" => "Claude",
+                    "OpenAI" => "OpenAI",
+                    "OpenAICompatible" => "OpenAI-Compatible",
+                    _ => panic!("unknown provider"),
+                }, "{persona}+{provider_label}: provider_label");
+                assert!(!s.agent_skills.is_empty(), "{persona}+{provider_label}: skills should not be empty");
+                assert!(s.has_custom_soul, "{persona}+{provider_label}: should have custom soul");
+                assert_eq!(s.autonomy_tier, "Trust", "{persona}+{provider_label}: autonomy tier");
+
+                // Heartbeat
+                assert!(s.heartbeat_enabled, "{persona}+{provider_label}: heartbeat should be enabled");
+                assert_eq!(s.heartbeat_interval, 30);
+
+                // Persona dimensions present
+                assert!(s.persona_dimensions.is_some(), "{persona}+{provider_label}: persona dimensions");
+
+                // Loop
+                assert!(s.morning_briefing);
+                assert_eq!(s.briefing_hour, 8);
+                assert_eq!(s.loop_check_interval, 15);
+
+                // Schedules (may vary by persona but should have at least one)
+                // Some personas have no schedules with requires="" so count may vary
+
+                // Integrations — all should be configured
+                assert!(s.email_configured, "{persona}+{provider_label}: email");
+                assert_eq!(s.email_address.as_deref(), Some("user@example.com"));
+                assert!(s.calendar_configured, "{persona}+{provider_label}: calendar");
+                assert!(s.contacts_configured, "{persona}+{provider_label}: contacts");
+                assert!(s.telegram_configured, "{persona}+{provider_label}: telegram");
+                assert!(s.matrix_configured, "{persona}+{provider_label}: matrix");
+                assert!(s.matrix_homeserver.as_deref() == Some("https://matrix.example.com"));
+                assert!(s.signal_configured, "{persona}+{provider_label}: signal");
+                assert!(s.sms_configured, "{persona}+{provider_label}: sms");
+                assert!(s.vault_configured, "{persona}+{provider_label}: vault");
+                assert!(s.finance_configured, "{persona}+{provider_label}: finance");
+                assert!(s.devtools_configured, "{persona}+{provider_label}: devtools");
+                assert!(s.desktop_configured, "{persona}+{provider_label}: desktop");
+            }
+        }
+    }
+
+    /// Verify that a minimal genesis config (no integrations) also parses.
+    #[test]
+    fn genesis_config_minimal_no_integrations() {
+        use aivyx_config::AivyxConfig;
+
+        let config = r#"# Minimal genesis
+[provider]
+type = "Ollama"
+base_url = "http://localhost:11434"
+model = "qwen3:8b"
+
+[autonomy]
+default_tier = "Trust"
+
+[agent]
+name = "Aria"
+persona = "assistant"
+"#;
+        let core: AivyxConfig = toml::from_str(config)
+            .unwrap_or_else(|e| panic!("AivyxConfig failed: {e}"));
+        let pa: PaConfig = toml::from_str(config)
+            .unwrap_or_else(|e| panic!("PaConfig failed: {e}"));
+
+        assert!(matches!(core.provider, aivyx_config::ProviderConfig::Ollama { .. }));
+        assert_eq!(pa.agent.unwrap().name, "Aria");
+        assert!(pa.email.is_none());
+        assert!(pa.desktop.is_none());
     }
 }

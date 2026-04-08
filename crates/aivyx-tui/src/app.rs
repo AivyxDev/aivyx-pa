@@ -331,6 +331,10 @@ pub struct App {
     // ── Approvals state (cached from AppState) ─────────────────
     pub approvals: Vec<ApprovalItem>,
     pub approval_selected: usize,
+    /// Whether the full-body detail pane is open for the selected approval.
+    pub approval_detail_open: bool,
+    /// Scroll offset inside the detail pane (lines scrolled).
+    pub approval_detail_scroll: u16,
 
     // ── Audit state (cached from AuditLog) ─────────────────────
     pub audit_entries: Vec<AuditEntry>,
@@ -346,8 +350,15 @@ pub struct App {
     // ── Missions state (cached from TaskEngine) ─────────────────
     pub missions: Vec<TaskMetadata>,
     pub mission_selected: usize,
-    pub mission_filter: usize, // 0=all, 1=active, 2=completed, 3=failed
+    pub mission_filter: usize,
     pub mission_detail: Option<Mission>,
+
+    // ── Voice loop state ─────────────────────────────────────────
+    pub voice_recording: bool,
+    pub voice_transcribing: bool,
+    pub voice_process: Option<std::process::Child>,
+    pub voice_transcript_rx: Option<tokio::sync::mpsc::UnboundedReceiver<String>>,
+    pub voice_transcript_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
 
     // ── Memory state ───────────────────────────────────────────
     pub memories: Vec<MemoryEntry>,
@@ -448,6 +459,8 @@ impl App {
 
             approvals: Vec::new(),
             approval_selected: 0,
+            approval_detail_open: false,
+            approval_detail_scroll: 0,
 
             audit_entries: Vec::new(),
             audit_filter: 0,
@@ -462,6 +475,12 @@ impl App {
             mission_selected: 0,
             mission_filter: 0,
             mission_detail: None,
+
+            voice_recording: false,
+            voice_transcribing: false,
+            voice_process: None,
+            voice_transcript_rx: None,
+            voice_transcript_tx: None,
 
             memories: Vec::new(),
             memory_selected: 0,
@@ -786,12 +805,85 @@ impl App {
         self.last_refresh = std::time::Instant::now();
     }
 
+    pub fn toggle_voice_recording(&mut self) {
+        if self.voice_recording {
+            self.stop_voice_recording();
+        } else {
+            self.start_voice_recording();
+        }
+    }
+
+    pub fn start_voice_recording(&mut self) {
+        if self.chat_streaming || self.voice_recording || !self.settings.as_ref().map(|s| s.voice_enabled).unwrap_or(true) {
+            return;
+        }
+
+        // Initialize the transcriber channels if missing
+        if self.voice_transcript_tx.is_none() {
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+            self.voice_transcript_tx = Some(tx);
+            self.voice_transcript_rx = Some(rx);
+        }
+
+        self.voice_recording = true;
+        
+        // Spawn arecord standard sync child process
+        match std::process::Command::new("arecord")
+            .arg("-f").arg("S16_LE")
+            .arg("-c1")
+            .arg("-r16000")
+            .arg("/tmp/aivyx-voice.wav")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(child) => {
+                self.voice_process = Some(child);
+            }
+            Err(e) => {
+                tracing::error!("Failed to start arecord: {e}");
+                self.voice_recording = false;
+            }
+        }
+    }
+
+    pub fn stop_voice_recording(&mut self) {
+        if !self.voice_recording { return; }
+        self.voice_recording = false;
+        self.voice_transcribing = true;
+
+        if let Some(mut child) = self.voice_process.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+
+        let stt_model = self.settings.as_ref()
+            .and_then(|s| s.stt_model_path.clone())
+            .unwrap_or_else(|| "/home/julian/.local/share/aivyx-pa/models/ggml-base.en.bin".into());
+
+        if let Some(tx) = &self.voice_transcript_tx {
+            let tx_clone = tx.clone();
+            tokio::spawn(async move {
+                let out = tokio::process::Command::new("whisper-cli")
+                    .arg("-m").arg(&stt_model)
+                    .arg("-f").arg("/tmp/aivyx-voice.wav")
+                    .arg("-nt") // no timestamps
+                    .arg("-np") // no prints (only results)
+                    .output()
+                    .await;
+                
+                if let Ok(output) = out {
+                    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !text.is_empty() {
+                        let _ = tx_clone.send(text);
+                    }
+                }
+                let _ = tx_clone.send("__CLEAR_TRANSCRIBING__".into());
+            });
+        }
+    }
+
     /// Send a chat message to the agent. Spawns an async task that streams
-    /// tokens back via `chat_token_rx`.
-    ///
-    /// Supports priority prefixes: `!critical:`, `!high:`, `!low:`, `!bg:`
-    /// which display a badge on the user message. The message is still sent
-    /// through `turn_stream` for streaming support.
     pub fn send_chat_message(&mut self) {
         if self.chat_input.is_empty() || self.chat_streaming {
             return;
@@ -863,22 +955,75 @@ impl App {
     pub fn resolve_approval(&mut self, status: ApprovalStatus) {
         if let Some(item) = self.approvals.get_mut(self.approval_selected) {
             if item.status == ApprovalStatus::Pending {
+                let notif_id = item.notification.id.clone();
                 item.status = status;
                 item.resolved_at = Some(chrono::Utc::now());
 
-                // Sync back to the shared approval queue
+                // 1. Sync back to the shared approval queue (for API reads)
                 if let Some(ref state) = self.state {
                     let idx = self.approval_selected;
-                    let status = status;
+                    let updated_status = status;
                     let approvals = state.approvals.clone();
                     tokio::spawn(async move {
                         let mut queue = approvals.lock().await;
                         if let Some(shared) = queue.get_mut(idx) {
-                            shared.status = status;
+                            shared.status = updated_status;
                             shared.resolved_at = Some(chrono::Utc::now());
                         }
                     });
+
+                    // 2. Send decision back to the agent loop channel so the
+                    //    heartbeat can react immediately rather than waiting for
+                    //    the next tick to poll the shared Vec.
+                    if let Some(ref tx) = state.approval_tx {
+                        let _ = tx.try_send(aivyx_loop::ApprovalResponse {
+                            notification_id: notif_id,
+                            approved: status == ApprovalStatus::Approved,
+                            message: None,
+                        });
+                    }
                 }
+            }
+        }
+    }
+
+    /// Periodically called to check for expired pending approvals.
+    pub fn poll_approval_expiries(&mut self) {
+        let now = chrono::Utc::now();
+        let mut expired_indices = Vec::new();
+
+        for (idx, item) in self.approvals.iter_mut().enumerate() {
+            if item.status == ApprovalStatus::Pending {
+                if let Some(expires) = item.expires_at {
+                    if now >= expires {
+                        item.status = ApprovalStatus::Expired;
+                        item.resolved_at = Some(now);
+                        expired_indices.push(idx);
+                    }
+                }
+            }
+        }
+
+        if !expired_indices.is_empty() {
+            if let Some(ref state) = self.state {
+                let approvals = state.approvals.clone();
+                tokio::spawn(async move {
+                    let mut queue = approvals.lock().await;
+
+                    // Re-check and update any globally matching indices
+                    for &idx in &expired_indices {
+                        if let Some(shared) = queue.get_mut(idx) {
+                            if shared.status == ApprovalStatus::Pending {
+                                if let Some(expires) = shared.expires_at {
+                                    if chrono::Utc::now() >= expires {
+                                        shared.status = ApprovalStatus::Expired;
+                                        shared.resolved_at = Some(chrono::Utc::now());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
             }
         }
     }
@@ -1191,9 +1336,25 @@ impl App {
                     &state.config_path, "[tool_discovery]", "mode", next,
                 );
                 match aivyx_pa::settings::reload_settings_snapshot(&state.config_path) {
-            Ok(s) => { self.settings = Some(s); self.settings_error = None; }
-            Err(e) => { self.settings = None; self.settings_error = Some(e); }
-        }
+                    Ok(s) => { self.settings = Some(s); self.settings_error = None; }
+                    Err(e) => { self.settings = None; self.settings_error = Some(e); }
+                }
+            }
+            // Card 9: Applications — trigger scan if empty, otherwise no-op as Left/Right cycles access
+            (9, _) => {
+                if settings.desktop_app_access.is_empty() {
+                    let Some(ref state) = self.state else { return };
+                    let path = state.config_path.clone();
+                    // Must write the empty table first so [desktop] block knows it's configured
+                    let _ = aivyx_pa::settings::write_toml_string_create(&path, "[desktop.app_access]", "dummy", "Interact");
+                    
+                    tokio::spawn(async move {
+                        let apps = aivyx_actions::desktop::scanner::scan_applications();
+                        for (bin_name, _) in apps {
+                            let _ = aivyx_pa::settings::write_app_access(&path, &bin_name, "Interact");
+                        }
+                    });
+                }
             }
             _ => {}
         }
@@ -1468,6 +1629,38 @@ impl App {
 
         while let Ok(token) = rx.try_recv() {
             if token.starts_with("\n[[DONE") {
+                // If Voice is enabled, pass the fully generated response to Piper TTS
+                if self.settings.as_ref().map(|s| s.voice_enabled).unwrap_or(true) {
+                    if let Some(last) = self.chat_messages.last() {
+                        let text = last.content.clone();
+                        let tts_model = self.settings.as_ref()
+                            .and_then(|s| s.tts_model_path.clone())
+                            .unwrap_or_else(|| "/home/julian/.local/share/aivyx-pa/models/en_US-lessac-medium.onnx".into());
+                        
+                        tokio::spawn(async move {
+                            // Write response to temp file
+                            let _ = std::fs::write("/tmp/aivyx-tts.txt", &text);
+                            
+                            // Spawn piper process to generate wav audio using File IO
+                            let out = tokio::process::Command::new("sh")
+                                .arg("-c")
+                                .arg(format!("cat /tmp/aivyx-tts.txt | piper -m '{}' -f /tmp/aivyx-tts.wav", tts_model))
+                                .output()
+                                .await;
+                                
+                            if out.is_ok() {
+                                // Play back audio sequentially
+                                let _ = tokio::process::Command::new("aplay")
+                                    .arg("/tmp/aivyx-tts.wav")
+                                    .stdout(std::process::Stdio::null())
+                                    .stderr(std::process::Stdio::null())
+                                    .status()
+                                    .await;
+                            }
+                        });
+                    }
+                }
+
                 self.chat_streaming = false;
                 self.chat_token_rx = None;
                 return;
@@ -1476,6 +1669,31 @@ impl App {
             if let Some(last) = self.chat_messages.last_mut() {
                 last.content.push_str(&token);
             }
+        }
+    }
+
+    /// Poll for asynchronous voice transcripts from the STT pipeline.
+    pub fn poll_voice_transcripts(&mut self) {
+        let mut text_to_send = None;
+        let mut clear_flag = false;
+
+        if let Some(rx) = &mut self.voice_transcript_rx {
+            while let Ok(transcript) = rx.try_recv() {
+                if transcript == "__CLEAR_TRANSCRIBING__" {
+                    clear_flag = true;
+                } else {
+                    text_to_send = Some(transcript);
+                }
+            }
+        }
+
+        if clear_flag {
+            self.voice_transcribing = false;
+        }
+
+        if let Some(text) = text_to_send {
+            self.chat_input = text;
+            self.send_chat_message();
         }
     }
 

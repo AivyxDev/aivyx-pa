@@ -135,6 +135,11 @@ const INTEGRATION_LABELS: &[&str] = &[
     "Telegram",
     "Matrix",
     "Signal",
+    "SMS (Twilio/Vonage)",
+    "Document Vault",
+    "Finance Tracking",
+    "Dev Tools (git + forge)",
+    "Desktop Interaction (AT-SPI2)",
 ];
 
 // ── Wizard State ──────────────────────────────────────────────────
@@ -180,21 +185,43 @@ struct GenesisState {
     email_username: String,
     email_password: Zeroizing<String>,
 
-    // Step 7: Integrations
-    integration_flags: [bool; 5],
+    // Step 7: Integrations (10 toggles)
+    integration_flags: [bool; 10],
+    // Calendar (0)
     calendar_url: String,
     calendar_user: String,
     calendar_pass: Zeroizing<String>,
+    // Contacts (1)
     contacts_url: String,
     contacts_user: String,
     contacts_pass: Zeroizing<String>,
+    // Telegram (2)
     telegram_token: Zeroizing<String>,
     telegram_chat_id: String,
+    // Matrix (3)
     matrix_homeserver: String,
     matrix_token: Zeroizing<String>,
     matrix_room_id: String,
+    // Signal (4)
     signal_account: String,
     signal_socket: String,
+    // SMS (5)
+    sms_provider: String,     // "twilio" or "vonage"
+    sms_account_id: String,
+    sms_auth_token: Zeroizing<String>,
+    sms_from_number: String,
+    // Vault (6)
+    vault_path: String,
+    // Finance (7)
+    finance_receipt_folder: String,
+    // DevTools (8)
+    devtools_repo_path: String,
+    devtools_forge: String,       // "" = none, "github", "gitea"
+    devtools_forge_api_url: String,
+    devtools_repo_slug: String,   // "owner/name"
+    devtools_forge_token: Zeroizing<String>,
+    // Desktop (9)
+    desktop_deep_interaction: bool,
 
     // Step 8: Ignition
     heartbeat_flags: [bool; 10],
@@ -235,7 +262,7 @@ impl GenesisState {
             smtp_port: "587".into(),
             email_username: String::new(),
             email_password: Zeroizing::new(String::new()),
-            integration_flags: [false; 5],
+            integration_flags: [false; 10],
             calendar_url: String::new(),
             calendar_user: String::new(),
             calendar_pass: Zeroizing::new(String::new()),
@@ -249,6 +276,18 @@ impl GenesisState {
             matrix_room_id: String::new(),
             signal_account: String::new(),
             signal_socket: "/var/run/signal-cli/socket".into(),
+            sms_provider: "twilio".into(),
+            sms_account_id: String::new(),
+            sms_auth_token: Zeroizing::new(String::new()),
+            sms_from_number: String::new(),
+            vault_path: "~/Documents/vault".into(),
+            finance_receipt_folder: "receipts".into(),
+            devtools_repo_path: String::new(),
+            devtools_forge: String::new(),
+            devtools_forge_api_url: String::new(),
+            devtools_repo_slug: String::new(),
+            devtools_forge_token: Zeroizing::new(String::new()),
+            desktop_deep_interaction: false,
             heartbeat_flags: [false; 10],
             focused_field: 0,
             error_message: None,
@@ -608,7 +647,13 @@ fn handle_soul_skills(state: &mut GenesisState, key: event::KeyEvent) -> Action 
         }
         KeyCode::Backspace if state.focused_field == 2 => { state.custom_skills_input.pop(); }
         KeyCode::Char(c) if state.focused_field == 2 => state.custom_skills_input.push(c),
-        KeyCode::Enter => return Action::Advance,
+        KeyCode::Enter => {
+            if state.focused_field < 2 {
+                state.focused_field += 1;
+            } else {
+                return Action::Advance;
+            }
+        }
         KeyCode::Esc => return Action::Back,
         _ => {}
     }
@@ -630,7 +675,13 @@ fn handle_schedule(state: &mut GenesisState, key: event::KeyEvent) -> Action {
             if state.focused_field == 0 { state.briefing_hour.push(c); }
             else if state.focused_field == 1 { state.check_interval.push(c); }
         }
-        KeyCode::Enter => return Action::Advance,
+        KeyCode::Enter => {
+            if state.focused_field < 2 {
+                state.focused_field += 1;
+            } else {
+                return Action::Advance;
+            }
+        }
         KeyCode::Esc => return Action::Back,
         _ => {}
     }
@@ -709,24 +760,33 @@ fn handle_email(state: &mut GenesisState, key: event::KeyEvent) -> Action {
 }
 
 fn handle_integrations(state: &mut GenesisState, key: event::KeyEvent) -> Action {
-    // Field 0..4 = toggle flags, field 5+ = sub-fields for enabled integrations
+    let max = integration_field_count(state);
     match key.code {
         KeyCode::Up => {
             if state.focused_field > 0 { state.focused_field -= 1; }
         }
         KeyCode::Down => {
             state.focused_field += 1;
-            // Clamp to valid range
-            let max = integration_field_count(state);
             if state.focused_field >= max { state.focused_field = max.saturating_sub(1); }
         }
         KeyCode::Char(' ') => {
-            if state.focused_field < 5 {
-                state.integration_flags[state.focused_field] =
-                    !state.integration_flags[state.focused_field];
+            match integration_focus(state) {
+                IntegrationFocus::Toggle(i) => {
+                    state.integration_flags[i] = !state.integration_flags[i];
+                }
+                IntegrationFocus::SubField("desktop", 0) => {
+                    state.desktop_deep_interaction = !state.desktop_deep_interaction;
+                }
+                _ => {}
             }
         }
-        KeyCode::Enter => return Action::Advance,
+        KeyCode::Enter => {
+            if state.focused_field + 1 < max {
+                state.focused_field += 1;
+            } else {
+                return Action::Advance;
+            }
+        }
         KeyCode::Esc => return Action::Back,
         KeyCode::Backspace => {
             integration_backspace(state);
@@ -739,40 +799,57 @@ fn handle_integrations(state: &mut GenesisState, key: event::KeyEvent) -> Action
     Action::Continue
 }
 
+/// Sub-field counts for each integration when enabled.
+const INTEGRATION_SUB_COUNTS: &[(&str, usize)] = &[
+    ("calendar", 3),  // url, user, pass
+    ("contacts", 3),  // url, user, pass
+    ("telegram", 2),  // token, chat_id
+    ("matrix",   3),  // homeserver, token, room_id
+    ("signal",   2),  // account, socket
+    ("sms",      4),  // provider, account_id, auth_token, from_number
+    ("vault",    1),  // path
+    ("finance",  1),  // receipt_folder
+    ("devtools", 5),  // repo_path, forge, forge_api_url, repo_slug, forge_token
+    ("desktop",  1),  // deep_interaction toggle
+];
+
 fn integration_field_count(state: &GenesisState) -> usize {
-    let mut count = 5; // base toggles
-    if state.integration_flags[0] { count += 3; } // calendar: url, user, pass
-    if state.integration_flags[1] { count += 3; } // contacts: url, user, pass
-    if state.integration_flags[2] { count += 2; } // telegram: token, chat_id
-    if state.integration_flags[3] { count += 3; } // matrix: homeserver, token, room_id
-    if state.integration_flags[4] { count += 2; } // signal: account, socket
+    let mut count = 10; // base toggles (one per integration)
+    for (i, &(_, sub_count)) in INTEGRATION_SUB_COUNTS.iter().enumerate() {
+        if state.integration_flags[i] { count += sub_count; }
+    }
     count
 }
 
-/// Map a focused_field index (>= 5) to an integration sub-field.
-fn integration_sub_field(state: &GenesisState) -> Option<(&str, usize)> {
-    if state.focused_field < 5 { return None; }
-    let mut idx = state.focused_field - 5;
-    if state.integration_flags[0] {
-        if idx < 3 { return Some(("calendar", idx)); }
-        idx -= 3;
+/// What kind of field is at `focused_field`?
+/// Returns `Toggle(integration_index)` or `SubField(group_name, sub_index)`.
+enum IntegrationFocus {
+    Toggle(usize),
+    SubField(&'static str, usize),
+    None,
+}
+
+fn integration_focus(state: &GenesisState) -> IntegrationFocus {
+    let mut idx = state.focused_field;
+    for (i, &(name, sub_count)) in INTEGRATION_SUB_COUNTS.iter().enumerate() {
+        // This position is the toggle row for integration i
+        if idx == 0 { return IntegrationFocus::Toggle(i); }
+        idx -= 1;
+        // If this integration is enabled, its sub-fields follow the toggle
+        if state.integration_flags[i] {
+            if idx < sub_count { return IntegrationFocus::SubField(name, idx); }
+            idx -= sub_count;
+        }
     }
-    if state.integration_flags[1] {
-        if idx < 3 { return Some(("contacts", idx)); }
-        idx -= 3;
+    IntegrationFocus::None
+}
+
+/// Legacy helper used by backspace/char handlers — returns (group, sub_index).
+fn integration_sub_field(state: &GenesisState) -> Option<(&'static str, usize)> {
+    match integration_focus(state) {
+        IntegrationFocus::SubField(name, idx) => Some((name, idx)),
+        _ => None,
     }
-    if state.integration_flags[2] {
-        if idx < 2 { return Some(("telegram", idx)); }
-        idx -= 2;
-    }
-    if state.integration_flags[3] {
-        if idx < 3 { return Some(("matrix", idx)); }
-        idx -= 3;
-    }
-    if state.integration_flags[4] {
-        if idx < 2 { return Some(("signal", idx)); }
-    }
-    None
 }
 
 fn integration_backspace(state: &mut GenesisState) {
@@ -791,6 +868,18 @@ fn integration_backspace(state: &mut GenesisState) {
             ("matrix", 2) => { state.matrix_room_id.pop(); }
             ("signal", 0) => { state.signal_account.pop(); }
             ("signal", 1) => { state.signal_socket.pop(); }
+            ("sms", 0) => { state.sms_provider.pop(); }
+            ("sms", 1) => { state.sms_account_id.pop(); }
+            ("sms", 2) => { state.sms_auth_token.pop(); }
+            ("sms", 3) => { state.sms_from_number.pop(); }
+            ("vault", 0) => { state.vault_path.pop(); }
+            ("finance", 0) => { state.finance_receipt_folder.pop(); }
+            ("devtools", 0) => { state.devtools_repo_path.pop(); }
+            ("devtools", 1) => { state.devtools_forge.pop(); }
+            ("devtools", 2) => { state.devtools_forge_api_url.pop(); }
+            ("devtools", 3) => { state.devtools_repo_slug.pop(); }
+            ("devtools", 4) => { state.devtools_forge_token.pop(); }
+            // desktop (0) is a toggle, handled via Space in handle_integrations
             _ => {}
         }
     }
@@ -812,6 +901,18 @@ fn integration_char(state: &mut GenesisState, c: char) {
             ("matrix", 2) => state.matrix_room_id.push(c),
             ("signal", 0) => state.signal_account.push(c),
             ("signal", 1) => state.signal_socket.push(c),
+            ("sms", 0) => state.sms_provider.push(c),
+            ("sms", 1) => state.sms_account_id.push(c),
+            ("sms", 2) => state.sms_auth_token.push(c),
+            ("sms", 3) => state.sms_from_number.push(c),
+            ("vault", 0) => state.vault_path.push(c),
+            ("finance", 0) => state.finance_receipt_folder.push(c),
+            ("devtools", 0) => state.devtools_repo_path.push(c),
+            ("devtools", 1) => state.devtools_forge.push(c),
+            ("devtools", 2) => state.devtools_forge_api_url.push(c),
+            ("devtools", 3) => state.devtools_repo_slug.push(c),
+            ("devtools", 4) => state.devtools_forge_token.push(c),
+            // desktop (0) is a toggle, not text input
             _ => {}
         }
     }
@@ -831,7 +932,12 @@ fn handle_ignition(state: &mut GenesisState, key: event::KeyEvent) -> Action {
                     !state.heartbeat_flags[state.focused_field];
             }
         }
-        KeyCode::Enter => return Action::Advance,
+        KeyCode::Enter => {
+            // Only finalize when on the Ignite button (field 10)
+            if state.focused_field == 10 {
+                return Action::Advance;
+            }
+        }
         KeyCode::Esc => return Action::Back,
         _ => {}
     }
@@ -962,13 +1068,18 @@ fn render_progress(state: &GenesisState, area: Rect, f: &mut Frame) {
 
 fn render_hints(state: &GenesisState, area: Rect, f: &mut Frame) {
     let back = if state.step.prev().is_some() { "Esc:Back  " } else { "Esc:Quit  " };
-    let next = if state.step == Step::Ignition { "Enter:Ignite" } else { "Enter:Next" };
+    let next = if state.step == Step::Ignition {
+        if state.focused_field == 10 { "Enter:Ignite" } else { "Space:Toggle  ↓:Ignite button" }
+    } else {
+        "Enter:Next"
+    };
+    let extra = if state.step == Step::Ignition { "" } else { "Tab:Field  " };
     let line = Line::from(vec![
         Span::styled("  ", theme::dim()),
         Span::styled(next, theme::primary()),
         Span::styled("  ", theme::dim()),
         Span::styled(back, theme::muted()),
-        Span::styled("Tab:Field  ", theme::muted()),
+        Span::styled(extra, theme::muted()),
         Span::styled("Ctrl+C:Quit", theme::muted()),
     ]);
     f.render_widget(Paragraph::new(line), area);
@@ -1430,52 +1541,69 @@ fn render_integrations(state: &GenesisState, area: Rect, f: &mut Frame) {
 
         // Sub-fields for enabled integrations
         if enabled {
-            let sub_fields: Vec<(&str, &str, bool)> = match i {
+            // Each entry: (label, display_value, is_secret, is_toggle)
+            let sub_fields: Vec<(&str, String, bool, bool)> = match i {
                 0 => vec![
-                    ("URL", &state.calendar_url, false),
-                    ("USER", &state.calendar_user, false),
-                    ("PASS", "", true),
+                    ("URL",  state.calendar_url.clone(), false, false),
+                    ("USER", state.calendar_user.clone(), false, false),
+                    ("PASS", "*".repeat(state.calendar_pass.len()), true, false),
                 ],
                 1 => vec![
-                    ("URL", &state.contacts_url, false),
-                    ("USER", &state.contacts_user, false),
-                    ("PASS", "", true),
+                    ("URL",  state.contacts_url.clone(), false, false),
+                    ("USER", state.contacts_user.clone(), false, false),
+                    ("PASS", "*".repeat(state.contacts_pass.len()), true, false),
                 ],
                 2 => vec![
-                    ("TOKEN", "", true),
-                    ("CHAT_ID", &state.telegram_chat_id, false),
+                    ("TOKEN",   "*".repeat(state.telegram_token.len()), true, false),
+                    ("CHAT_ID", state.telegram_chat_id.clone(), false, false),
                 ],
                 3 => vec![
-                    ("HOST", &state.matrix_homeserver, false),
-                    ("TOKEN", "", true),
-                    ("ROOM_ID", &state.matrix_room_id, false),
+                    ("HOST",    state.matrix_homeserver.clone(), false, false),
+                    ("TOKEN",   "*".repeat(state.matrix_token.len()), true, false),
+                    ("ROOM_ID", state.matrix_room_id.clone(), false, false),
                 ],
                 4 => vec![
-                    ("PHONE", &state.signal_account, false),
-                    ("SOCKET", &state.signal_socket, false),
+                    ("PHONE",  state.signal_account.clone(), false, false),
+                    ("SOCKET", state.signal_socket.clone(), false, false),
                 ],
+                5 => vec![
+                    ("PROVIDER", state.sms_provider.clone(), false, false),
+                    ("ACCT_ID",  state.sms_account_id.clone(), false, false),
+                    ("TOKEN",    "*".repeat(state.sms_auth_token.len()), true, false),
+                    ("FROM_NUM", state.sms_from_number.clone(), false, false),
+                ],
+                6 => vec![
+                    ("PATH", state.vault_path.clone(), false, false),
+                ],
+                7 => vec![
+                    ("RECEIPTS", state.finance_receipt_folder.clone(), false, false),
+                ],
+                8 => vec![
+                    ("REPO_PATH", state.devtools_repo_path.clone(), false, false),
+                    ("FORGE",     state.devtools_forge.clone(), false, false),
+                    ("API_URL",   state.devtools_forge_api_url.clone(), false, false),
+                    ("REPO_SLUG", state.devtools_repo_slug.clone(), false, false),
+                    ("TOKEN",     "*".repeat(state.devtools_forge_token.len()), true, false),
+                ],
+                9 => {
+                    let mark = if state.desktop_deep_interaction { "ON" } else { "OFF" };
+                    vec![
+                        ("DEEP_INT", mark.to_string(), false, true),
+                    ]
+                }
                 _ => vec![],
             };
 
-            for (label, value, is_secret) in &sub_fields {
+            for (label, display, _is_secret, is_toggle) in sub_fields {
                 let sub_focused = state.focused_field == field_idx;
-                let display = if *is_secret {
-                    match i {
-                        0 => "*".repeat(state.calendar_pass.len()),
-                        1 => "*".repeat(state.contacts_pass.len()),
-                        2 => "*".repeat(state.telegram_token.len()),
-                        3 => "*".repeat(state.matrix_token.len()),
-                        _ => String::new(),
-                    }
-                } else {
-                    value.to_string()
-                };
                 let style = if sub_focused { theme::text() } else { theme::muted() };
+                let cursor = if sub_focused && !is_toggle { state.cursor() } else { " " };
+                let prefix = if is_toggle && sub_focused { "  >>  [ " } else { "      [ " };
                 lines.push(Line::from(vec![
-                    Span::styled(if sub_focused { "      [ " } else { "      [ " }, theme::primary_bold()),
-                    Span::styled(format!("{label:<8} "), theme::dim()),
+                    Span::styled(prefix, theme::primary_bold()),
+                    Span::styled(format!("{label:<10}"), theme::dim()),
                     Span::styled(display, style),
-                    Span::styled(if sub_focused { state.cursor() } else { " " }, theme::primary()),
+                    Span::styled(cursor, theme::primary()),
                     Span::styled(" ]", theme::primary_bold()),
                 ]));
                 field_idx += 1;
@@ -1572,10 +1700,16 @@ fn render_ignition(state: &GenesisState, area: Rect, f: &mut Frame) {
     }
 
     lines.push(Line::from(""));
+    let on_ignite = state.focused_field == 10;
     let blink = state.frame_count % 60 < 30;
+    let ignite_style = if on_ignite {
+        Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD | Modifier::REVERSED)
+    } else {
+        theme::primary_bold()
+    };
     lines.push(Line::from(Span::styled(
-        if blink { "  [ EXECUTE PROTOCOL -> SYSTEM IGNITION ]" } else { " " },
-        theme::primary_bold(),
+        if on_ignite || blink { "  [ EXECUTE PROTOCOL -> SYSTEM IGNITION ]" } else { " " },
+        ignite_style,
     )));
 
     f.render_widget(Paragraph::new(lines), area);
@@ -1642,10 +1776,14 @@ priority = "{}"
     out
 }
 
-fn format_schedules_section(schedules: &[ScheduleTemplate], agent_name: &str) -> String {
+fn format_schedules_section(schedules: &[ScheduleTemplate], agent_name: &str, configured: &[&str]) -> String {
     let safe_agent = sanitize_toml_value(agent_name);
     let mut out = String::new();
     for s in schedules {
+        // Skip schedules that require an integration not configured.
+        if !s.requires.is_empty() && !configured.contains(&s.requires) {
+            continue;
+        }
         let safe_name = sanitize_toml_value(s.name);
         let safe_prompt = sanitize_toml_value(s.prompt);
         out.push_str(&format!(
@@ -1754,6 +1892,12 @@ fn finalize(state: &GenesisState, dirs: &AivyxDirs) -> anyhow::Result<()> {
     if state.integration_flags[3] && !state.matrix_token.is_empty() {
         store.put("MATRIX_ACCESS_TOKEN", state.matrix_token.as_bytes(), &master_key)?;
     }
+    if state.integration_flags[5] && !state.sms_auth_token.is_empty() {
+        store.put("SMS_AUTH_TOKEN", state.sms_auth_token.as_bytes(), &master_key)?;
+    }
+    if state.integration_flags[8] && !state.devtools_forge_token.is_empty() {
+        store.put("FORGE_TOKEN", state.devtools_forge_token.as_bytes(), &master_key)?;
+    }
 
     // 4. Build config.toml
     let safe_model = sanitize_toml_value(&state.model_input);
@@ -1833,11 +1977,23 @@ fn finalize(state: &GenesisState, dirs: &AivyxDirs) -> anyhow::Result<()> {
         config.push_str(&format_goals_section(bundle.goals));
     }
 
-    // Schedules
+    // Schedules — filter by configured integrations
     if !bundle.schedules.is_empty() {
+        let mut configured: Vec<&str> = Vec::new();
+        if state.setup_email                { configured.push("email"); }
+        if state.integration_flags[0]       { configured.push("calendar"); }
+        if state.integration_flags[1]       { configured.push("contacts"); }
+        if state.integration_flags[2]       { configured.push("telegram"); }
+        if state.integration_flags[3]       { configured.push("matrix"); }
+        if state.integration_flags[4]       { configured.push("signal"); }
+        if state.integration_flags[5]       { configured.push("sms"); }
+        if state.integration_flags[6]       { configured.push("vault"); }
+        if state.integration_flags[7]       { configured.push("finance"); }
+        if state.integration_flags[8]       { configured.push("devtools"); }
         config.push_str(&format_schedules_section(
             bundle.schedules,
             state.effective_agent_name(),
+            &configured,
         ));
     }
 
@@ -1900,6 +2056,63 @@ fn finalize(state: &GenesisState, dirs: &AivyxDirs) -> anyhow::Result<()> {
             sanitize_toml_value(&state.signal_account),
             sanitize_toml_value(&state.signal_socket),
         ));
+    }
+    if state.integration_flags[5] {
+        config.push_str(&format!(
+            "\n[sms]\nprovider = \"{}\"\naccount_id = \"{}\"\nfrom_number = \"{}\"\n# Auth token stored encrypted as SMS_AUTH_TOKEN\n",
+            sanitize_toml_value(&state.sms_provider),
+            sanitize_toml_value(&state.sms_account_id),
+            sanitize_toml_value(&state.sms_from_number),
+        ));
+    }
+    if state.integration_flags[6] {
+        config.push_str(&format!(
+            "\n[vault]\npath = \"{}\"\n",
+            sanitize_toml_value(&state.vault_path),
+        ));
+    }
+    if state.integration_flags[7] {
+        config.push_str(&format!(
+            "\n[finance]\nenabled = true\nreceipt_folder = \"{}\"\n",
+            sanitize_toml_value(&state.finance_receipt_folder),
+        ));
+    }
+    if state.integration_flags[8] {
+        config.push_str(&format!(
+            "\n[devtools]\nrepo_path = \"{}\"\n",
+            sanitize_toml_value(&state.devtools_repo_path),
+        ));
+        if !state.devtools_forge.is_empty() {
+            config.push_str(&format!(
+                "forge = \"{}\"\n",
+                sanitize_toml_value(&state.devtools_forge),
+            ));
+        }
+        if !state.devtools_forge_api_url.is_empty() {
+            config.push_str(&format!(
+                "forge_api_url = \"{}\"\n",
+                sanitize_toml_value(&state.devtools_forge_api_url),
+            ));
+        }
+        if !state.devtools_repo_slug.is_empty() {
+            config.push_str(&format!(
+                "repo = \"{}\"\n",
+                sanitize_toml_value(&state.devtools_repo_slug),
+            ));
+        }
+    }
+
+    // Desktop section — auto-enabled when a display server is present,
+    // deep interaction is opt-in via the integration toggle.
+    let has_display = std::env::var("DISPLAY").is_ok()
+        || std::env::var("WAYLAND_DISPLAY").is_ok();
+    if has_display || state.integration_flags[9] {
+        config.push_str("\n[desktop]\nclipboard = true\nwindows = true\nnotifications = true\n");
+        if state.integration_flags[9] && state.desktop_deep_interaction {
+            config.push_str("\n[desktop.interaction]\nenabled = true\n");
+        } else {
+            config.push_str("\n[desktop.interaction]\nenabled = false\n");
+        }
     }
 
     // 5. Write config

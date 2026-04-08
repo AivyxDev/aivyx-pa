@@ -640,7 +640,7 @@ pub fn parse_response(text: &str) -> HeartbeatResponse {
 pub async fn dispatch_actions(
     actions: &[HeartbeatAction],
     config: &HeartbeatConfig,
-    ctx: &LoopContext,
+    ctx: &mut LoopContext,
     tx: &mpsc::Sender<Notification>,
 ) {
     for action in actions {
@@ -733,16 +733,29 @@ pub async fn dispatch_actions(
             }
 
             HeartbeatAction::ConsolidateMemory if config.can_consolidate_memory => {
-                // Audit: consolidation triggered
-                crate::emit_audit(ctx, aivyx_audit::AuditEvent::ConsolidationTriggered {
-                    source: "heartbeat".into(),
+                let notif_id = uuid::Uuid::new_v4().to_string();
+                crate::send_notification(tx, crate::Notification {
+                    id: notif_id.clone(),
+                    kind: crate::NotificationKind::ApprovalNeeded,
+                    title: "Action requires approval".into(),
+                    body: "The agent wants to consolidate memory clusters (deletes stale memories).".into(),
+                    source: "heartbeat(consolidate_memory)".into(),
                     timestamp: Utc::now(),
+                    requires_approval: true,
+                    goal_id: None,
                 });
 
-                if let Some(ref mm) = ctx.memory_manager {
-                    let consolidation_config = ctx.consolidation_config.clone()
-                        .unwrap_or_default();
-                    // Use try_lock to avoid blocking the heartbeat dispatch loop.
+                match crate::await_approval(ctx, &notif_id, std::time::Duration::from_secs(120)).await {
+                    Some(resp) if resp.approved => {
+                        crate::emit_audit(ctx, aivyx_audit::AuditEvent::ConsolidationTriggered {
+                            source: "heartbeat".into(),
+                            timestamp: Utc::now(),
+                        });
+
+                        if let Some(ref mm) = ctx.memory_manager {
+                            let consolidation_config = ctx.consolidation_config.clone()
+                                .unwrap_or_default();
+                            // Use try_lock to avoid blocking the heartbeat dispatch loop.
                     // Consolidation makes LLM calls and can take minutes — holding
                     // the lock across that would starve all other memory operations.
                     let guard = mm.try_lock();
@@ -791,6 +804,24 @@ pub async fn dispatch_actions(
                 } else {
                     tracing::debug!("Heartbeat: consolidation requested but no memory manager");
                 }
+                    }
+                    Some(_resp) => {
+                        tracing::info!("Heartbeat: memory consolidation denied by user");
+                        crate::send_notification(tx, crate::Notification {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            kind: crate::NotificationKind::Info,
+                            title: "Consolidation skipped".into(),
+                            body: "Memory consolidation was denied.".into(),
+                            source: "heartbeat(consolidate_memory)".into(),
+                            timestamp: Utc::now(),
+                            requires_approval: false,
+                            goal_id: None,
+                        });
+                    }
+                    None => {
+                        tracing::warn!("Heartbeat: memory consolidation approval timed out");
+                    }
+                }
             }
 
             HeartbeatAction::Suggest { title, body, sources, priority } if config.can_suggest => {
@@ -820,7 +851,40 @@ pub async fn dispatch_actions(
             HeartbeatAction::AnalyzeFailure {
                 subject, root_cause, remediation, domain,
             } if config.can_analyze_failures => {
-                dispatch_analyze_failure(subject, root_cause, remediation, domain, ctx, tx).await;
+                let notif_id = uuid::Uuid::new_v4().to_string();
+                let conf_str = domain.as_ref().map(|d| format!(" (will decrease confidence in '{d}')")).unwrap_or_default();
+                crate::send_notification(tx, crate::Notification {
+                    id: notif_id.clone(),
+                    kind: crate::NotificationKind::ApprovalNeeded,
+                    title: "Action requires approval".into(),
+                    body: format!("The agent wants to record a failure analysis for '{subject}'{conf_str}."),
+                    source: "heartbeat(analyze_failure)".into(),
+                    timestamp: Utc::now(),
+                    requires_approval: true,
+                    goal_id: None,
+                });
+
+                match crate::await_approval(ctx, &notif_id, std::time::Duration::from_secs(120)).await {
+                    Some(resp) if resp.approved => {
+                        dispatch_analyze_failure(subject, root_cause, remediation, domain, ctx, tx).await;
+                    }
+                    Some(_resp) => {
+                        tracing::info!("Heartbeat: failure analysis denied by user");
+                        crate::send_notification(tx, crate::Notification {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            kind: crate::NotificationKind::Info,
+                            title: "Analysis skipped".into(),
+                            body: "Failure analysis was denied.".into(),
+                            source: "heartbeat(analyze_failure)".into(),
+                            timestamp: Utc::now(),
+                            requires_approval: false,
+                            goal_id: None,
+                        });
+                    }
+                    None => {
+                        tracing::warn!("Heartbeat: failure analysis approval timed out");
+                    }
+                }
             }
 
             HeartbeatAction::ExtractKnowledge { triples } if config.can_extract_knowledge => {
@@ -828,26 +892,98 @@ pub async fn dispatch_actions(
             }
 
             HeartbeatAction::Backup if config.can_backup => {
-                dispatch_backup(ctx, tx).await;
+                // Gate: ask the user before writing a potentially large backup archive.
+                let notif_id = uuid::Uuid::new_v4().to_string();
+                crate::send_notification(tx, crate::Notification {
+                    id: notif_id.clone(),
+                    kind: crate::NotificationKind::ApprovalNeeded,
+                    title: "Scheduled data backup — approve?".into(),
+                    body: format!(
+                        "The agent wants to create an encrypted backup of your data directory.\n\
+                         Destination: {}\n\n\
+                         [A] to approve, [D] to deny (2-minute window).",
+                        ctx.backup_destination.as_ref()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_else(|| "<not configured>".into()),
+                    ),
+                    source: "heartbeat:backup".into(),
+                    timestamp: Utc::now(),
+                    requires_approval: true,
+                    goal_id: None,
+                });
+                tracing::info!("Heartbeat: backup approval requested (notif_id={notif_id})");
+
+                match crate::await_approval(ctx, &notif_id, std::time::Duration::from_secs(120)).await {
+                    Some(resp) if resp.approved => {
+                        tracing::info!("Heartbeat: backup approved by user — proceeding");
+                        dispatch_backup(ctx, tx).await;
+                    }
+                    Some(_) => {
+                        tracing::info!("Heartbeat: backup denied by user — skipping");
+                        crate::send_notification(tx, crate::Notification {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            kind: crate::NotificationKind::Info,
+                            title: "Backup skipped".into(),
+                            body: "You denied the scheduled backup request.".into(),
+                            source: "heartbeat:backup".into(),
+                            timestamp: Utc::now(),
+                            requires_approval: false,
+                            goal_id: None,
+                        });
+                    }
+                    None => {
+                        tracing::warn!("Heartbeat: backup approval timed out — skipping");
+                    }
+                }
             }
 
             HeartbeatAction::PruneAudit if config.can_prune_audit => {
-                if let Some(ref audit_log) = ctx.audit_log {
-                    let keep_after = Utc::now() - chrono::Duration::days(config.audit_retention_days as i64);
-                    match aivyx_audit::prune(audit_log, keep_after) {
-                        Ok(result) => {
-                            tracing::info!(
-                                removed = result.entries_removed,
-                                remaining = result.entries_remaining,
-                                "Heartbeat: audit log pruned"
-                            );
-                        }
-                        Err(e) => {
-                            tracing::warn!("Heartbeat: audit prune failed: {e}");
+                // Gate: ask before permanently removing audit entries.
+                let notif_id = uuid::Uuid::new_v4().to_string();
+                let retain_days = config.audit_retention_days;
+                crate::send_notification(tx, crate::Notification {
+                    id: notif_id.clone(),
+                    kind: crate::NotificationKind::ApprovalNeeded,
+                    title: "Audit log prune — approve?".into(),
+                    body: format!(
+                        "The agent wants to permanently remove audit entries older than {retain_days} days.\n\
+                         This action cannot be undone.\n\n\
+                         [A] to approve, [D] to deny (2-minute window)."
+                    ),
+                    source: "heartbeat:audit".into(),
+                    timestamp: Utc::now(),
+                    requires_approval: true,
+                    goal_id: None,
+                });
+                tracing::info!("Heartbeat: audit prune approval requested (notif_id={notif_id})");
+
+                match crate::await_approval(ctx, &notif_id, std::time::Duration::from_secs(120)).await {
+                    Some(resp) if resp.approved => {
+                        tracing::info!("Heartbeat: audit prune approved by user — proceeding");
+                        if let Some(ref audit_log) = ctx.audit_log {
+                            let keep_after = Utc::now() - chrono::Duration::days(retain_days as i64);
+                            match aivyx_audit::prune(audit_log, keep_after) {
+                                Ok(result) => {
+                                    tracing::info!(
+                                        removed = result.entries_removed,
+                                        remaining = result.entries_remaining,
+                                        "Heartbeat: audit log pruned"
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::warn!("Heartbeat: audit prune failed: {e}");
+                                }
+                            }
+                        } else {
+                            tracing::debug!("Heartbeat: audit prune requested but no audit log");
                         }
                     }
-                } else {
-                    tracing::debug!("Heartbeat: audit prune requested but no audit log");
+                    Some(_) => {
+                        tracing::info!("Heartbeat: audit prune denied by user — skipping");
+                    }
+                    None => {
+                        tracing::warn!("Heartbeat: audit prune approval timed out — skipping");
+                    }
                 }
             }
 
@@ -856,17 +992,81 @@ pub async fn dispatch_actions(
             HeartbeatAction::PlanReview { horizons, gaps, adjustments }
                 if config.can_plan_review =>
             {
-                dispatch_plan_review(horizons, gaps, adjustments, ctx, tx);
+                let notif_id = uuid::Uuid::new_v4().to_string();
+                crate::send_notification(tx, crate::Notification {
+                    id: notif_id.clone(),
+                    kind: crate::NotificationKind::ApprovalNeeded,
+                    title: "Plan Review Approval Needed".into(),
+                    body: "The agent wants to update goal horizons, tags, and deadlines.".into(),
+                    source: "heartbeat(plan_review)".into(),
+                    timestamp: Utc::now(),
+                    requires_approval: true,
+                    goal_id: None,
+                });
+
+                match crate::await_approval(ctx, &notif_id, std::time::Duration::from_secs(120)).await {
+                    Some(resp) if resp.approved => {
+                        dispatch_plan_review(horizons, gaps, adjustments, ctx, tx);
+                    }
+                    Some(_) => {
+                        tracing::info!("Heartbeat: plan review denied by user");
+                        crate::send_notification(tx, crate::Notification {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            kind: crate::NotificationKind::Info,
+                            title: "Plan review skipped".into(),
+                            body: "Plan review was denied.".into(),
+                            source: "heartbeat(plan_review)".into(),
+                            timestamp: Utc::now(),
+                            requires_approval: false,
+                            goal_id: None,
+                        });
+                    }
+                    None => {
+                        tracing::warn!("Heartbeat: plan review approval timed out");
+                    }
+                }
             }
 
             HeartbeatAction::StrategyReview {
                 period_summary, goals_completed, goals_stalled,
                 patterns, strategic_adjustments, domain_confidence_updates,
             } if config.can_strategy_review => {
-                dispatch_strategy_review(
-                    period_summary, *goals_completed, goals_stalled, patterns,
-                    strategic_adjustments, domain_confidence_updates, ctx, tx,
-                ).await;
+                let notif_id = uuid::Uuid::new_v4().to_string();
+                crate::send_notification(tx, crate::Notification {
+                    id: notif_id.clone(),
+                    kind: crate::NotificationKind::ApprovalNeeded,
+                    title: "Strategy Review Approval Needed".into(),
+                    body: "The agent wants to update domain confidence and record strategy adjustments.".into(),
+                    source: "heartbeat(strategy_review)".into(),
+                    timestamp: Utc::now(),
+                    requires_approval: true,
+                    goal_id: None,
+                });
+
+                match crate::await_approval(ctx, &notif_id, std::time::Duration::from_secs(120)).await {
+                    Some(resp) if resp.approved => {
+                        dispatch_strategy_review(
+                            period_summary, *goals_completed, goals_stalled, patterns,
+                            strategic_adjustments, domain_confidence_updates, ctx, tx,
+                        ).await;
+                    }
+                    Some(_) => {
+                        tracing::info!("Heartbeat: strategy review denied by user");
+                        crate::send_notification(tx, crate::Notification {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            kind: crate::NotificationKind::Info,
+                            title: "Strategy review skipped".into(),
+                            body: "Strategy review was denied.".into(),
+                            source: "heartbeat(strategy_review)".into(),
+                            timestamp: Utc::now(),
+                            requires_approval: false,
+                            goal_id: None,
+                        });
+                    }
+                    None => {
+                        tracing::warn!("Heartbeat: strategy review approval timed out");
+                    }
+                }
             }
 
             HeartbeatAction::TrackMood { observed_mood, adjustment }
