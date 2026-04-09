@@ -1968,14 +1968,13 @@ impl PaConfig {
 
         // Default-enable interaction (UI automation, browser, etc.) if desktop is enabled,
         // but respect explicit `enabled = false` configurations.
-        if let Some(ref mut desktop) = self.desktop {
-            if desktop.interaction.is_none() {
-                desktop.interaction =
-                    Some(aivyx_actions::desktop::interaction::InteractionConfig {
-                        enabled: true,
-                        ..Default::default()
-                    });
-            }
+        if let Some(ref mut desktop) = self.desktop
+            && desktop.interaction.is_none()
+        {
+            desktop.interaction = Some(aivyx_actions::desktop::interaction::InteractionConfig {
+                enabled: true,
+                ..Default::default()
+            });
         }
 
         self
@@ -2408,70 +2407,72 @@ impl PaConfig {
             }
 
             // DevTools forge token
-            if let Some(dt) = table.get("devtools").and_then(|v| v.as_table()) {
-                if dt.contains_key("forge") {
-                    match store.get("FORGE_TOKEN", key) {
+            if let Some(dt) = table.get("devtools").and_then(|v| v.as_table())
+                && dt.contains_key("forge")
+            {
+                match store.get("FORGE_TOKEN", key) {
                         Ok(Some(bytes)) if !bytes.is_empty() => {}
                         _ => warnings.push(
                             "[devtools] forge is configured but FORGE_TOKEN is missing from the encrypted store".into()
                         ),
                     }
-                }
             }
 
             // Provider API key
-            if let Some(prov) = table.get("provider").and_then(|v| v.as_table()) {
-                if let Some(key_ref) = prov.get("api_key_ref").and_then(|v| v.as_str()) {
-                    match store.get(key_ref, key) {
+            if let Some(prov) = table.get("provider").and_then(|v| v.as_table())
+                && let Some(key_ref) = prov.get("api_key_ref").and_then(|v| v.as_str())
+            {
+                match store.get(key_ref, key) {
                         Ok(Some(bytes)) if !bytes.is_empty() => {}
                         _ => warnings.push(format!(
                             "[provider] references api_key_ref = \"{key_ref}\" but it is missing from the encrypted store"
                         )),
                     }
-                }
             }
         }
 
         // Semantic checks on known fields.
         if let Some(email) = table.get("email").and_then(|v| v.as_table()) {
-            if let Some(port) = email.get("imap_port").and_then(|v| v.as_integer()) {
-                if port != 993 && port != 143 {
-                    warnings.push(format!(
-                        "[email] imap_port = {port} — standard ports are 993 (TLS) or 143 (plain)"
-                    ));
-                }
+            if let Some(port) = email.get("imap_port").and_then(|v| v.as_integer())
+                && port != 993
+                && port != 143
+            {
+                warnings.push(format!(
+                    "[email] imap_port = {port} — standard ports are 993 (TLS) or 143 (plain)"
+                ));
             }
-            if let Some(port) = email.get("smtp_port").and_then(|v| v.as_integer()) {
-                if port != 587 && port != 465 && port != 25 {
-                    warnings.push(format!(
+            if let Some(port) = email.get("smtp_port").and_then(|v| v.as_integer())
+                && port != 587
+                && port != 465
+                && port != 25
+            {
+                warnings.push(format!(
                         "[email] smtp_port = {port} — standard ports are 587 (STARTTLS), 465 (TLS), or 25 (plain)"
                     ));
-                }
             }
         }
 
-        if let Some(hb) = table.get("heartbeat").and_then(|v| v.as_table()) {
-            if let Some(interval) = hb.get("interval_minutes").and_then(|v| v.as_integer()) {
-                if interval < 5 {
-                    warnings.push(format!(
+        if let Some(hb) = table.get("heartbeat").and_then(|v| v.as_table())
+            && let Some(interval) = hb.get("interval_minutes").and_then(|v| v.as_integer())
+            && interval < 5
+        {
+            warnings.push(format!(
                         "[heartbeat] interval_minutes = {interval} — very frequent, may consume excessive LLM tokens"
                     ));
-                }
-            }
         }
 
-        if let Some(env) = table.get("environment").and_then(|v| v.as_table()) {
-            if env.get("mode").and_then(|v| v.as_str()) == Some("dedicated") {
-                // Check if this looks like a personal workstation
-                let has_display =
-                    std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
-                let has_user_session = std::env::var("XDG_SESSION_TYPE").is_ok();
-                if has_display && has_user_session {
-                    warnings.push(
+        if let Some(env) = table.get("environment").and_then(|v| v.as_table())
+            && env.get("mode").and_then(|v| v.as_str()) == Some("dedicated")
+        {
+            // Check if this looks like a personal workstation
+            let has_display =
+                std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
+            let has_user_session = std::env::var("XDG_SESSION_TYPE").is_ok();
+            if has_display && has_user_session {
+                warnings.push(
                         "[environment] mode = \"dedicated\" on what appears to be a personal workstation \
                          — this gives the agent broad system access. Use \"shared\" for personal machines.".into()
                     );
-                }
             }
         }
 

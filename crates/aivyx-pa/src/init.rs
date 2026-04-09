@@ -357,12 +357,12 @@ pub async fn run(home: &Path) -> anyhow::Result<Zeroizing<String>> {
             .await
         {
             Ok(resp) if resp.status().is_success() => {
-                if let Ok(json) = resp.json::<serde_json::Value>().await {
-                    if let Some(models) = json["models"].as_array() {
-                        for m in models {
-                            if let Some(name) = m["name"].as_str() {
-                                ollama_models.push(name.to_string());
-                            }
+                if let Ok(json) = resp.json::<serde_json::Value>().await
+                    && let Some(models) = json["models"].as_array()
+                {
+                    for m in models {
+                        if let Some(name) = m["name"].as_str() {
+                            ollama_models.push(name.to_string());
                         }
                     }
                 }
@@ -911,10 +911,10 @@ pub async fn run(home: &Path) -> anyhow::Result<Zeroizing<String>> {
             let toggles = prompt("  > ")?;
             let mut flags = default_flags;
             for num in toggles.split(',') {
-                if let Ok(idx) = num.trim().parse::<usize>() {
-                    if idx >= 1 && idx <= 10 {
-                        flags[idx - 1] = !flags[idx - 1];
-                    }
+                if let Ok(idx) = num.trim().parse::<usize>()
+                    && (1..=10).contains(&idx)
+                {
+                    flags[idx - 1] = !flags[idx - 1];
                 }
             }
             flags

@@ -183,7 +183,7 @@ async fn maximize(window: Option<&str>) -> Result<String> {
     } else {
         vec!["-r", ":ACTIVE:", "-b", "add,maximized_vert,maximized_horz"]
     };
-    wmctrl(&target.iter().copied().collect::<Vec<_>>()).await?;
+    wmctrl(&target.to_vec()).await?;
     Ok("Maximized".into())
 }
 
@@ -207,7 +207,7 @@ async fn restore(window: Option<&str>) -> Result<String> {
             "remove,maximized_vert,maximized_horz",
         ]
     };
-    wmctrl(&target.iter().copied().collect::<Vec<_>>()).await?;
+    wmctrl(&target.to_vec()).await?;
     Ok("Restored".into())
 }
 
@@ -225,7 +225,7 @@ async fn close(window: Option<&str>) -> Result<String> {
     } else {
         vec!["-c", ":ACTIVE:"]
     };
-    wmctrl(&target.iter().copied().collect::<Vec<_>>()).await?;
+    wmctrl(&target.to_vec()).await?;
     Ok("Closed".into())
 }
 
@@ -243,7 +243,7 @@ async fn fullscreen(window: Option<&str>) -> Result<String> {
     } else {
         vec!["-r", ":ACTIVE:", "-b", "toggle,fullscreen"]
     };
-    wmctrl(&target.iter().copied().collect::<Vec<_>>()).await?;
+    wmctrl(&target.to_vec()).await?;
     Ok("Toggled fullscreen".into())
 }
 

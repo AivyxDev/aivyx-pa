@@ -72,17 +72,18 @@ impl Widget for Sidebar<'_> {
 
             // Group separator
             let group = view.group();
-            if let Some(pg) = prev_group {
-                if pg != group && y < inner.y + inner.height {
-                    let sep = "─".repeat((inner.width - 4) as usize);
-                    buf.set_line(
-                        inner.x + 2,
-                        y,
-                        &Line::from(Span::styled(sep, theme::dim())),
-                        inner.width - 4,
-                    );
-                    y += 1;
-                }
+            if let Some(pg) = prev_group
+                && pg != group
+                && y < inner.y + inner.height
+            {
+                let sep = "─".repeat((inner.width - 4) as usize);
+                buf.set_line(
+                    inner.x + 2,
+                    y,
+                    &Line::from(Span::styled(sep, theme::dim())),
+                    inner.width - 4,
+                );
+                y += 1;
             }
             prev_group = Some(group);
 

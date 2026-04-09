@@ -215,7 +215,7 @@ impl ImapPool {
         let result =
             store_flags_with_conn(&mut reader, &mut writer, &mut tag_num, seq, flags).await;
 
-        if let Ok(_) = &result {
+        if result.is_ok() {
             self.checkin(reader, writer, tag_num).await
         }
 
@@ -229,7 +229,7 @@ impl ImapPool {
         let result =
             copy_and_delete_with_conn(&mut reader, &mut writer, &mut tag_num, seq, folder).await;
 
-        if let Ok(_) = &result {
+        if result.is_ok() {
             self.checkin(reader, writer, tag_num).await
         }
 
@@ -242,7 +242,7 @@ impl ImapPool {
 
         let result = delete_message_with_conn(&mut reader, &mut writer, &mut tag_num, seq).await;
 
-        if let Ok(_) = &result {
+        if result.is_ok() {
             self.checkin(reader, writer, tag_num).await
         }
 
@@ -255,7 +255,7 @@ impl ImapPool {
 
         let result = fetch_single_with_conn(&mut reader, &mut writer, &mut tag_num, seq).await;
 
-        if let Ok(_) = &result {
+        if result.is_ok() {
             self.checkin(reader, writer, tag_num).await
         }
 

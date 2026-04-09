@@ -662,20 +662,19 @@ impl App {
 
         if let Ok(engine) = aivyx_pa::agent::build_task_engine(ctx) {
             // Extract the step index from the mission status
-            if let Ok(Some(mission)) = engine.get_mission(&meta.id) {
-                if let aivyx_task_engine::TaskStatus::AwaitingApproval { step_index, .. } =
+            if let Ok(Some(mission)) = engine.get_mission(&meta.id)
+                && let aivyx_task_engine::TaskStatus::AwaitingApproval { step_index, .. } =
                     &mission.status
-                {
-                    let step_idx = *step_index;
-                    let _ = engine.resolve_approval(
-                        &meta.id,
-                        step_idx,
-                        true,
-                        Some("approved via TUI".into()),
-                    );
-                    // Auto-resume after approval
-                    self.resume_mission();
-                }
+            {
+                let step_idx = *step_index;
+                let _ = engine.resolve_approval(
+                    &meta.id,
+                    step_idx,
+                    true,
+                    Some("approved via TUI".into()),
+                );
+                // Auto-resume after approval
+                self.resume_mission();
             }
         }
     }
@@ -694,19 +693,17 @@ impl App {
             return;
         }
 
-        if let Ok(engine) = aivyx_pa::agent::build_task_engine(ctx) {
-            if let Ok(Some(mission)) = engine.get_mission(&meta.id) {
-                if let aivyx_task_engine::TaskStatus::AwaitingApproval { step_index, .. } =
-                    &mission.status
-                {
-                    let _ = engine.resolve_approval(
-                        &meta.id,
-                        *step_index,
-                        false,
-                        Some("denied via TUI".into()),
-                    );
-                }
-            }
+        if let Ok(engine) = aivyx_pa::agent::build_task_engine(ctx)
+            && let Ok(Some(mission)) = engine.get_mission(&meta.id)
+            && let aivyx_task_engine::TaskStatus::AwaitingApproval { step_index, .. } =
+                &mission.status
+        {
+            let _ = engine.resolve_approval(
+                &meta.id,
+                *step_index,
+                false,
+                Some("denied via TUI".into()),
+            );
         }
     }
 
@@ -784,15 +781,15 @@ impl App {
         }
 
         // Goals
-        if let (Some(brain_store), Some(brain_key)) = (&state.brain_store, &state.brain_key) {
-            if let Ok(goals) = brain_store.list_goals(&GoalFilter::default(), brain_key) {
-                self.goal_count = goals.len() as u64;
-                self.active_goals = goals
-                    .iter()
-                    .filter(|g| g.status == GoalStatus::Active)
-                    .count();
-                self.goals = goals;
-            }
+        if let (Some(brain_store), Some(brain_key)) = (&state.brain_store, &state.brain_key)
+            && let Ok(goals) = brain_store.list_goals(&GoalFilter::default(), brain_key)
+        {
+            self.goal_count = goals.len() as u64;
+            self.active_goals = goals
+                .iter()
+                .filter(|g| g.status == GoalStatus::Active)
+                .count();
+            self.goals = goals;
         }
 
         // Approvals
@@ -818,26 +815,25 @@ impl App {
         }
 
         // Missions
-        if let Some(ref ctx) = state.mission_ctx {
-            if let Ok(engine) = aivyx_pa::agent::build_task_engine(ctx) {
-                if let Ok(mut list) = engine.list_missions() {
-                    // Sort: active first, then by updated_at desc
-                    list.sort_by(|a, b| {
-                        let a_active = !a.status.is_terminal();
-                        let b_active = !b.status.is_terminal();
-                        b_active
-                            .cmp(&a_active)
-                            .then(b.updated_at.cmp(&a.updated_at))
-                    });
-                    // Include missions awaiting approval in the approval count
-                    let mission_approvals = list
-                        .iter()
-                        .filter(|m| m.status.is_awaiting_approval())
-                        .count();
-                    self.pending_approvals += mission_approvals;
-                    self.missions = list;
-                }
-            }
+        if let Some(ref ctx) = state.mission_ctx
+            && let Ok(engine) = aivyx_pa::agent::build_task_engine(ctx)
+            && let Ok(mut list) = engine.list_missions()
+        {
+            // Sort: active first, then by updated_at desc
+            list.sort_by(|a, b| {
+                let a_active = !a.status.is_terminal();
+                let b_active = !b.status.is_terminal();
+                b_active
+                    .cmp(&a_active)
+                    .then(b.updated_at.cmp(&a.updated_at))
+            });
+            // Include missions awaiting approval in the approval count
+            let mission_approvals = list
+                .iter()
+                .filter(|m| m.status.is_awaiting_approval())
+                .count();
+            self.pending_approvals += mission_approvals;
+            self.missions = list;
         }
 
         // Memory count
@@ -1060,35 +1056,35 @@ impl App {
 
     /// Resolve the currently selected approval.
     pub fn resolve_approval(&mut self, status: ApprovalStatus) {
-        if let Some(item) = self.approvals.get_mut(self.approval_selected) {
-            if item.status == ApprovalStatus::Pending {
-                let notif_id = item.notification.id.clone();
-                item.status = status;
-                item.resolved_at = Some(chrono::Utc::now());
+        if let Some(item) = self.approvals.get_mut(self.approval_selected)
+            && item.status == ApprovalStatus::Pending
+        {
+            let notif_id = item.notification.id.clone();
+            item.status = status;
+            item.resolved_at = Some(chrono::Utc::now());
 
-                // 1. Sync back to the shared approval queue (for API reads)
-                if let Some(ref state) = self.state {
-                    let idx = self.approval_selected;
-                    let updated_status = status;
-                    let approvals = state.approvals.clone();
-                    tokio::spawn(async move {
-                        let mut queue = approvals.lock().await;
-                        if let Some(shared) = queue.get_mut(idx) {
-                            shared.status = updated_status;
-                            shared.resolved_at = Some(chrono::Utc::now());
-                        }
-                    });
-
-                    // 2. Send decision back to the agent loop channel so the
-                    //    heartbeat can react immediately rather than waiting for
-                    //    the next tick to poll the shared Vec.
-                    if let Some(ref tx) = state.approval_tx {
-                        let _ = tx.try_send(aivyx_loop::ApprovalResponse {
-                            notification_id: notif_id,
-                            approved: status == ApprovalStatus::Approved,
-                            message: None,
-                        });
+            // 1. Sync back to the shared approval queue (for API reads)
+            if let Some(ref state) = self.state {
+                let idx = self.approval_selected;
+                let updated_status = status;
+                let approvals = state.approvals.clone();
+                tokio::spawn(async move {
+                    let mut queue = approvals.lock().await;
+                    if let Some(shared) = queue.get_mut(idx) {
+                        shared.status = updated_status;
+                        shared.resolved_at = Some(chrono::Utc::now());
                     }
+                });
+
+                // 2. Send decision back to the agent loop channel so the
+                //    heartbeat can react immediately rather than waiting for
+                //    the next tick to poll the shared Vec.
+                if let Some(ref tx) = state.approval_tx {
+                    let _ = tx.try_send(aivyx_loop::ApprovalResponse {
+                        notification_id: notif_id,
+                        approved: status == ApprovalStatus::Approved,
+                        message: None,
+                    });
                 }
             }
         }
@@ -1100,38 +1096,35 @@ impl App {
         let mut expired_indices = Vec::new();
 
         for (idx, item) in self.approvals.iter_mut().enumerate() {
-            if item.status == ApprovalStatus::Pending {
-                if let Some(expires) = item.expires_at {
-                    if now >= expires {
-                        item.status = ApprovalStatus::Expired;
-                        item.resolved_at = Some(now);
-                        expired_indices.push(idx);
-                    }
-                }
+            if item.status == ApprovalStatus::Pending
+                && let Some(expires) = item.expires_at
+                && now >= expires
+            {
+                item.status = ApprovalStatus::Expired;
+                item.resolved_at = Some(now);
+                expired_indices.push(idx);
             }
         }
 
-        if !expired_indices.is_empty() {
-            if let Some(ref state) = self.state {
-                let approvals = state.approvals.clone();
-                tokio::spawn(async move {
-                    let mut queue = approvals.lock().await;
+        if !expired_indices.is_empty()
+            && let Some(ref state) = self.state
+        {
+            let approvals = state.approvals.clone();
+            tokio::spawn(async move {
+                let mut queue = approvals.lock().await;
 
-                    // Re-check and update any globally matching indices
-                    for &idx in &expired_indices {
-                        if let Some(shared) = queue.get_mut(idx) {
-                            if shared.status == ApprovalStatus::Pending {
-                                if let Some(expires) = shared.expires_at {
-                                    if chrono::Utc::now() >= expires {
-                                        shared.status = ApprovalStatus::Expired;
-                                        shared.resolved_at = Some(chrono::Utc::now());
-                                    }
-                                }
-                            }
-                        }
+                // Re-check and update any globally matching indices
+                for &idx in &expired_indices {
+                    if let Some(shared) = queue.get_mut(idx)
+                        && shared.status == ApprovalStatus::Pending
+                        && let Some(expires) = shared.expires_at
+                        && chrono::Utc::now() >= expires
+                    {
+                        shared.status = ApprovalStatus::Expired;
+                        shared.resolved_at = Some(chrono::Utc::now());
                     }
-                });
-            }
+                }
+            });
         }
     }
 
@@ -1702,34 +1695,31 @@ impl App {
                 let (_, configured, kind) = list[idx];
                 let mut fields = Self::integration_fields(kind);
                 // Pre-fill non-secret TOML values when reconfiguring
-                if configured {
-                    if let Some(ref state) = self.state {
-                        if let Ok(content) = std::fs::read_to_string(&state.config_path) {
-                            let section = aivyx_pa::settings::integration_section_name(kind);
-                            let header = format!("[{section}]");
-                            let mut in_section = false;
-                            for line in content.lines() {
-                                let trimmed = line.trim();
-                                if trimmed == header {
-                                    in_section = true;
-                                    continue;
-                                }
-                                if trimmed.starts_with('[') {
-                                    if in_section {
-                                        break;
-                                    }
-                                    continue;
-                                }
-                                if in_section {
-                                    if let Some((k, v)) = trimmed.split_once('=') {
-                                        let k = k.trim();
-                                        let v = v.trim().trim_matches('"');
-                                        for f in &mut fields {
-                                            if !f.is_secret && f.toml_key == k {
-                                                f.value = v.to_string();
-                                            }
-                                        }
-                                    }
+                if configured
+                    && let Some(ref state) = self.state
+                    && let Ok(content) = std::fs::read_to_string(&state.config_path)
+                {
+                    let section = aivyx_pa::settings::integration_section_name(kind);
+                    let header = format!("[{section}]");
+                    let mut in_section = false;
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        if trimmed == header {
+                            in_section = true;
+                            continue;
+                        }
+                        if trimmed.starts_with('[') {
+                            if in_section {
+                                break;
+                            }
+                            continue;
+                        }
+                        if in_section && let Some((k, v)) = trimmed.split_once('=') {
+                            let k = k.trim();
+                            let v = v.trim().trim_matches('"');
+                            for f in &mut fields {
+                                if !f.is_secret && f.toml_key == k {
+                                    f.value = v.to_string();
                                 }
                             }
                         }
@@ -1992,9 +1982,7 @@ impl App {
                         });
                     }
                     KeyCode::Left => {
-                        if cursor_col > 0 {
-                            cursor_col -= 1;
-                        }
+                        cursor_col = cursor_col.saturating_sub(1);
                         self.settings_popup = Some(SettingsPopup::MultiLineInput {
                             title,
                             lines,
@@ -2332,43 +2320,42 @@ impl App {
                     .as_ref()
                     .map(|s| s.voice_enabled)
                     .unwrap_or(true)
+                    && let Some(last) = self.chat_messages.last()
                 {
-                    if let Some(last) = self.chat_messages.last() {
-                        let text = last.content.clone();
-                        let tts_model = self
-                            .settings
-                            .as_ref()
-                            .and_then(|s| s.tts_model_path.clone())
-                            .unwrap_or_else(|| {
-                                "/home/julian/.local/share/aivyx-pa/models/en_US-lessac-medium.onnx"
-                                    .into()
-                            });
-
-                        tokio::spawn(async move {
-                            // Write response to temp file
-                            let _ = std::fs::write("/tmp/aivyx-tts.txt", &text);
-
-                            // Spawn piper process to generate wav audio using File IO
-                            let out = tokio::process::Command::new("sh")
-                                .arg("-c")
-                                .arg(format!(
-                                    "cat /tmp/aivyx-tts.txt | piper -m '{}' -f /tmp/aivyx-tts.wav",
-                                    tts_model
-                                ))
-                                .output()
-                                .await;
-
-                            if out.is_ok() {
-                                // Play back audio sequentially
-                                let _ = tokio::process::Command::new("aplay")
-                                    .arg("/tmp/aivyx-tts.wav")
-                                    .stdout(std::process::Stdio::null())
-                                    .stderr(std::process::Stdio::null())
-                                    .status()
-                                    .await;
-                            }
+                    let text = last.content.clone();
+                    let tts_model = self
+                        .settings
+                        .as_ref()
+                        .and_then(|s| s.tts_model_path.clone())
+                        .unwrap_or_else(|| {
+                            "/home/julian/.local/share/aivyx-pa/models/en_US-lessac-medium.onnx"
+                                .into()
                         });
-                    }
+
+                    tokio::spawn(async move {
+                        // Write response to temp file
+                        let _ = std::fs::write("/tmp/aivyx-tts.txt", &text);
+
+                        // Spawn piper process to generate wav audio using File IO
+                        let out = tokio::process::Command::new("sh")
+                            .arg("-c")
+                            .arg(format!(
+                                "cat /tmp/aivyx-tts.txt | piper -m '{}' -f /tmp/aivyx-tts.wav",
+                                tts_model
+                            ))
+                            .output()
+                            .await;
+
+                        if out.is_ok() {
+                            // Play back audio sequentially
+                            let _ = tokio::process::Command::new("aplay")
+                                .arg("/tmp/aivyx-tts.wav")
+                                .stdout(std::process::Stdio::null())
+                                .stderr(std::process::Stdio::null())
+                                .status()
+                                .await;
+                        }
+                    });
                 }
 
                 // Auto-save: persist the full conversation (including tool results)
@@ -2616,7 +2603,7 @@ impl App {
                     }
                     KeyCode::Enter if !description.is_empty() => {
                         // Create the goal
-                        if let (Some(ref store), Some(ref bk)) = (
+                        if let (Some(store), Some(bk)) = (
                             self.state.as_ref().and_then(|s| s.brain_store.as_ref()),
                             self.state.as_ref().and_then(|s| s.brain_key.as_ref()),
                         ) {
@@ -2712,26 +2699,25 @@ impl App {
                         });
                     }
                     KeyCode::Enter if !description.is_empty() => {
-                        if let (Some(ref store), Some(ref bk)) = (
+                        if let (Some(store), Some(bk)) = (
                             self.state.as_ref().and_then(|s| s.brain_store.as_ref()),
                             self.state.as_ref().and_then(|s| s.brain_key.as_ref()),
-                        ) {
-                            if let Ok(Some(mut goal)) = store.get_goal(goal_id, bk) {
-                                goal.description = description;
-                                goal.success_criteria = if criteria.is_empty() {
-                                    goal.success_criteria
-                                } else {
-                                    criteria
-                                };
-                                goal.priority = Self::priority_from_index(priority);
-                                goal.deadline =
-                                    chrono::NaiveDate::parse_from_str(&deadline, "%Y-%m-%d")
-                                        .ok()
-                                        .and_then(|d| d.and_hms_opt(23, 59, 59))
-                                        .map(|dt| dt.and_utc());
-                                goal.updated_at = chrono::Utc::now();
-                                let _ = store.upsert_goal(&goal, bk);
-                            }
+                        ) && let Ok(Some(mut goal)) = store.get_goal(goal_id, bk)
+                        {
+                            goal.description = description;
+                            goal.success_criteria = if criteria.is_empty() {
+                                goal.success_criteria
+                            } else {
+                                criteria
+                            };
+                            goal.priority = Self::priority_from_index(priority);
+                            goal.deadline =
+                                chrono::NaiveDate::parse_from_str(&deadline, "%Y-%m-%d")
+                                    .ok()
+                                    .and_then(|d| d.and_hms_opt(23, 59, 59))
+                                    .map(|dt| dt.and_utc());
+                            goal.updated_at = chrono::Utc::now();
+                            let _ = store.upsert_goal(&goal, bk);
                         }
                     }
                     KeyCode::Left if focused_field == 2 => {
@@ -2811,7 +2797,7 @@ impl App {
             Some(GoalPopup::Confirm { message, action }) => {
                 match key.code {
                     KeyCode::Char('y') | KeyCode::Enter => {
-                        if let (Some(ref store), Some(ref bk)) = (
+                        if let (Some(store), Some(bk)) = (
                             self.state.as_ref().and_then(|s| s.brain_store.as_ref()),
                             self.state.as_ref().and_then(|s| s.brain_key.as_ref()),
                         ) {
@@ -2857,9 +2843,7 @@ impl App {
                         match key.code {
                             KeyCode::Esc => {} // close popup
                             KeyCode::Up | KeyCode::Char('k') => {
-                                if selected > 0 {
-                                    selected -= 1;
-                                }
+                                selected = selected.saturating_sub(1);
                                 // Keep selection visible
                                 if selected < scroll_offset {
                                     scroll_offset = selected;
@@ -2974,17 +2958,16 @@ impl App {
                             }
                             KeyCode::Enter => {
                                 let new_title = input.trim().to_string();
-                                if !new_title.is_empty() {
-                                    if let Some(entry) = sessions.get(selected - 1) {
-                                        if let Some(ref state) = self.state {
-                                            aivyx_pa::sessions::rename_chat_session(
-                                                &state.store,
-                                                &state.conversation_key,
-                                                &entry.id,
-                                                &new_title,
-                                            );
-                                        }
-                                    }
+                                if !new_title.is_empty()
+                                    && let Some(entry) = sessions.get(selected - 1)
+                                    && let Some(ref state) = self.state
+                                {
+                                    aivyx_pa::sessions::rename_chat_session(
+                                        &state.store,
+                                        &state.conversation_key,
+                                        &entry.id,
+                                        &new_title,
+                                    );
                                 }
                                 // Re-open with updated data
                                 self.open_session_list();
@@ -3181,9 +3164,7 @@ impl App {
                     match key.code {
                         KeyCode::Esc => {} // close
                         KeyCode::Up | KeyCode::Char('k') => {
-                            if selected > 0 {
-                                selected -= 1;
-                            }
+                            selected = selected.saturating_sub(1);
                             self.chat_popup = Some(ChatPopup::BranchManager {
                                 snapshots,
                                 selected,
@@ -3380,24 +3361,17 @@ impl App {
             let mut entries = Vec::new();
             if let Ok(keys) = state.store.list_keys() {
                 for key in keys {
-                    if key.starts_with(&prefix) {
-                        if let Ok(data) = state.store.get(&key, &state.conversation_key) {
-                            if let Some(data) = data {
-                                if let Ok(snap) = serde_json::from_slice::<
-                                    aivyx_agent::ConversationSnapshot,
-                                >(&data)
-                                {
-                                    entries.push(SnapshotEntry {
-                                        message_index: snap.message_index,
-                                        label: snap.label,
-                                        created_at: snap
-                                            .created_at
-                                            .format("%Y-%m-%d %H:%M")
-                                            .to_string(),
-                                    });
-                                }
-                            }
-                        }
+                    if key.starts_with(&prefix)
+                        && let Ok(data) = state.store.get(&key, &state.conversation_key)
+                        && let Some(data) = data
+                        && let Ok(snap) =
+                            serde_json::from_slice::<aivyx_agent::ConversationSnapshot>(&data)
+                    {
+                        entries.push(SnapshotEntry {
+                            message_index: snap.message_index,
+                            label: snap.label,
+                            created_at: snap.created_at.format("%Y-%m-%d %H:%M").to_string(),
+                        });
                     }
                 }
             }
@@ -3448,12 +3422,11 @@ impl App {
             let mut agent = agent.lock().await;
             let session_id = agent.session_id();
             let key = format!("snapshot:{session_id}:{message_index}");
-            if let Ok(Some(data)) = store.get(&key, &conv_key) {
-                if let Ok(snapshot) =
+            if let Ok(Some(data)) = store.get(&key, &conv_key)
+                && let Ok(snapshot) =
                     serde_json::from_slice::<aivyx_agent::ConversationSnapshot>(&data)
-                {
-                    let _parent_id = agent.branch_from_snapshot(&snapshot);
-                }
+            {
+                let _parent_id = agent.branch_from_snapshot(&snapshot);
             }
         });
 

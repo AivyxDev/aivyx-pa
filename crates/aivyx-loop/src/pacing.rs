@@ -71,14 +71,14 @@ pub fn should_send(
     }
 
     // Rule 5: Active engagement — defer Info during active conversation
-    if matches!(kind, NotificationKind::Info) {
-        if let Some(idle) = signals.idle_minutes() {
-            if idle < 2 && signals.message_count_session > 5 {
-                return PacingDecision::Defer {
-                    reason: "user actively engaged",
-                };
-            }
-        }
+    if matches!(kind, NotificationKind::Info)
+        && let Some(idle) = signals.idle_minutes()
+        && idle < 2
+        && signals.message_count_session > 5
+    {
+        return PacingDecision::Defer {
+            reason: "user actively engaged",
+        };
     }
 
     PacingDecision::Send

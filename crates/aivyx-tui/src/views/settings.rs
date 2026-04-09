@@ -512,70 +512,69 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                 inner,
                 2,
                 "GRAPH RECALL",
-                &if settings.use_graph_recall {
+                if settings.use_graph_recall {
                     "Enabled"
                 } else {
                     "Disabled"
-                }
-                .to_string(),
+                },
                 theme::text(),
             );
         },
     );
 
     // ── Persona (right, card 7) ──────────────────────────────
-    if let Some(ref persona) = settings.persona_dimensions {
-        if ry + 6 < right_col.y + right_col.height {
-            ry = render_card(
-                "Persona",
-                right_col.x,
-                ry,
-                right_col.width,
-                7,
-                ci == 7,
-                buf,
-                |inner, buf| {
-                    let dims = [
-                        ("Formality", persona.formality),
-                        ("Verbosity", persona.verbosity),
-                        ("Warmth", persona.warmth),
-                        ("Humor", persona.humor),
-                        ("Confidence", persona.confidence),
-                    ];
-                    for (i, (name, val)) in dims.iter().enumerate() {
-                        if i as u16 >= inner.height {
-                            break;
-                        }
-                        let is_sel = ci == 7 && app.settings_item_index == i;
-                        let bar_w = 10;
-                        let filled = (*val * bar_w as f32) as usize;
-                        // High-contrast █/░ matching goals/missions
-                        let bar = format!("{}{}", "█".repeat(filled), "░".repeat(bar_w - filled));
-                        let name_style = if is_sel {
-                            theme::highlight()
-                        } else {
-                            theme::muted()
-                        };
-                        let line = if is_sel {
-                            Line::from(vec![
-                                Span::styled(format!("{name:<12}"), name_style),
-                                Span::styled("◄ ", theme::primary()),
-                                Span::styled(&bar, theme::primary()),
-                                Span::styled(" ►", theme::primary()),
-                                Span::styled(format!(" {:.1}", val), theme::text_bold()),
-                            ])
-                        } else {
-                            Line::from(vec![
-                                Span::styled(format!("{name:<12}"), name_style),
-                                Span::styled(bar, theme::primary()),
-                                Span::styled(format!(" {:.1}", val), theme::dim()),
-                            ])
-                        };
-                        buf.set_line(inner.x + 1, inner.y + i as u16, &line, inner.width - 2);
+    if let Some(ref persona) = settings.persona_dimensions
+        && ry + 6 < right_col.y + right_col.height
+    {
+        ry = render_card(
+            "Persona",
+            right_col.x,
+            ry,
+            right_col.width,
+            7,
+            ci == 7,
+            buf,
+            |inner, buf| {
+                let dims = [
+                    ("Formality", persona.formality),
+                    ("Verbosity", persona.verbosity),
+                    ("Warmth", persona.warmth),
+                    ("Humor", persona.humor),
+                    ("Confidence", persona.confidence),
+                ];
+                for (i, (name, val)) in dims.iter().enumerate() {
+                    if i as u16 >= inner.height {
+                        break;
                     }
-                },
-            );
-        }
+                    let is_sel = ci == 7 && app.settings_item_index == i;
+                    let bar_w = 10;
+                    let filled = (*val * bar_w as f32) as usize;
+                    // High-contrast █/░ matching goals/missions
+                    let bar = format!("{}{}", "█".repeat(filled), "░".repeat(bar_w - filled));
+                    let name_style = if is_sel {
+                        theme::highlight()
+                    } else {
+                        theme::muted()
+                    };
+                    let line = if is_sel {
+                        Line::from(vec![
+                            Span::styled(format!("{name:<12}"), name_style),
+                            Span::styled("◄ ", theme::primary()),
+                            Span::styled(&bar, theme::primary()),
+                            Span::styled(" ►", theme::primary()),
+                            Span::styled(format!(" {:.1}", val), theme::text_bold()),
+                        ])
+                    } else {
+                        Line::from(vec![
+                            Span::styled(format!("{name:<12}"), name_style),
+                            Span::styled(bar, theme::primary()),
+                            Span::styled(format!(" {:.1}", val), theme::dim()),
+                        ])
+                    };
+                    buf.set_line(inner.x + 1, inner.y + i as u16, &line, inner.width - 2);
+                }
+            },
+        );
     }
 
     // ── Tools & Extensions (right, card 8) ────────────────────

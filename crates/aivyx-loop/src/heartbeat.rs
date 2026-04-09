@@ -1807,10 +1807,10 @@ fn dispatch_plan_review(
         if let Some(ref deadline_str) = adj.set_deadline {
             if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(deadline_str) {
                 updated.deadline = Some(dt.with_timezone(&Utc));
-            } else if let Ok(d) = chrono::NaiveDate::parse_from_str(deadline_str, "%Y-%m-%d") {
-                if let Some(dt) = d.and_hms_opt(23, 59, 59) {
-                    updated.deadline = Some(dt.and_utc());
-                }
+            } else if let Ok(d) = chrono::NaiveDate::parse_from_str(deadline_str, "%Y-%m-%d")
+                && let Some(dt) = d.and_hms_opt(23, 59, 59)
+            {
+                updated.deadline = Some(dt.and_utc());
             }
         }
 

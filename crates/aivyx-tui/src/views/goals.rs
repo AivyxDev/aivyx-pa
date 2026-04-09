@@ -338,17 +338,17 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             buf.set_line(detail_inner.x + 1, y, &fail_line, detail_inner.width - 2);
             y += 1;
 
-            if let Some(ref cooldown) = goal.cooldown_until {
-                if y < detail_inner.y + detail_inner.height {
-                    let cd = Line::from(vec![
-                        Span::styled("Cooldown: ", theme::muted()),
-                        Span::styled(
-                            format!("until {}", cooldown.format("%H:%M")),
-                            theme::warning(),
-                        ),
-                    ]);
-                    buf.set_line(detail_inner.x + 1, y, &cd, detail_inner.width - 2);
-                }
+            if let Some(ref cooldown) = goal.cooldown_until
+                && y < detail_inner.y + detail_inner.height
+            {
+                let cd = Line::from(vec![
+                    Span::styled("Cooldown: ", theme::muted()),
+                    Span::styled(
+                        format!("until {}", cooldown.format("%H:%M")),
+                        theme::warning(),
+                    ),
+                ]);
+                buf.set_line(detail_inner.x + 1, y, &cd, detail_inner.width - 2);
             }
         }
 

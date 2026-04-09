@@ -78,7 +78,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     list_block.render(list_area, buf);
 
     if missions.is_empty() {
-        let empty = vec![
+        let empty = [
             Line::from(Span::styled("  No missions yet.", theme::dim())),
             Line::from(Span::styled("", theme::dim())),
             Line::from(Span::styled(
@@ -339,15 +339,15 @@ fn render_detail(mission: &aivyx_task_engine::Mission, area: Rect, buf: &mut Buf
         y += 1;
 
         // Show failure reason inline
-        if let StepStatus::Failed { ref reason } = step.status {
-            if y < area.y + area.height {
-                let reason_line = Line::from(Span::styled(
-                    format!("      {}", truncate(reason, max_w.saturating_sub(8))),
-                    Style::default().fg(theme::ERROR),
-                ));
-                buf.set_line(area.x + 1, y, &reason_line, area.width - 2);
-                y += 1;
-            }
+        if let StepStatus::Failed { ref reason } = step.status
+            && y < area.y + area.height
+        {
+            let reason_line = Line::from(Span::styled(
+                format!("      {}", truncate(reason, max_w.saturating_sub(8))),
+                Style::default().fg(theme::ERROR),
+            ));
+            buf.set_line(area.x + 1, y, &reason_line, area.width - 2);
+            y += 1;
         }
     }
 }
@@ -372,9 +372,9 @@ fn format_progress(meta: &TaskMetadata) -> String {
     let mut dots = String::new();
     for i in 0..total_display {
         if i < filled {
-            dots.push_str("●");
+            dots.push('●');
         } else if i == filled && is_active && filled < total_display {
-            dots.push_str("▶");
+            dots.push('▶');
         } else {
             dots.push('─');
         }

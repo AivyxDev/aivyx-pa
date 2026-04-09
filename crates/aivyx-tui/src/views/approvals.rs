@@ -189,76 +189,76 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     }
 
     // ── Detail pane ───────────────────────────────────────────────
-    if let Some(detail) = detail_area {
-        if let Some(item) = app.approvals.get(app.approval_selected) {
-            let block = Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Plain)
-                .border_style(theme::border_active())
-                .title(Line::from(vec![
-                    Span::styled(" Detail — ", theme::muted()),
-                    Span::styled(&item.notification.title, theme::text_bold()),
-                    Span::styled(" ", Style::default()),
-                ]));
-            let inner = block.inner(detail);
-            block.render(detail, buf);
+    if let Some(detail) = detail_area
+        && let Some(item) = app.approvals.get(app.approval_selected)
+    {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Plain)
+            .border_style(theme::border_active())
+            .title(Line::from(vec![
+                Span::styled(" Detail — ", theme::muted()),
+                Span::styled(&item.notification.title, theme::text_bold()),
+                Span::styled(" ", Style::default()),
+            ]));
+        let inner = block.inner(detail);
+        block.render(detail, buf);
 
-            // Word-wrap the body to the inner width
-            let max_width = inner.width.saturating_sub(2) as usize;
-            let lines: Vec<String> = item
-                .notification
-                .body
-                .lines()
-                .flat_map(|line| {
-                    if line.is_empty() {
-                        return vec!["".to_string()];
+        // Word-wrap the body to the inner width
+        let max_width = inner.width.saturating_sub(2) as usize;
+        let lines: Vec<String> = item
+            .notification
+            .body
+            .lines()
+            .flat_map(|line| {
+                if line.is_empty() {
+                    return vec!["".to_string()];
+                }
+                // Simple word-wrap
+                let mut wrapped = Vec::new();
+                let mut current = String::new();
+                for word in line.split_whitespace() {
+                    if current.is_empty() {
+                        current.push_str(word);
+                    } else if current.len() + 1 + word.len() <= max_width {
+                        current.push(' ');
+                        current.push_str(word);
+                    } else {
+                        wrapped.push(current.clone());
+                        current = word.to_string();
                     }
-                    // Simple word-wrap
-                    let mut wrapped = Vec::new();
-                    let mut current = String::new();
-                    for word in line.split_whitespace() {
-                        if current.is_empty() {
-                            current.push_str(word);
-                        } else if current.len() + 1 + word.len() <= max_width {
-                            current.push(' ');
-                            current.push_str(word);
-                        } else {
-                            wrapped.push(current.clone());
-                            current = word.to_string();
-                        }
-                    }
-                    if !current.is_empty() {
-                        wrapped.push(current);
-                    }
-                    wrapped
-                })
-                .collect();
+                }
+                if !current.is_empty() {
+                    wrapped.push(current);
+                }
+                wrapped
+            })
+            .collect();
 
-            let total = lines.len();
-            let visible = inner.height.saturating_sub(1) as usize;
-            let scroll = (app.approval_detail_scroll as usize).min(total.saturating_sub(visible));
+        let total = lines.len();
+        let visible = inner.height.saturating_sub(1) as usize;
+        let scroll = (app.approval_detail_scroll as usize).min(total.saturating_sub(visible));
 
-            for (row, line_text) in lines.iter().skip(scroll).take(visible).enumerate() {
-                let rendered = Line::from(vec![
-                    Span::styled(" ", Style::default()),
-                    Span::styled(line_text.as_str(), theme::text()),
-                ]);
-                buf.set_line(inner.x, inner.y + row as u16, &rendered, inner.width);
-            }
+        for (row, line_text) in lines.iter().skip(scroll).take(visible).enumerate() {
+            let rendered = Line::from(vec![
+                Span::styled(" ", Style::default()),
+                Span::styled(line_text.as_str(), theme::text()),
+            ]);
+            buf.set_line(inner.x, inner.y + row as u16, &rendered, inner.width);
+        }
 
-            // Scroll position hint
-            if total > visible {
-                let hint = Line::from(vec![Span::styled(
-                    format!(
-                        " {}/{} lines  [↑↓] scroll",
-                        scroll + visible.min(total),
-                        total
-                    ),
-                    theme::dim(),
-                )]);
-                let hint_y = inner.y + inner.height.saturating_sub(1);
-                buf.set_line(inner.x, hint_y, &hint, inner.width);
-            }
+        // Scroll position hint
+        if total > visible {
+            let hint = Line::from(vec![Span::styled(
+                format!(
+                    " {}/{} lines  [↑↓] scroll",
+                    scroll + visible.min(total),
+                    total
+                ),
+                theme::dim(),
+            )]);
+            let hint_y = inner.y + inner.height.saturating_sub(1);
+            buf.set_line(inner.x, hint_y, &hint, inner.width);
         }
     }
 

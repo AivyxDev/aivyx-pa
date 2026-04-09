@@ -47,7 +47,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     let input_lines = if input_content_width == 0 || input_char_count == 0 {
         1
     } else {
-        ((input_char_count + input_content_width - 1) / input_content_width).clamp(1, 6)
+        input_char_count.div_ceil(input_content_width).clamp(1, 6)
     };
     let input_height = (input_lines as u16) + 2; // +2 for top/bottom border
 

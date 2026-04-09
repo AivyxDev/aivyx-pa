@@ -490,19 +490,19 @@ async fn chat_stream(
         // Restore conversation history when resuming an existing session.
         // If the agent's conversation is empty but the session has prior
         // messages, inject them so the LLM has full conversational context.
-        if let Some(ref sid) = session_id {
-            if agent.conversation().is_empty() {
-                if let Some(pairs) = crate::sessions::load_chat_messages(&store, &conv_key, sid) {
-                    if !pairs.is_empty() {
-                        let history = crate::sessions::to_chat_messages(&pairs);
-                        agent.restore_conversation(history);
-                    }
-                }
-                // Restore ephemeral learned state (tool results, domain
-                // confidence, cost tracking, etc.) from the resume token.
-                if let Some(token) = crate::sessions::load_resume_token(&store, &conv_key, sid) {
-                    agent.apply_resume_state(token.into_snapshot());
-                }
+        if let Some(ref sid) = session_id
+            && agent.conversation().is_empty()
+        {
+            if let Some(pairs) = crate::sessions::load_chat_messages(&store, &conv_key, sid)
+                && !pairs.is_empty()
+            {
+                let history = crate::sessions::to_chat_messages(&pairs);
+                agent.restore_conversation(history);
+            }
+            // Restore ephemeral learned state (tool results, domain
+            // confidence, cost tracking, etc.) from the resume token.
+            if let Some(token) = crate::sessions::load_resume_token(&store, &conv_key, sid) {
+                agent.apply_resume_state(token.into_snapshot());
             }
         }
 
@@ -1774,13 +1774,13 @@ async fn approve_mission(
     Path(id): Path<String>,
     Json(req): Json<MissionApprovalRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    if let Some(ref msg) = req.message {
-        if msg.len() > MAX_APPROVAL_MESSAGE_LEN {
-            return Err((
-                StatusCode::PAYLOAD_TOO_LARGE,
-                format!("message exceeds maximum length of {MAX_APPROVAL_MESSAGE_LEN}"),
-            ));
-        }
+    if let Some(ref msg) = req.message
+        && msg.len() > MAX_APPROVAL_MESSAGE_LEN
+    {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!("message exceeds maximum length of {MAX_APPROVAL_MESSAGE_LEN}"),
+        ));
     }
 
     let engine = build_engine(&state)?;

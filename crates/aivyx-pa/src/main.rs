@@ -680,30 +680,28 @@ async fn serve_api(
     // The server receives POST /webhooks/{name} requests from external services
     // (GitHub, Stripe, smart home hubs, IFTTT, etc.) and queues them as
     // agent notifications. The webhook key was derived above but not yet used.
-    if let Some(ref webhook_cfg) = pa_config.webhook {
-        if webhook_cfg.enabled {
-            let wh_store = std::sync::Arc::clone(&store);
-            let wh_key = keys.webhook_key.take().unwrap_or_else(|| {
-                MasterKey::from_bytes([0u8; 32]) // should not happen if derive_all_keys ran
-            });
-            // Give the webhook server an mpsc sender that feeds into the notification broadcast.
-            let (wh_tx, mut wh_rx) = tokio::sync::mpsc::channel::<aivyx_loop::Notification>(64);
-            let wh_broadcast_tx = notification_tx.clone();
-            tokio::spawn(async move {
-                while let Some(n) = wh_rx.recv().await {
-                    let _ = wh_broadcast_tx.send(n);
-                }
-            });
-            match aivyx_pa::webhook::spawn_webhook_server(webhook_cfg, wh_store, &wh_key, wh_tx)
-                .await
-            {
-                Ok(_handle) => {
-                    eprintln!("  Webhook server on http://127.0.0.1:{}", webhook_cfg.port);
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "Failed to start webhook server — webhooks disabled");
-                    eprintln!("  ⚠ Webhook server failed to start: {e}");
-                }
+    if let Some(ref webhook_cfg) = pa_config.webhook
+        && webhook_cfg.enabled
+    {
+        let wh_store = std::sync::Arc::clone(&store);
+        let wh_key = keys.webhook_key.take().unwrap_or_else(|| {
+            MasterKey::from_bytes([0u8; 32]) // should not happen if derive_all_keys ran
+        });
+        // Give the webhook server an mpsc sender that feeds into the notification broadcast.
+        let (wh_tx, mut wh_rx) = tokio::sync::mpsc::channel::<aivyx_loop::Notification>(64);
+        let wh_broadcast_tx = notification_tx.clone();
+        tokio::spawn(async move {
+            while let Some(n) = wh_rx.recv().await {
+                let _ = wh_broadcast_tx.send(n);
+            }
+        });
+        match aivyx_pa::webhook::spawn_webhook_server(webhook_cfg, wh_store, &wh_key, wh_tx).await {
+            Ok(_handle) => {
+                eprintln!("  Webhook server on http://127.0.0.1:{}", webhook_cfg.port);
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to start webhook server — webhooks disabled");
+                eprintln!("  ⚠ Webhook server failed to start: {e}");
             }
         }
     }

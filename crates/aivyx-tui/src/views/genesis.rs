@@ -394,41 +394,41 @@ pub async fn run_wizard(
             probe_ollama(&mut state).await;
         }
 
-        if event::poll(Duration::from_millis(16))? {
-            if let Event::Key(key) = event::read()? {
-                // Ctrl+C always aborts
-                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-                    return Ok(None);
-                }
+        if event::poll(Duration::from_millis(16))?
+            && let Event::Key(key) = event::read()?
+        {
+            // Ctrl+C always aborts
+            if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+                return Ok(None);
+            }
 
-                // Clear error on any keystroke
-                state.error_message = None;
+            // Clear error on any keystroke
+            state.error_message = None;
 
-                match handle_key(&mut state, key) {
-                    Action::Continue => {}
-                    Action::Advance => {
-                        if let Err(msg) = validate_step(&state) {
-                            state.error_message = Some(msg);
-                        } else if let Some(next) = state.step.next() {
-                            // Side effects on step transition
-                            on_leave_step(&mut state);
-                            state.step = next;
-                            state.focused_field = 0;
-                            on_enter_step(&mut state).await;
-                        } else {
-                            // Ignition — finalize
-                            finalize(&state, dirs)?;
-                            return Ok(Some(state.passphrase.clone()));
-                        }
+            match handle_key(&mut state, key) {
+                Action::Continue => {}
+                Action::Advance => {
+                    if let Err(msg) = validate_step(&state) {
+                        state.error_message = Some(msg);
+                    } else if let Some(next) = state.step.next() {
+                        // Side effects on step transition
+                        on_leave_step(&mut state);
+                        state.step = next;
+                        state.focused_field = 0;
+                        on_enter_step(&mut state).await;
+                    } else {
+                        // Ignition — finalize
+                        finalize(&state, dirs)?;
+                        return Ok(Some(state.passphrase.clone()));
                     }
-                    Action::Back => {
-                        if let Some(prev) = state.step.prev() {
-                            state.step = prev;
-                            state.focused_field = 0;
-                            on_enter_step(&mut state).await;
-                        } else {
-                            return Ok(None); // Esc on first step = abort
-                        }
+                }
+                Action::Back => {
+                    if let Some(prev) = state.step.prev() {
+                        state.step = prev;
+                        state.focused_field = 0;
+                        on_enter_step(&mut state).await;
+                    } else {
+                        return Ok(None); // Esc on first step = abort
                     }
                 }
             }
@@ -462,14 +462,11 @@ fn on_leave_step(state: &mut GenesisState) {
 
 /// Side effects when entering a step.
 async fn on_enter_step(state: &mut GenesisState) {
-    match state.step {
-        Step::Provider => {
-            // Schedule Ollama probe if not yet probed
-            if state.is_ollama() && !state.ollama_probed {
-                state.needs_probe = true;
-            }
+    if state.step == Step::Provider {
+        // Schedule Ollama probe if not yet probed
+        if state.is_ollama() && !state.ollama_probed {
+            state.needs_probe = true;
         }
-        _ => {}
     }
 }
 
@@ -485,13 +482,13 @@ async fn probe_ollama(state: &mut GenesisState) {
         .await
     {
         Ok(resp) if resp.status().is_success() => {
-            if let Ok(json) = resp.json::<serde_json::Value>().await {
-                if let Some(models) = json["models"].as_array() {
-                    state.ollama_models = models
-                        .iter()
-                        .filter_map(|m| m["name"].as_str().map(String::from))
-                        .collect();
-                }
+            if let Ok(json) = resp.json::<serde_json::Value>().await
+                && let Some(models) = json["models"].as_array()
+            {
+                state.ollama_models = models
+                    .iter()
+                    .filter_map(|m| m["name"].as_str().map(String::from))
+                    .collect();
             }
             if !state.ollama_models.is_empty() {
                 state.model_input = state.ollama_models[0].clone();

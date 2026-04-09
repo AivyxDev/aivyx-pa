@@ -827,10 +827,11 @@ pub fn schedule_exists(config_path: &Path, name: &str) -> bool {
         }
         if in_schedule {
             let stripped = trimmed.split('#').next().unwrap_or("").trim();
-            if let Some((k, v)) = stripped.split_once('=') {
-                if k.trim() == "name" && v.trim().trim_matches('"') == name {
-                    return true;
-                }
+            if let Some((k, v)) = stripped.split_once('=')
+                && k.trim() == "name"
+                && v.trim().trim_matches('"') == name
+            {
+                return true;
             }
         }
     }
@@ -966,10 +967,11 @@ pub fn remove_schedule(config_path: &Path, name: &str) -> Result<(), std::io::Er
 
         if in_schedule {
             let stripped = trimmed.split('#').next().unwrap_or("").trim();
-            if let Some((k, v)) = stripped.split_once('=') {
-                if k.trim() == "name" && v.trim().trim_matches('"') == name {
-                    found_name = true;
-                }
+            if let Some((k, v)) = stripped.split_once('=')
+                && k.trim() == "name"
+                && v.trim().trim_matches('"') == name
+            {
+                found_name = true;
             }
         }
     }

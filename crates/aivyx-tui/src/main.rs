@@ -362,10 +362,10 @@ async fn run_loop(
         }
 
         // Poll for keyboard events (60fps for smooth animations)
-        if event::poll(Duration::from_millis(16))? {
-            if let Event::Key(key) = event::read()? {
-                handle_key(app, key);
-            }
+        if event::poll(Duration::from_millis(16))?
+            && let Event::Key(key) = event::read()?
+        {
+            handle_key(app, key);
         }
     }
     Ok(())
@@ -661,17 +661,17 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                 }
                 KeyCode::Char('c') if app.view == View::Goals => {
                     let goals = app.filtered_goals();
-                    if let Some(goal) = goals.get(app.goal_selected) {
-                        if matches!(
+                    if let Some(goal) = goals.get(app.goal_selected)
+                        && matches!(
                             goal.status,
                             aivyx_brain::GoalStatus::Active | aivyx_brain::GoalStatus::Dormant
-                        ) {
-                            let msg = format!("Complete \"{}\"?", truncate(&goal.description, 35));
-                            app.goal_popup = Some(crate::app::GoalPopup::Confirm {
-                                message: msg,
-                                action: crate::app::GoalAction::Complete(goal.id),
-                            });
-                        }
+                        )
+                    {
+                        let msg = format!("Complete \"{}\"?", truncate(&goal.description, 35));
+                        app.goal_popup = Some(crate::app::GoalPopup::Confirm {
+                            message: msg,
+                            action: crate::app::GoalAction::Complete(goal.id),
+                        });
                     }
                 }
                 KeyCode::Char('x') if app.view == View::Missions => {
@@ -688,17 +688,17 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                 }
                 KeyCode::Char('x') if app.view == View::Goals => {
                     let goals = app.filtered_goals();
-                    if let Some(goal) = goals.get(app.goal_selected) {
-                        if matches!(
+                    if let Some(goal) = goals.get(app.goal_selected)
+                        && matches!(
                             goal.status,
                             aivyx_brain::GoalStatus::Active | aivyx_brain::GoalStatus::Dormant
-                        ) {
-                            let msg = format!("Abandon \"{}\"?", truncate(&goal.description, 35));
-                            app.goal_popup = Some(crate::app::GoalPopup::Confirm {
-                                message: msg,
-                                action: crate::app::GoalAction::Abandon(goal.id),
-                            });
-                        }
+                        )
+                    {
+                        let msg = format!("Abandon \"{}\"?", truncate(&goal.description, 35));
+                        app.goal_popup = Some(crate::app::GoalPopup::Confirm {
+                            message: msg,
+                            action: crate::app::GoalAction::Abandon(goal.id),
+                        });
                     }
                 }
 

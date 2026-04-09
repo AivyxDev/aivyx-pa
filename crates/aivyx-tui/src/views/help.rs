@@ -182,16 +182,17 @@ fn render_manual_lines(max_w: usize) -> Vec<Line<'static>> {
         }
 
         // Numbered list: "1. text" or "10. text"
-        if let Some(dot_pos) = trimmed.find(". ") {
-            if dot_pos <= 3 && trimmed[..dot_pos].chars().all(|c| c.is_ascii_digit()) {
-                let num = &trimmed[..dot_pos];
-                let rest = &trimmed[dot_pos + 2..];
-                let spans = inline_spans(rest);
-                let mut full = vec![Span::styled(format!("  {num}. "), theme::primary())];
-                full.extend(spans);
-                wrap_spans(&full, max_w, &mut out);
-                continue;
-            }
+        if let Some(dot_pos) = trimmed.find(". ")
+            && dot_pos <= 3
+            && trimmed[..dot_pos].chars().all(|c| c.is_ascii_digit())
+        {
+            let num = &trimmed[..dot_pos];
+            let rest = &trimmed[dot_pos + 2..];
+            let spans = inline_spans(rest);
+            let mut full = vec![Span::styled(format!("  {num}. "), theme::primary())];
+            full.extend(spans);
+            wrap_spans(&full, max_w, &mut out);
+            continue;
         }
 
         // Regular paragraph — word-wrap with inline code highlighting

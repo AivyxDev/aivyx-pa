@@ -533,10 +533,10 @@ impl MoodSignal {
         }
 
         // Disengaged: idle for 30+ minutes
-        if let Some(idle) = signals.idle_minutes() {
-            if idle >= 30 {
-                return Self::Disengaged;
-            }
+        if let Some(idle) = signals.idle_minutes()
+            && idle >= 30
+        {
+            return Self::Disengaged;
         }
 
         // Focused: long messages, steady pace

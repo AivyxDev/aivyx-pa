@@ -156,21 +156,19 @@ async fn dispatch_one(notif: &Notification, ctx: &DispatchContext) {
     }
 
     // 2. Telegram
-    if ctx.config.telegram {
-        if let Some(ref msg_ctx) = ctx.telegram {
-            if let Some(ref tg) = msg_ctx.telegram {
-                send_telegram_notification(notif, tg).await;
-            }
-        }
+    if ctx.config.telegram
+        && let Some(ref msg_ctx) = ctx.telegram
+        && let Some(ref tg) = msg_ctx.telegram
+    {
+        send_telegram_notification(notif, tg).await;
     }
 
     // 3. Signal
-    if ctx.config.signal {
-        if let Some(ref msg_ctx) = ctx.telegram {
-            if let Some(ref sig) = msg_ctx.signal {
-                send_signal_notification(notif, sig).await;
-            }
-        }
+    if ctx.config.signal
+        && let Some(ref msg_ctx) = ctx.telegram
+        && let Some(ref sig) = msg_ctx.signal
+    {
+        send_signal_notification(notif, sig).await;
     }
 }
 
@@ -308,7 +306,7 @@ fn truncate_str(s: &str, max_chars: usize) -> String {
     let mut chars = s.chars();
     let mut result: String = chars.by_ref().take(max_chars).collect();
     if chars.next().is_some() {
-        result.push_str("…");
+        result.push('…');
     }
     result
 }
