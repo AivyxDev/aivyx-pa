@@ -34,7 +34,7 @@ pub async fn capture_window() -> Result<String> {
         if hwnd.0 == std::ptr::null_mut() {
             return Err(AivyxError::Other("No foreground window".into()));
         }
-        capture_hwnd(hwnd).await
+        capture_hwnd(hwnd)
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -61,7 +61,7 @@ pub async fn capture_window_by_title(title: &str) -> Result<String> {
         if hwnd.0 == std::ptr::null_mut() {
             return Err(AivyxError::Other(format!("Window not found: '{title}'")));
         }
-        capture_hwnd(hwnd).await
+        capture_hwnd(hwnd)
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -96,7 +96,7 @@ pub async fn capture_screen() -> Result<String> {
 
 /// Internal: capture a specific HWND.
 #[cfg(target_os = "windows")]
-async fn capture_hwnd(hwnd: HWND) -> Result<String> {
+fn capture_hwnd(hwnd: HWND) -> Result<String> {
     let mut rect = windows::Win32::Foundation::RECT::default();
     unsafe {
         GetClientRect(hwnd, &mut rect)
