@@ -1,3 +1,5 @@
+#![allow(clippy::if_same_then_else)]
+
 //! Native Genesis Wizard — 8-step TUI agent creation and onboarding.
 //!
 //! Runs its own event loop in the alternate screen before the main TUI

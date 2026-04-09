@@ -1,3 +1,9 @@
+#![allow(
+    clippy::manual_clamp,
+    clippy::wildcard_in_or_patterns,
+    clippy::too_many_arguments
+)]
+
 //! Settings view — interactive configuration display from SettingsSnapshot.
 
 use ratatui::{
