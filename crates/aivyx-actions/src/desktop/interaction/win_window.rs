@@ -41,7 +41,7 @@ pub fn get_foreground_window_class() -> Result<String> {
     {
         unsafe {
             let hwnd = GetForegroundWindow();
-            if hwnd.unwrap_or(HWND::default()).0 == std::ptr::null_mut() {
+            if hwnd.0 == std::ptr::null_mut() {
                 return Err(AivyxError::Other("No foreground window".into()));
             }
             let mut buf = [0u16; 256];
