@@ -424,6 +424,21 @@ async fn chat_stream(
     // Spawn the agent turn in a background task with a 5-minute timeout
     tokio::spawn(async move {
         let mut agent = agent.lock().await;
+
+        // Restore conversation history when resuming an existing session.
+        // If the agent's conversation is empty but the session has prior
+        // messages, inject them so the LLM has full conversational context.
+        if let Some(ref sid) = session_id {
+            if agent.conversation().is_empty() {
+                if let Some(pairs) = crate::sessions::load_chat_messages(&store, &conv_key, sid) {
+                    if !pairs.is_empty() {
+                        let history = crate::sessions::to_chat_messages(&pairs);
+                        agent.restore_conversation(history);
+                    }
+                }
+            }
+        }
+
         let cancel = CancellationToken::new();
         let turn_timeout = std::time::Duration::from_secs(300);
         let turn_future = agent.turn_stream(&message, None, token_tx.clone(), Some(cancel.clone()));
@@ -435,7 +450,9 @@ async fn chat_stream(
             }
         };
 
-        // Persist the conversation after the turn
+        // Persist the full conversation (including tool results) after the turn.
+        // Extract from the agent's in-memory conversation to preserve tool call
+        // context, system notes, and rescue guidance — not just user/assistant text.
         let response_text = match &result {
             Ok(text) => text.clone(),
             Err(e) => format!("[Error: {e}]"),
@@ -446,26 +463,37 @@ async fn chat_stream(
             format!("{}", chrono::Utc::now().timestamp_millis())
         });
 
-        // Load existing messages or start fresh
-        let mut messages = crate::sessions::load_chat_messages(&store, &conv_key, &sid)
-            .unwrap_or_default();
-        messages.push(("you".into(), user_msg));
-        messages.push(("assistant".into(), response_text));
+        // Extract the full conversation from the agent, preserving tool results.
+        let messages = crate::sessions::conversation_to_session(agent.conversation());
 
-        let title = if messages.len() == 2 {
-            crate::sessions::auto_title(&messages[0].1)
+        // If the agent errored and we have no conversation, fall back to manual.
+        let messages = if messages.is_empty() {
+            vec![
+                crate::sessions::SessionMessage::user(&user_msg),
+                crate::sessions::SessionMessage::assistant(&response_text),
+            ]
         } else {
-            // Load existing title
+            messages
+        };
+
+        let title = {
+            // Find the first user message for the title
+            let first_user = messages.iter()
+                .find(|m| m.role == "user")
+                .map(|m| m.content.as_str())
+                .unwrap_or(&user_msg);
+
+            // Check if we already have a title from a prior save
             crate::sessions::list_chat_sessions(&store, &conv_key)
                 .into_iter()
                 .find(|s| s.id == sid)
                 .map(|s| s.title)
-                .unwrap_or_else(|| crate::sessions::auto_title(&messages[0].1))
+                .unwrap_or_else(|| crate::sessions::auto_title(first_user))
         };
 
         let mut meta = crate::sessions::ChatSessionMeta::new(title);
         meta.id = sid.clone();
-        meta.turn_count = messages.len() / 2;
+        meta.turn_count = crate::sessions::count_turns(&messages);
         meta.updated_at = chrono::Utc::now();
         crate::sessions::save_chat_session(&store, &conv_key, &meta, &messages);
 

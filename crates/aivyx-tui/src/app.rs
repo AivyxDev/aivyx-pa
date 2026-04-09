@@ -111,22 +111,38 @@ pub enum GoalAction {
 
 // ── Chat Popup (modal overlays in Chat view) ────────────────
 
-/// A saved session entry for the session list.
+/// A saved session entry for the conversation history popup.
 #[derive(Debug, Clone)]
 pub struct SessionEntry {
     pub id: String,
     pub title: String,
     pub turn_count: usize,
     pub updated_at: String,
+    pub created_at: String,
+}
+
+/// Sub-mode for the conversation history popup.
+#[derive(Debug)]
+pub enum HistoryMode {
+    /// Browsing the session list.
+    List,
+    /// Renaming the selected session (inline text input).
+    Rename { input: String },
+    /// Confirming deletion of the selected session.
+    ConfirmDelete,
+    /// Previewing messages in the selected session.
+    Preview { lines: Vec<(String, String)>, scroll: usize },
 }
 
 /// Modal popup state for the Chat view.
 #[derive(Debug)]
 pub enum ChatPopup {
-    /// Session list: pick a session to load or start new.
-    SessionList {
+    /// Conversation history browser with CRUD operations.
+    ConversationHistory {
         sessions: Vec<SessionEntry>,
         selected: usize,
+        scroll_offset: usize,
+        mode: HistoryMode,
     },
     /// System prompt preview (scrollable).
     SystemPrompt {
@@ -1636,18 +1652,18 @@ impl App {
                         let tts_model = self.settings.as_ref()
                             .and_then(|s| s.tts_model_path.clone())
                             .unwrap_or_else(|| "/home/julian/.local/share/aivyx-pa/models/en_US-lessac-medium.onnx".into());
-                        
+
                         tokio::spawn(async move {
                             // Write response to temp file
                             let _ = std::fs::write("/tmp/aivyx-tts.txt", &text);
-                            
+
                             // Spawn piper process to generate wav audio using File IO
                             let out = tokio::process::Command::new("sh")
                                 .arg("-c")
                                 .arg(format!("cat /tmp/aivyx-tts.txt | piper -m '{}' -f /tmp/aivyx-tts.wav", tts_model))
                                 .output()
                                 .await;
-                                
+
                             if out.is_ok() {
                                 // Play back audio sequentially
                                 let _ = tokio::process::Command::new("aplay")
@@ -1659,6 +1675,52 @@ impl App {
                             }
                         });
                     }
+                }
+
+                // Auto-save: persist the full conversation (including tool results)
+                // to the encrypted store so sessions survive restarts.
+                if let Some(ref state) = self.state {
+                    // Ensure we have a stable session ID for this conversation
+                    let sid = self.chat_session_id.get_or_insert_with(|| {
+                        format!("{}", chrono::Utc::now().timestamp_millis())
+                    }).clone();
+
+                    let agent = state.agent.clone();
+                    let store = state.store.clone();
+                    let conv_key = state.conversation_key.clone();
+                    let chat_msgs = self.chat_messages.clone();
+
+                    tokio::spawn(async move {
+                        let agent = agent.lock().await;
+                        let conversation = agent.conversation();
+
+                        // Extract the full conversation from the agent
+                        let session_msgs = aivyx_pa::sessions::conversation_to_session(conversation);
+                        if session_msgs.is_empty() {
+                            return;
+                        }
+
+                        // Derive title from first user message in chat view
+                        let title = chat_msgs.first()
+                            .filter(|m| m.role == "user")
+                            .map(|m| aivyx_pa::sessions::auto_title(&m.content))
+                            .unwrap_or_else(|| {
+                                // Fall back to existing session title if available
+                                aivyx_pa::sessions::list_chat_sessions(&store, &conv_key)
+                                    .into_iter()
+                                    .find(|s| s.id == sid)
+                                    .map(|s| s.title)
+                                    .unwrap_or_else(|| "Untitled".into())
+                            });
+
+                        let mut meta = aivyx_pa::sessions::ChatSessionMeta::new(title);
+                        meta.id = sid;
+                        meta.turn_count = aivyx_pa::sessions::count_turns(&session_msgs);
+                        meta.updated_at = chrono::Utc::now();
+                        aivyx_pa::sessions::save_chat_session(
+                            &store, &conv_key, &meta, &session_msgs,
+                        );
+                    });
                 }
 
                 self.chat_streaming = false;
@@ -1964,39 +2026,179 @@ impl App {
     /// Handle key events when a chat popup is open.
     pub fn handle_chat_popup(&mut self, key: KeyEvent) {
         match self.chat_popup.take() {
-            Some(ChatPopup::SessionList { sessions, mut selected }) => {
-                match key.code {
-                    KeyCode::Esc => {} // close
-                    KeyCode::Up | KeyCode::Char('k') => {
-                        if selected > 0 { selected -= 1; }
-                        self.chat_popup = Some(ChatPopup::SessionList { sessions, selected });
-                    }
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        if selected < sessions.len() { selected += 1; } // len = "New" option
-                        self.chat_popup = Some(ChatPopup::SessionList { sessions, selected });
-                    }
-                    KeyCode::Enter => {
-                        if selected == 0 {
-                            // "New conversation" — clear chat
-                            self.chat_messages.clear();
-                            self.chat_session_id = None;
-                            self.chat_scroll = 0;
-                        } else if let Some(entry) = sessions.get(selected - 1) {
-                            self.load_session(&entry.id);
-                        }
-                    }
-                    KeyCode::Char('d') if selected > 0 => {
-                        // Delete selected session
-                        if let Some(entry) = sessions.get(selected - 1) {
-                            if let Some(ref state) = self.state {
-                                aivyx_pa::sessions::delete_chat_session(&state.store, &entry.id);
+            Some(ChatPopup::ConversationHistory { sessions, mut selected, mut scroll_offset, mode }) => {
+                match mode {
+                    HistoryMode::List => {
+                        match key.code {
+                            KeyCode::Esc => {} // close popup
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                if selected > 0 { selected -= 1; }
+                                // Keep selection visible
+                                if selected < scroll_offset { scroll_offset = selected; }
+                                self.chat_popup = Some(ChatPopup::ConversationHistory {
+                                    sessions, selected, scroll_offset, mode: HistoryMode::List,
+                                });
+                            }
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                if selected < sessions.len() { selected += 1; }
+                                self.chat_popup = Some(ChatPopup::ConversationHistory {
+                                    sessions, selected, scroll_offset, mode: HistoryMode::List,
+                                });
+                            }
+                            KeyCode::Enter => {
+                                if selected == 0 {
+                                    // "New conversation" — clear chat and agent history
+                                    if let Some(ref state) = self.state {
+                                        let agent = state.agent.clone();
+                                        tokio::spawn(async move {
+                                            let mut agent = agent.lock().await;
+                                            agent.restore_conversation(vec![]);
+                                        });
+                                    }
+                                    self.chat_messages.clear();
+                                    self.chat_session_id = None;
+                                    self.chat_scroll = 0;
+                                } else if let Some(entry) = sessions.get(selected - 1) {
+                                    self.load_session(&entry.id);
+                                }
+                            }
+                            KeyCode::Char('d') if selected > 0 => {
+                                // Ask for confirmation before deleting
+                                self.chat_popup = Some(ChatPopup::ConversationHistory {
+                                    sessions, selected, scroll_offset, mode: HistoryMode::ConfirmDelete,
+                                });
+                            }
+                            KeyCode::Char('r') if selected > 0 => {
+                                // Enter rename mode with current title pre-filled
+                                let input = sessions.get(selected - 1)
+                                    .map(|e| e.title.clone())
+                                    .unwrap_or_default();
+                                self.chat_popup = Some(ChatPopup::ConversationHistory {
+                                    sessions, selected, scroll_offset, mode: HistoryMode::Rename { input },
+                                });
+                            }
+                            KeyCode::Char('p') if selected > 0 => {
+                                // Preview session messages (display pairs only)
+                                if let Some(entry) = sessions.get(selected - 1) {
+                                    let lines = self.state.as_ref()
+                                        .and_then(|s| aivyx_pa::sessions::load_chat_messages(
+                                            &s.store, &s.conversation_key, &entry.id,
+                                        ))
+                                        .map(|msgs| aivyx_pa::sessions::to_display_pairs(&msgs))
+                                        .unwrap_or_default();
+                                    self.chat_popup = Some(ChatPopup::ConversationHistory {
+                                        sessions, selected, scroll_offset,
+                                        mode: HistoryMode::Preview { lines, scroll: 0 },
+                                    });
+                                } else {
+                                    self.chat_popup = Some(ChatPopup::ConversationHistory {
+                                        sessions, selected, scroll_offset, mode: HistoryMode::List,
+                                    });
+                                }
+                            }
+                            _ => {
+                                self.chat_popup = Some(ChatPopup::ConversationHistory {
+                                    sessions, selected, scroll_offset, mode: HistoryMode::List,
+                                });
                             }
                         }
-                        // Re-open with updated list
-                        self.open_session_list();
                     }
-                    _ => {
-                        self.chat_popup = Some(ChatPopup::SessionList { sessions, selected });
+                    HistoryMode::Rename { mut input } => {
+                        match key.code {
+                            KeyCode::Esc => {
+                                // Cancel rename, back to list
+                                self.chat_popup = Some(ChatPopup::ConversationHistory {
+                                    sessions, selected, scroll_offset, mode: HistoryMode::List,
+                                });
+                            }
+                            KeyCode::Enter => {
+                                let new_title = input.trim().to_string();
+                                if !new_title.is_empty() {
+                                    if let Some(entry) = sessions.get(selected - 1) {
+                                        if let Some(ref state) = self.state {
+                                            aivyx_pa::sessions::rename_chat_session(
+                                                &state.store, &state.conversation_key, &entry.id, &new_title,
+                                            );
+                                        }
+                                    }
+                                }
+                                // Re-open with updated data
+                                self.open_session_list();
+                            }
+                            KeyCode::Backspace => {
+                                input.pop();
+                                self.chat_popup = Some(ChatPopup::ConversationHistory {
+                                    sessions, selected, scroll_offset, mode: HistoryMode::Rename { input },
+                                });
+                            }
+                            KeyCode::Char(c) if input.len() < 80 => {
+                                input.push(c);
+                                self.chat_popup = Some(ChatPopup::ConversationHistory {
+                                    sessions, selected, scroll_offset, mode: HistoryMode::Rename { input },
+                                });
+                            }
+                            _ => {
+                                self.chat_popup = Some(ChatPopup::ConversationHistory {
+                                    sessions, selected, scroll_offset, mode: HistoryMode::Rename { input },
+                                });
+                            }
+                        }
+                    }
+                    HistoryMode::ConfirmDelete => {
+                        match key.code {
+                            KeyCode::Char('y') | KeyCode::Enter => {
+                                if let Some(entry) = sessions.get(selected - 1) {
+                                    if let Some(ref state) = self.state {
+                                        aivyx_pa::sessions::delete_chat_session(&state.store, &entry.id);
+                                    }
+                                    // If deleting the active session, clear the chat
+                                    if self.chat_session_id.as_deref() == Some(&entry.id) {
+                                        self.chat_messages.clear();
+                                        self.chat_session_id = None;
+                                        self.chat_scroll = 0;
+                                    }
+                                }
+                                self.open_session_list();
+                            }
+                            _ => {
+                                // Any other key cancels
+                                self.chat_popup = Some(ChatPopup::ConversationHistory {
+                                    sessions, selected, scroll_offset, mode: HistoryMode::List,
+                                });
+                            }
+                        }
+                    }
+                    HistoryMode::Preview { lines, mut scroll } => {
+                        match key.code {
+                            KeyCode::Esc | KeyCode::Char('q') => {
+                                self.chat_popup = Some(ChatPopup::ConversationHistory {
+                                    sessions, selected, scroll_offset, mode: HistoryMode::List,
+                                });
+                            }
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                scroll = scroll.saturating_sub(1);
+                                self.chat_popup = Some(ChatPopup::ConversationHistory {
+                                    sessions, selected, scroll_offset, mode: HistoryMode::Preview { lines, scroll },
+                                });
+                            }
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                scroll += 1;
+                                self.chat_popup = Some(ChatPopup::ConversationHistory {
+                                    sessions, selected, scroll_offset, mode: HistoryMode::Preview { lines, scroll },
+                                });
+                            }
+                            KeyCode::Enter => {
+                                // Load this session from preview
+                                if let Some(entry) = sessions.get(selected - 1) {
+                                    self.load_session(&entry.id);
+                                }
+                            }
+                            _ => {
+                                self.chat_popup = Some(ChatPopup::ConversationHistory {
+                                    sessions, selected, scroll_offset, mode: HistoryMode::Preview { lines, scroll },
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -2113,7 +2315,7 @@ impl App {
         }
     }
 
-    /// Open the session list popup.
+    /// Open the conversation history popup.
     pub fn open_session_list(&mut self) {
         let Some(ref state) = self.state else { return };
         let sessions: Vec<SessionEntry> = aivyx_pa::sessions::list_chat_sessions(&state.store, &state.conversation_key)
@@ -2123,16 +2325,33 @@ impl App {
                 title: s.title,
                 turn_count: s.turn_count,
                 updated_at: s.updated_at.format("%Y-%m-%d %H:%M").to_string(),
+                created_at: s.created_at.format("%Y-%m-%d %H:%M").to_string(),
             })
             .collect();
-        self.chat_popup = Some(ChatPopup::SessionList { sessions, selected: 0 });
+        self.chat_popup = Some(ChatPopup::ConversationHistory {
+            sessions,
+            selected: 0,
+            scroll_offset: 0,
+            mode: HistoryMode::List,
+        });
     }
 
-    /// Load a session's messages into the chat view.
+    /// Load a session's messages into the chat view and restore
+    /// the agent's conversation so subsequent turns have full context.
     fn load_session(&mut self, session_id: &str) {
         let Some(ref state) = self.state else { return };
         if let Some(messages) = aivyx_pa::sessions::load_chat_messages(&state.store, &state.conversation_key, session_id) {
-            self.chat_messages = messages.into_iter().map(|(role, content)| {
+            // Restore agent conversation history (includes tool results)
+            let agent = state.agent.clone();
+            let history = aivyx_pa::sessions::to_chat_messages(&messages);
+            tokio::spawn(async move {
+                let mut agent = agent.lock().await;
+                agent.restore_conversation(history);
+            });
+
+            // Display only user/assistant messages in the chat view
+            let display_pairs = aivyx_pa::sessions::to_display_pairs(&messages);
+            self.chat_messages = display_pairs.into_iter().map(|(role, content)| {
                 ChatMessage {
                     role: if role == "you" { "user".into() } else { role },
                     content,
@@ -2339,6 +2558,8 @@ impl App {
             goal_popup: None,
             approvals: Vec::new(),
             approval_selected: 0,
+            approval_detail_open: false,
+            approval_detail_scroll: 0,
             audit_entries: Vec::new(),
             audit_filter: 0,
             audit_selected: 0,
@@ -2350,6 +2571,11 @@ impl App {
             mission_selected: 0,
             mission_filter: 0,
             mission_detail: None,
+            voice_recording: false,
+            voice_transcribing: false,
+            voice_process: None,
+            voice_transcript_rx: None,
+            voice_transcript_tx: None,
             memories: Vec::new(),
             memory_selected: 0,
             memory_total: 0,
@@ -2702,73 +2928,79 @@ mod tests {
         assert!(filtered.iter().all(|n| n.source.contains("heartbeat")));
     }
 
-    // ── Chat popup: SessionList ──────────────────────────────
+    // ── Chat popup: ConversationHistory ─────────────────────
+
+    fn test_session_entry(id: &str, title: &str) -> SessionEntry {
+        SessionEntry {
+            id: id.into(), title: title.into(), turn_count: 1,
+            updated_at: "2026-01-01".into(), created_at: "2026-01-01".into(),
+        }
+    }
+
+    fn history_popup(sessions: Vec<SessionEntry>, selected: usize) -> ChatPopup {
+        ChatPopup::ConversationHistory {
+            sessions, selected, scroll_offset: 0, mode: HistoryMode::List,
+        }
+    }
 
     #[test]
-    fn chat_popup_session_list_esc_closes() {
+    fn chat_popup_history_esc_closes() {
         let mut app = App::new_test();
-        app.chat_popup = Some(ChatPopup::SessionList {
-            sessions: vec![],
-            selected: 0,
-        });
+        app.chat_popup = Some(history_popup(vec![], 0));
         app.handle_chat_popup(key(KeyCode::Esc));
         assert!(app.chat_popup.is_none());
     }
 
     #[test]
-    fn chat_popup_session_list_navigate() {
+    fn chat_popup_history_navigate() {
         let mut app = App::new_test();
         let sessions = vec![
-            SessionEntry { id: "s1".into(), title: "First".into(), turn_count: 5, updated_at: "2026-01-01".into() },
-            SessionEntry { id: "s2".into(), title: "Second".into(), turn_count: 3, updated_at: "2026-01-02".into() },
+            test_session_entry("s1", "First"),
+            test_session_entry("s2", "Second"),
         ];
-        app.chat_popup = Some(ChatPopup::SessionList { sessions: sessions.clone(), selected: 0 });
+        app.chat_popup = Some(history_popup(sessions, 0));
 
         // Down navigates
         app.handle_chat_popup(key(KeyCode::Down));
         match &app.chat_popup {
-            Some(ChatPopup::SessionList { selected, .. }) => assert_eq!(*selected, 1),
-            other => panic!("Expected SessionList, got {other:?}"),
+            Some(ChatPopup::ConversationHistory { selected, .. }) => assert_eq!(*selected, 1),
+            other => panic!("Expected ConversationHistory, got {other:?}"),
         }
 
         // Up navigates back
         app.handle_chat_popup(key(KeyCode::Up));
         match &app.chat_popup {
-            Some(ChatPopup::SessionList { selected, .. }) => assert_eq!(*selected, 0),
-            other => panic!("Expected SessionList, got {other:?}"),
+            Some(ChatPopup::ConversationHistory { selected, .. }) => assert_eq!(*selected, 0),
+            other => panic!("Expected ConversationHistory, got {other:?}"),
         }
 
         // Up at 0 stays at 0
         app.handle_chat_popup(key(KeyCode::Up));
         match &app.chat_popup {
-            Some(ChatPopup::SessionList { selected, .. }) => assert_eq!(*selected, 0),
-            other => panic!("Expected SessionList, got {other:?}"),
+            Some(ChatPopup::ConversationHistory { selected, .. }) => assert_eq!(*selected, 0),
+            other => panic!("Expected ConversationHistory, got {other:?}"),
         }
     }
 
     #[test]
-    fn chat_popup_session_list_vim_keys() {
+    fn chat_popup_history_vim_keys() {
         let mut app = App::new_test();
-        app.chat_popup = Some(ChatPopup::SessionList {
-            sessions: vec![
-                SessionEntry { id: "s1".into(), title: "A".into(), turn_count: 1, updated_at: "".into() },
-            ],
-            selected: 0,
-        });
+        app.chat_popup = Some(history_popup(vec![test_session_entry("s1", "A")], 0));
+
         app.handle_chat_popup(char_key('j'));
         match &app.chat_popup {
-            Some(ChatPopup::SessionList { selected, .. }) => assert_eq!(*selected, 1),
-            other => panic!("Expected SessionList, got {other:?}"),
+            Some(ChatPopup::ConversationHistory { selected, .. }) => assert_eq!(*selected, 1),
+            other => panic!("Expected ConversationHistory, got {other:?}"),
         }
         app.handle_chat_popup(char_key('k'));
         match &app.chat_popup {
-            Some(ChatPopup::SessionList { selected, .. }) => assert_eq!(*selected, 0),
-            other => panic!("Expected SessionList, got {other:?}"),
+            Some(ChatPopup::ConversationHistory { selected, .. }) => assert_eq!(*selected, 0),
+            other => panic!("Expected ConversationHistory, got {other:?}"),
         }
     }
 
     #[test]
-    fn chat_popup_session_list_enter_new_clears_chat() {
+    fn chat_popup_history_enter_new_clears_chat() {
         let mut app = App::new_test();
         app.chat_messages.push(ChatMessage {
             role: "user".into(),
@@ -2776,12 +3008,71 @@ mod tests {
             timestamp: "12:00".into(),
         });
         app.chat_session_id = Some("old-session".into());
-        app.chat_popup = Some(ChatPopup::SessionList { sessions: vec![], selected: 0 });
+        app.chat_popup = Some(history_popup(vec![], 0));
 
         app.handle_chat_popup(key(KeyCode::Enter)); // selected=0 → "New conversation"
         assert!(app.chat_messages.is_empty());
         assert!(app.chat_session_id.is_none());
         assert_eq!(app.chat_scroll, 0);
+    }
+
+    #[test]
+    fn chat_popup_history_d_opens_confirm_delete() {
+        let mut app = App::new_test();
+        let sessions = vec![test_session_entry("s1", "To delete")];
+        app.chat_popup = Some(history_popup(sessions, 1));
+
+        app.handle_chat_popup(char_key('d'));
+        match &app.chat_popup {
+            Some(ChatPopup::ConversationHistory { mode: HistoryMode::ConfirmDelete, .. }) => {}
+            other => panic!("Expected ConfirmDelete mode, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn chat_popup_history_confirm_delete_cancel() {
+        let mut app = App::new_test();
+        let sessions = vec![test_session_entry("s1", "Keep me")];
+        app.chat_popup = Some(ChatPopup::ConversationHistory {
+            sessions, selected: 1, scroll_offset: 0, mode: HistoryMode::ConfirmDelete,
+        });
+
+        app.handle_chat_popup(key(KeyCode::Esc)); // cancel
+        match &app.chat_popup {
+            Some(ChatPopup::ConversationHistory { mode: HistoryMode::List, .. }) => {}
+            other => panic!("Expected List mode after cancel, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn chat_popup_history_r_opens_rename() {
+        let mut app = App::new_test();
+        let sessions = vec![test_session_entry("s1", "Original")];
+        app.chat_popup = Some(history_popup(sessions, 1));
+
+        app.handle_chat_popup(char_key('r'));
+        match &app.chat_popup {
+            Some(ChatPopup::ConversationHistory { mode: HistoryMode::Rename { input }, .. }) => {
+                assert_eq!(input, "Original");
+            }
+            other => panic!("Expected Rename mode, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn chat_popup_history_rename_esc_cancels() {
+        let mut app = App::new_test();
+        let sessions = vec![test_session_entry("s1", "Orig")];
+        app.chat_popup = Some(ChatPopup::ConversationHistory {
+            sessions, selected: 1, scroll_offset: 0,
+            mode: HistoryMode::Rename { input: "New name".into() },
+        });
+
+        app.handle_chat_popup(key(KeyCode::Esc));
+        match &app.chat_popup {
+            Some(ChatPopup::ConversationHistory { mode: HistoryMode::List, .. }) => {}
+            other => panic!("Expected List mode after rename cancel, got {other:?}"),
+        }
     }
 
     // ── Chat popup: SystemPrompt ─────────────────────────────
