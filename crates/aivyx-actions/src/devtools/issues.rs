@@ -4,7 +4,7 @@
 //! work with GitHub and Gitea issue APIs. Requires forge configuration
 //! in `[devtools]`.
 
-use super::{forge_get, forge_post, forge_repo, DevToolsConfig, ForgeKind};
+use super::{DevToolsConfig, ForgeKind, forge_get, forge_post, forge_repo};
 use crate::Action;
 use aivyx_core::{AivyxError, Result};
 
@@ -60,8 +60,12 @@ impl Action for ListIssues {
             AivyxError::Validation("No forge configured — set forge in [devtools]".into())
         })?;
 
-        let state = input.get("state").and_then(|v| v.as_str()).unwrap_or("open");
-        let limit = input.get("limit")
+        let state = input
+            .get("state")
+            .and_then(|v| v.as_str())
+            .unwrap_or("open");
+        let limit = input
+            .get("limit")
             .and_then(|v| v.as_u64())
             .unwrap_or(20)
             .min(50);
@@ -71,10 +75,28 @@ impl Action for ListIssues {
 
         let issues = match forge {
             ForgeKind::Github => {
-                fetch_github_issues(&self.config, repo, state, labels, assignee, milestone, limit).await?
+                fetch_github_issues(
+                    &self.config,
+                    repo,
+                    state,
+                    labels,
+                    assignee,
+                    milestone,
+                    limit,
+                )
+                .await?
             }
             ForgeKind::Gitea => {
-                fetch_gitea_issues(&self.config, repo, state, labels, assignee, milestone, limit).await?
+                fetch_gitea_issues(
+                    &self.config,
+                    repo,
+                    state,
+                    labels,
+                    assignee,
+                    milestone,
+                    limit,
+                )
+                .await?
             }
         };
 
@@ -122,19 +144,17 @@ impl Action for GetIssue {
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         let repo = forge_repo(&self.config)?;
-        let number = input.get("number")
+        let number = input
+            .get("number")
             .and_then(|v| v.as_u64())
             .ok_or_else(|| AivyxError::Validation("number is required".into()))?;
-        let include_comments = input.get("include_comments")
+        let include_comments = input
+            .get("include_comments")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
 
         // Fetch the issue itself
-        let issue = forge_get(
-            &self.config,
-            &format!("/repos/{repo}/issues/{number}"),
-        )
-        .await?;
+        let issue = forge_get(&self.config, &format!("/repos/{repo}/issues/{number}")).await?;
 
         let mut result = normalize_issue(&issue);
 
@@ -216,7 +236,8 @@ impl Action for CreateIssue {
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         let repo = forge_repo(&self.config)?;
 
-        let title = input.get("title")
+        let title = input
+            .get("title")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AivyxError::Validation("title is required".into()))?;
 
@@ -246,12 +267,7 @@ impl Action for CreateIssue {
             payload["milestone"] = serde_json::json!(milestone);
         }
 
-        let created = forge_post(
-            &self.config,
-            &format!("/repos/{repo}/issues"),
-            &payload,
-        )
-        .await?;
+        let created = forge_post(&self.config, &format!("/repos/{repo}/issues"), &payload).await?;
 
         Ok(serde_json::json!({
             "status": "created",
@@ -414,7 +430,9 @@ mod tests {
 
     #[test]
     fn list_issues_name_and_schema() {
-        let action = ListIssues { config: github_config() };
+        let action = ListIssues {
+            config: github_config(),
+        };
         assert_eq!(action.name(), "list_issues");
         let schema = action.input_schema();
         let props = schema["properties"].as_object().unwrap();
@@ -427,7 +445,9 @@ mod tests {
 
     #[test]
     fn get_issue_name_and_schema() {
-        let action = GetIssue { config: github_config() };
+        let action = GetIssue {
+            config: github_config(),
+        };
         assert_eq!(action.name(), "get_issue");
         let schema = action.input_schema();
         let props = schema["properties"].as_object().unwrap();
@@ -439,7 +459,9 @@ mod tests {
 
     #[test]
     fn create_issue_name_and_schema() {
-        let action = CreateIssue { config: github_config() };
+        let action = CreateIssue {
+            config: github_config(),
+        };
         assert_eq!(action.name(), "create_issue");
         let schema = action.input_schema();
         let props = schema["properties"].as_object().unwrap();
@@ -456,14 +478,18 @@ mod tests {
 
     #[tokio::test]
     async fn list_issues_rejects_no_forge() {
-        let action = ListIssues { config: no_forge_config() };
+        let action = ListIssues {
+            config: no_forge_config(),
+        };
         let result = action.execute(serde_json::json!({})).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn get_issue_rejects_missing_number() {
-        let action = GetIssue { config: github_config() };
+        let action = GetIssue {
+            config: github_config(),
+        };
         let result = action.execute(serde_json::json!({})).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -472,7 +498,9 @@ mod tests {
 
     #[tokio::test]
     async fn create_issue_rejects_empty_title() {
-        let action = CreateIssue { config: github_config() };
+        let action = CreateIssue {
+            config: github_config(),
+        };
         let result = action.execute(serde_json::json!({ "title": "  " })).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -481,7 +509,9 @@ mod tests {
 
     #[tokio::test]
     async fn create_issue_rejects_missing_title() {
-        let action = CreateIssue { config: github_config() };
+        let action = CreateIssue {
+            config: github_config(),
+        };
         let result = action.execute(serde_json::json!({})).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -490,7 +520,9 @@ mod tests {
 
     #[tokio::test]
     async fn create_issue_rejects_no_token() {
-        let action = CreateIssue { config: no_token_config() };
+        let action = CreateIssue {
+            config: no_token_config(),
+        };
         let result = action.execute(serde_json::json!({ "title": "Bug" })).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();

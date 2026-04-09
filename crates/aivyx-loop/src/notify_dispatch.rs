@@ -63,9 +63,15 @@ pub struct NotificationDispatchConfig {
     pub min_kind: MinNotificationKind,
 }
 
-fn default_true() -> bool { true }
-fn default_urgency() -> String { "normal".into() }
-fn default_min_kind() -> MinNotificationKind { MinNotificationKind::Info }
+fn default_true() -> bool {
+    true
+}
+fn default_urgency() -> String {
+    "normal".into()
+}
+fn default_min_kind() -> MinNotificationKind {
+    MinNotificationKind::Info
+}
 
 impl Default for NotificationDispatchConfig {
     fn default() -> Self {
@@ -93,10 +99,10 @@ pub enum MinNotificationKind {
 impl MinNotificationKind {
     fn from_notification_kind(kind: &NotificationKind) -> Self {
         match kind {
-            NotificationKind::Info        => Self::Info,
+            NotificationKind::Info => Self::Info,
             NotificationKind::ActionTaken => Self::ActionTaken,
             NotificationKind::ApprovalNeeded => Self::ApprovalNeeded,
-            NotificationKind::Urgent      => Self::Urgent,
+            NotificationKind::Urgent => Self::Urgent,
         }
     }
 }
@@ -136,8 +142,7 @@ async fn dispatch_one(notif: &Notification, ctx: &DispatchContext) {
     }
 
     // Check quiet hours (only bypass for Urgent)
-    if !matches!(notif.kind, NotificationKind::Urgent)
-        && is_quiet_hours(&ctx.config) {
+    if !matches!(notif.kind, NotificationKind::Urgent) && is_quiet_hours(&ctx.config) {
         tracing::debug!(
             title = %notif.title,
             "Suppressing notification during quiet hours"
@@ -186,10 +191,10 @@ fn send_desktop_notification(notif: &Notification, urgency: &str) {
 
     // Map kind to a hint icon
     let icon = match notif.kind {
-        NotificationKind::Urgent          => "dialog-warning",
-        NotificationKind::ApprovalNeeded  => "dialog-question",
-        NotificationKind::ActionTaken     => "dialog-information",
-        NotificationKind::Info            => "dialog-information",
+        NotificationKind::Urgent => "dialog-warning",
+        NotificationKind::ApprovalNeeded => "dialog-question",
+        NotificationKind::ActionTaken => "dialog-information",
+        NotificationKind::Info => "dialog-information",
     };
 
     // Truncate body to avoid giant popups
@@ -246,20 +251,21 @@ async fn send_telegram_notification(
     config: &aivyx_actions::messaging::TelegramConfig,
 ) {
     let kind_tag = match notif.kind {
-        NotificationKind::Urgent          => "[URGENT]",
-        NotificationKind::ApprovalNeeded  => "[APPROVAL NEEDED]",
-        NotificationKind::ActionTaken     => "[ACTION]",
-        NotificationKind::Info            => "[INFO]",
+        NotificationKind::Urgent => "[URGENT]",
+        NotificationKind::ApprovalNeeded => "[APPROVAL NEEDED]",
+        NotificationKind::ActionTaken => "[ACTION]",
+        NotificationKind::Info => "[INFO]",
     };
-    let body = format!("{kind_tag} {}\n\n{}",
+    let body = format!(
+        "{kind_tag} {}\n\n{}",
         notif.title,
         truncate_str(&notif.body, 400),
     );
 
     // Use the existing forward_notification helper which reads default_chat_id internally.
-    if let Err(e) = aivyx_actions::messaging::telegram::forward_notification(
-        config, &notif.title, &body
-    ).await {
+    if let Err(e) =
+        aivyx_actions::messaging::telegram::forward_notification(config, &notif.title, &body).await
+    {
         tracing::warn!(error = %e, "Failed to send Telegram notification");
     } else {
         tracing::debug!(title = %notif.title, "Telegram notification sent");
@@ -274,20 +280,21 @@ async fn send_signal_notification(
     config: &aivyx_actions::messaging::SignalConfig,
 ) {
     let kind_tag = match notif.kind {
-        NotificationKind::Urgent          => "[URGENT]",
-        NotificationKind::ApprovalNeeded  => "[APPROVAL NEEDED]",
-        NotificationKind::ActionTaken     => "[ACTION]",
-        NotificationKind::Info            => "[INFO]",
+        NotificationKind::Urgent => "[URGENT]",
+        NotificationKind::ApprovalNeeded => "[APPROVAL NEEDED]",
+        NotificationKind::ActionTaken => "[ACTION]",
+        NotificationKind::Info => "[INFO]",
     };
-    let body = format!("{kind_tag} {}\n\n{}",
+    let body = format!(
+        "{kind_tag} {}\n\n{}",
         notif.title,
         truncate_str(&notif.body, 400),
     );
 
     // Use the existing forward_notification helper which reads default_recipient internally.
-    if let Err(e) = aivyx_actions::messaging::signal::forward_notification(
-        config, &notif.title, &body
-    ).await {
+    if let Err(e) =
+        aivyx_actions::messaging::signal::forward_notification(config, &notif.title, &body).await
+    {
         tracing::warn!(error = %e, "Failed to send Signal notification");
     } else {
         tracing::debug!(title = %notif.title, "Signal notification sent");

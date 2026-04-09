@@ -8,7 +8,7 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, BorderType, Widget},
+    widgets::{Block, BorderType, Borders, Widget},
 };
 
 use crate::app::{App, Focus, View};
@@ -30,7 +30,11 @@ impl Widget for Sidebar<'_> {
         let block = Block::default()
             .borders(Borders::RIGHT)
             .border_type(BorderType::Rounded)
-            .border_style(if sidebar_focused { theme::border_active() } else { theme::border() })
+            .border_style(if sidebar_focused {
+                theme::border_active()
+            } else {
+                theme::border()
+            })
             .style(Style::default().bg(theme::BG));
         let inner = block.inner(area);
         block.render(area, buf);
@@ -40,13 +44,15 @@ impl Widget for Sidebar<'_> {
         // ── Brand header ───────────────────────────────────────
         if inner.height >= 4 {
             buf.set_line(
-                inner.x + 2, y,
+                inner.x + 2,
+                y,
                 &Line::from(Span::styled("AIVYX_OS", theme::primary_bold())),
                 inner.width - 2,
             );
             y += 1;
             buf.set_line(
-                inner.x + 2, y,
+                inner.x + 2,
+                y,
                 &Line::from(vec![
                     Span::styled("v", theme::dim()),
                     Span::styled(self.app.version.clone(), theme::muted()),
@@ -69,7 +75,12 @@ impl Widget for Sidebar<'_> {
             if let Some(pg) = prev_group {
                 if pg != group && y < inner.y + inner.height {
                     let sep = "─".repeat((inner.width - 4) as usize);
-                    buf.set_line(inner.x + 2, y, &Line::from(Span::styled(sep, theme::dim())), inner.width - 4);
+                    buf.set_line(
+                        inner.x + 2,
+                        y,
+                        &Line::from(Span::styled(sep, theme::dim())),
+                        inner.width - 4,
+                    );
                     y += 1;
                 }
             }
@@ -83,11 +94,18 @@ impl Widget for Sidebar<'_> {
 
             // Active indicator bar
             if is_active {
-                buf.set_line(inner.x, y, &Line::from(Span::styled("▌", theme::primary())), 1);
+                buf.set_line(
+                    inner.x,
+                    y,
+                    &Line::from(Span::styled("▌", theme::primary())),
+                    1,
+                );
             }
 
             let style = if is_active {
-                Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(theme::ON_SURFACE_DIM)
             };
@@ -114,7 +132,8 @@ impl Widget for Sidebar<'_> {
             // Separator
             let sep = "─".repeat((inner.width - 4) as usize);
             buf.set_line(
-                inner.x + 2, footer_y,
+                inner.x + 2,
+                footer_y,
                 &Line::from(Span::styled(sep, theme::dim())),
                 inner.width - 4,
             );
@@ -133,7 +152,10 @@ impl Widget for Sidebar<'_> {
 
             // Persona + tier
             if footer_y + 2 < inner.y + inner.height {
-                let persona = self.app.settings.as_ref()
+                let persona = self
+                    .app
+                    .settings
+                    .as_ref()
                     .map(|s| s.agent_persona.as_str())
                     .unwrap_or("assistant");
                 let tier_line = Line::from(vec![
@@ -164,14 +186,22 @@ impl Sidebar<'_> {
                 let count = self.app.pending_approvals;
                 if count > 0 {
                     // Pending approvals get an attention-grabbing badge
-                    Some((count, Style::default().fg(theme::ACCENT_GLOW).add_modifier(Modifier::BOLD)))
+                    Some((
+                        count,
+                        Style::default()
+                            .fg(theme::ACCENT_GLOW)
+                            .add_modifier(Modifier::BOLD),
+                    ))
                 } else {
                     None
                 }
             }
             View::Missions => {
                 // Show count of active (non-terminal) missions
-                let count = self.app.missions.iter()
+                let count = self
+                    .app
+                    .missions
+                    .iter()
                     .filter(|m| !m.status.is_terminal())
                     .count();
                 if count > 0 {

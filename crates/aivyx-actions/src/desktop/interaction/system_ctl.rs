@@ -14,10 +14,7 @@ use aivyx_core::{AivyxError, Result};
 ///
 /// Actions: set, up, down, mute, unmute, toggle_mute, get.
 /// `value` is percentage for set (0–150), or increment for up/down (default 5).
-pub async fn volume_control(
-    action: &str,
-    value: Option<u32>,
-) -> Result<serde_json::Value> {
+pub async fn volume_control(action: &str, value: Option<u32>) -> Result<serde_json::Value> {
     // Detect audio backend.
     let backend = detect_audio_backend().await?;
 
@@ -28,9 +25,7 @@ pub async fn volume_control(
                 AivyxError::Validation("value (percentage) is required for set".into())
             })?;
             if pct > 150 {
-                return Err(AivyxError::Validation(
-                    "Volume cannot exceed 150%".into(),
-                ));
+                return Err(AivyxError::Validation("Volume cannot exceed 150%".into()));
             }
             volume_set(&backend, pct).await
         }
@@ -87,10 +82,7 @@ async fn volume_get(backend: &AudioBackend) -> Result<serde_json::Value> {
             let output = run_cmd("wpctl", &["get-volume", "@DEFAULT_AUDIO_SINK@"]).await?;
             // Output: "Volume: 0.75" or "Volume: 0.75 [MUTED]"
             let muted = output.contains("[MUTED]");
-            let vol_str = output
-                .split_whitespace()
-                .nth(1)
-                .unwrap_or("0");
+            let vol_str = output.split_whitespace().nth(1).unwrap_or("0");
             let vol: f64 = vol_str.parse().unwrap_or(0.0);
             let pct = (vol * 100.0).round() as u32;
             Ok(serde_json::json!({
@@ -98,11 +90,7 @@ async fn volume_get(backend: &AudioBackend) -> Result<serde_json::Value> {
             }))
         }
         AudioBackend::Pactl => {
-            let output = run_cmd(
-                "pactl",
-                &["get-sink-volume", "@DEFAULT_SINK@"],
-            )
-            .await?;
+            let output = run_cmd("pactl", &["get-sink-volume", "@DEFAULT_SINK@"]).await?;
             // Parse "front-left: 65536 / 100% / ..."
             let pct = output
                 .split('/')
@@ -196,10 +184,7 @@ async fn volume_toggle_mute(backend: &AudioBackend) -> Result<serde_json::Value>
 ///
 /// Actions: get, set, up, down.
 /// `value` is percentage for set (0–100), or increment for up/down (default 5).
-pub async fn brightness_control(
-    action: &str,
-    value: Option<u32>,
-) -> Result<serde_json::Value> {
+pub async fn brightness_control(action: &str, value: Option<u32>) -> Result<serde_json::Value> {
     match action {
         "get" => {
             let output = run_cmd("brightnessctl", &["info", "-m"]).await?;
@@ -303,10 +288,7 @@ fn parse_swaync_json(json_str: &str, count: usize) -> Result<serde_json::Value> 
     let parsed: serde_json::Value = serde_json::from_str(json_str)
         .map_err(|e| AivyxError::Other(format!("Failed to parse swaync output: {e}")))?;
 
-    let notifications = parsed
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+    let notifications = parsed.as_array().cloned().unwrap_or_default();
 
     let items: Vec<serde_json::Value> = notifications
         .iter()
@@ -374,9 +356,7 @@ pub async fn file_manager_show(path: &str, reveal: bool) -> Result<String> {
 
     // Prevent path traversal attacks — require absolute path.
     if !canonical.is_absolute() {
-        return Err(AivyxError::Validation(
-            "Path must be absolute".into(),
-        ));
+        return Err(AivyxError::Validation("Path must be absolute".into()));
     }
 
     if reveal {

@@ -185,7 +185,10 @@ pub struct SettingsSnapshot {
 
 /// Ensure a TOML section exists in the content, appending it if it doesn't.
 fn ensure_section(content: &mut String, section: &str) {
-    if !content.lines().any(|l| l.trim() == section || l.trim().starts_with(&format!("{section}]"))) {
+    if !content
+        .lines()
+        .any(|l| l.trim() == section || l.trim().starts_with(&format!("{section}]")))
+    {
         if !content.ends_with('\n') && !content.is_empty() {
             content.push('\n');
         }
@@ -201,7 +204,12 @@ fn ensure_section(content: &mut String, section: &str) {
 /// and replacing `true` with `false` or vice versa.
 ///
 /// This preserves all comments and formatting — only the value changes.
-pub fn toggle_config_bool(config_path: &Path, section: &str, key: &str, new_val: bool) -> Result<(), std::io::Error> {
+pub fn toggle_config_bool(
+    config_path: &Path,
+    section: &str,
+    key: &str,
+    new_val: bool,
+) -> Result<(), std::io::Error> {
     let mut content = std::fs::read_to_string(config_path)?;
     ensure_section(&mut content, section);
     let mut lines: Vec<String> = content.lines().map(String::from).collect();
@@ -214,28 +222,30 @@ pub fn toggle_config_bool(config_path: &Path, section: &str, key: &str, new_val:
         let trimmed = line.trim();
 
         if trimmed.starts_with('[') {
-            if in_section && !found { section_end = i; }
-            in_section = trimmed == section ||
-                trimmed.starts_with(&format!("{section}]"));
+            if in_section && !found {
+                section_end = i;
+            }
+            in_section = trimmed == section || trimmed.starts_with(&format!("{section}]"));
         }
 
         if in_section && !found {
             let stripped = trimmed.split('#').next().unwrap_or("").trim();
             if let Some((k, _v)) = stripped.split_once('=')
-                && k.trim().trim_matches('"') == key.trim_matches('"') {
-                    let leading: String = line.chars().take_while(|c| c.is_whitespace()).collect();
-                    let comment = if let Some(hash_pos) = line.find('#') {
-                        &line[hash_pos..]
-                    } else {
-                        ""
-                    };
-                    if comment.is_empty() {
-                        *line = format!("{leading}{key} = {val_str}");
-                    } else {
-                        *line = format!("{leading}{key} = {val_str}  {comment}");
-                    }
-                    found = true;
+                && k.trim().trim_matches('"') == key.trim_matches('"')
+            {
+                let leading: String = line.chars().take_while(|c| c.is_whitespace()).collect();
+                let comment = if let Some(hash_pos) = line.find('#') {
+                    &line[hash_pos..]
+                } else {
+                    ""
+                };
+                if comment.is_empty() {
+                    *line = format!("{leading}{key} = {val_str}");
+                } else {
+                    *line = format!("{leading}{key} = {val_str}  {comment}");
                 }
+                found = true;
+            }
         }
     }
     if !found {
@@ -254,13 +264,23 @@ pub fn toggle_config_bool(config_path: &Path, section: &str, key: &str, new_val:
 ///
 /// Finds `key = "..."` within the given `[section]` and replaces the value.
 /// If the key doesn't exist in the section, appends it before the next section.
-pub fn write_toml_string(config_path: &Path, section: &str, key: &str, value: &str) -> Result<(), std::io::Error> {
+pub fn write_toml_string(
+    config_path: &Path,
+    section: &str,
+    key: &str,
+    value: &str,
+) -> Result<(), std::io::Error> {
     let mut content = std::fs::read_to_string(config_path)?;
     ensure_section(&mut content, section);
     let mut lines: Vec<String> = content.lines().map(String::from).collect();
-    let safe: String = value.chars()
+    let safe: String = value
+        .chars()
         .filter(|c| !c.is_control())
-        .map(|c| match c { '"' => "\\\"".into(), '\\' => "\\\\".into(), o => o.to_string() })
+        .map(|c| match c {
+            '"' => "\\\"".into(),
+            '\\' => "\\\\".into(),
+            o => o.to_string(),
+        })
         .collect();
 
     let mut in_section = false;
@@ -269,22 +289,29 @@ pub fn write_toml_string(config_path: &Path, section: &str, key: &str, value: &s
     for (i, line) in lines.iter_mut().enumerate() {
         let trimmed = line.trim();
         if trimmed.starts_with('[') {
-            if in_section && !found { section_end = i; }
+            if in_section && !found {
+                section_end = i;
+            }
             in_section = trimmed == section || trimmed.starts_with(&format!("{section}]"));
         }
         if in_section && !found {
             let stripped = trimmed.split('#').next().unwrap_or("").trim();
             if let Some((k, _)) = stripped.split_once('=')
-                && k.trim().trim_matches('"') == key.trim_matches('"') {
-                    let leading: String = line.chars().take_while(|c| c.is_whitespace()).collect();
-                    let comment = line.find('#').map(|p| &line[p..]).filter(|_| stripped.contains('=')).unwrap_or("");
-                    *line = if comment.is_empty() {
-                        format!("{leading}{key} = \"{safe}\"")
-                    } else {
-                        format!("{leading}{key} = \"{safe}\"  {comment}")
-                    };
-                    found = true;
-                }
+                && k.trim().trim_matches('"') == key.trim_matches('"')
+            {
+                let leading: String = line.chars().take_while(|c| c.is_whitespace()).collect();
+                let comment = line
+                    .find('#')
+                    .map(|p| &line[p..])
+                    .filter(|_| stripped.contains('='))
+                    .unwrap_or("");
+                *line = if comment.is_empty() {
+                    format!("{leading}{key} = \"{safe}\"")
+                } else {
+                    format!("{leading}{key} = \"{safe}\"  {comment}")
+                };
+                found = true;
+            }
         }
     }
     if !found {
@@ -292,7 +319,9 @@ pub fn write_toml_string(config_path: &Path, section: &str, key: &str, value: &s
     }
 
     let mut output = lines.join("\n");
-    if !output.ends_with('\n') { output.push('\n'); }
+    if !output.ends_with('\n') {
+        output.push('\n');
+    }
     validated_atomic_write(config_path, &output)?;
     Ok(())
 }
@@ -300,7 +329,12 @@ pub fn write_toml_string(config_path: &Path, section: &str, key: &str, value: &s
 /// Like [`write_toml_string`], but creates the `[section]` header if it doesn't
 /// exist yet.  Useful for optional sections like `[tool_discovery]` that may be
 /// absent in the config file.
-pub fn write_toml_string_create(config_path: &Path, section: &str, key: &str, value: &str) -> Result<(), std::io::Error> {
+pub fn write_toml_string_create(
+    config_path: &Path,
+    section: &str,
+    key: &str,
+    value: &str,
+) -> Result<(), std::io::Error> {
     write_toml_string(config_path, section, key, value)
 }
 
@@ -309,7 +343,12 @@ pub fn write_toml_string_create(config_path: &Path, section: &str, key: &str, va
 /// Finds `key = ...` within the given `[section]` and replaces the value.
 /// If the key doesn't exist in the section, appends it before the next section.
 /// The caller formats the number as a string (e.g. `"30"`, `"0.5"`).
-pub fn write_toml_number(config_path: &Path, section: &str, key: &str, value: &str) -> Result<(), std::io::Error> {
+pub fn write_toml_number(
+    config_path: &Path,
+    section: &str,
+    key: &str,
+    value: &str,
+) -> Result<(), std::io::Error> {
     let mut content = std::fs::read_to_string(config_path)?;
     ensure_section(&mut content, section);
     let mut lines: Vec<String> = content.lines().map(String::from).collect();
@@ -320,22 +359,29 @@ pub fn write_toml_number(config_path: &Path, section: &str, key: &str, value: &s
     for (i, line) in lines.iter_mut().enumerate() {
         let trimmed = line.trim();
         if trimmed.starts_with('[') {
-            if in_section && !found { section_end = i; }
+            if in_section && !found {
+                section_end = i;
+            }
             in_section = trimmed == section || trimmed.starts_with(&format!("{section}]"));
         }
         if in_section && !found {
             let stripped = trimmed.split('#').next().unwrap_or("").trim();
             if let Some((k, _)) = stripped.split_once('=')
-                && k.trim().trim_matches('"') == key.trim_matches('"') {
-                    let leading: String = line.chars().take_while(|c| c.is_whitespace()).collect();
-                    let comment = line.find('#').map(|p| &line[p..]).filter(|_| stripped.contains('=')).unwrap_or("");
-                    *line = if comment.is_empty() {
-                        format!("{leading}{key} = {value}")
-                    } else {
-                        format!("{leading}{key} = {value}  {comment}")
-                    };
-                    found = true;
-                }
+                && k.trim().trim_matches('"') == key.trim_matches('"')
+            {
+                let leading: String = line.chars().take_while(|c| c.is_whitespace()).collect();
+                let comment = line
+                    .find('#')
+                    .map(|p| &line[p..])
+                    .filter(|_| stripped.contains('='))
+                    .unwrap_or("");
+                *line = if comment.is_empty() {
+                    format!("{leading}{key} = {value}")
+                } else {
+                    format!("{leading}{key} = {value}  {comment}")
+                };
+                found = true;
+            }
         }
     }
     if !found {
@@ -343,7 +389,9 @@ pub fn write_toml_number(config_path: &Path, section: &str, key: &str, value: &s
     }
 
     let mut output = lines.join("\n");
-    if !output.ends_with('\n') { output.push('\n'); }
+    if !output.ends_with('\n') {
+        output.push('\n');
+    }
     validated_atomic_write(config_path, &output)?;
     Ok(())
 }
@@ -382,33 +430,33 @@ pub fn write_toml_multiline_string(
         }
 
         if trimmed.starts_with('[') {
-            in_section = trimmed == section ||
-                trimmed.starts_with(&format!("{section}]"));
+            in_section = trimmed == section || trimmed.starts_with(&format!("{section}]"));
         }
 
         if in_section {
             let stripped = trimmed.split('#').next().unwrap_or("").trim();
             if let Some((k, _)) = stripped.split_once('=')
-                && k.trim().trim_matches('"') == key.trim_matches('"') {
-                    found = true;
-                    let leading: String = lines[i].chars().take_while(|c| c.is_whitespace()).collect();
-                    // Check if this is a triple-quoted string that spans lines
-                    if stripped.contains("\"\"\"") && stripped.matches("\"\"\"").count() < 2 {
-                        // Opening triple-quote — remove this line and skip to close
-                        lines.remove(i);
-                        skip_until_close = true;
-                        // Insert the replacement
-                        let safe = value.replace("\"\"\"", "\"\"\\\"");
-                        lines.insert(i, format!("{leading}{key} = \"\"\"\n{safe}\"\"\""));
-                        i += 1;
-                        continue;
-                    } else {
-                        // Single-line value — replace in place
-                        let safe = value.replace("\"\"\"", "\"\"\\\"");
-                        lines[i] = format!("{leading}{key} = \"\"\"\n{safe}\"\"\"");
-                    }
-                    break;
+                && k.trim().trim_matches('"') == key.trim_matches('"')
+            {
+                found = true;
+                let leading: String = lines[i].chars().take_while(|c| c.is_whitespace()).collect();
+                // Check if this is a triple-quoted string that spans lines
+                if stripped.contains("\"\"\"") && stripped.matches("\"\"\"").count() < 2 {
+                    // Opening triple-quote — remove this line and skip to close
+                    lines.remove(i);
+                    skip_until_close = true;
+                    // Insert the replacement
+                    let safe = value.replace("\"\"\"", "\"\"\\\"");
+                    lines.insert(i, format!("{leading}{key} = \"\"\"\n{safe}\"\"\""));
+                    i += 1;
+                    continue;
+                } else {
+                    // Single-line value — replace in place
+                    let safe = value.replace("\"\"\"", "\"\"\\\"");
+                    lines[i] = format!("{leading}{key} = \"\"\"\n{safe}\"\"\"");
                 }
+                break;
+            }
         }
 
         i += 1;
@@ -449,7 +497,9 @@ pub fn write_toml_multiline_string(
 /// Finds `key = [...]` in the given section and replaces it with the new values.
 /// If the key doesn't exist, appends it to the section.
 pub fn write_toml_string_array(config_path: &Path, section: &str, key: &str, values: &[String]) {
-    let Ok(mut content) = std::fs::read_to_string(config_path) else { return };
+    let Ok(mut content) = std::fs::read_to_string(config_path) else {
+        return;
+    };
     ensure_section(&mut content, section);
     let mut lines: Vec<String> = content.lines().map(String::from).collect();
 
@@ -478,23 +528,24 @@ pub fn write_toml_string_array(config_path: &Path, section: &str, key: &str, val
         if in_section {
             let stripped = trimmed.split('#').next().unwrap_or("").trim();
             if let Some((k, _)) = stripped.split_once('=')
-                && k.trim().trim_matches('"') == key.trim_matches('"') {
-                    let leading: String = lines[i].chars().take_while(|c| c.is_whitespace()).collect();
-                    lines.remove(i);
-                    while i < lines.len() {
-                        let t = lines[i].trim();
-                        if t.starts_with('"') || t == "]" || t == "]," {
-                            lines.remove(i);
-                        } else {
-                            break;
-                        }
+                && k.trim().trim_matches('"') == key.trim_matches('"')
+            {
+                let leading: String = lines[i].chars().take_while(|c| c.is_whitespace()).collect();
+                lines.remove(i);
+                while i < lines.len() {
+                    let t = lines[i].trim();
+                    if t.starts_with('"') || t == "]" || t == "]," {
+                        lines.remove(i);
+                    } else {
+                        break;
                     }
-                    for (j, new_line) in formatted.lines().enumerate() {
-                        lines.insert(i + j, format!("{leading}{new_line}"));
-                    }
-                    found = true;
-                    break;
                 }
+                for (j, new_line) in formatted.lines().enumerate() {
+                    lines.insert(i + j, format!("{leading}{new_line}"));
+                }
+                found = true;
+                break;
+            }
         }
         i += 1;
     }
@@ -522,7 +573,9 @@ pub fn write_toml_string_array(config_path: &Path, section: &str, key: &str, val
     }
 
     let mut output = lines.join("\n");
-    if !output.ends_with('\n') { output.push('\n'); }
+    if !output.ends_with('\n') {
+        output.push('\n');
+    }
     let _ = validated_atomic_write(config_path, &output);
 }
 
@@ -530,7 +583,11 @@ pub fn write_toml_string_array(config_path: &Path, section: &str, key: &str, val
 ///
 /// Scans for `[[schedules]]` blocks, matches by `name = "schedule_name"`,
 /// and sets or appends the `enabled` key.
-pub fn toggle_schedule_enabled(config_path: &Path, schedule_name: &str, enabled: bool) -> Result<(), std::io::Error> {
+pub fn toggle_schedule_enabled(
+    config_path: &Path,
+    schedule_name: &str,
+    enabled: bool,
+) -> Result<(), std::io::Error> {
     let content = std::fs::read_to_string(config_path)?;
     let mut lines: Vec<String> = content.lines().map(String::from).collect();
     let val_str = if enabled { "true" } else { "false" };
@@ -567,7 +624,8 @@ pub fn toggle_schedule_enabled(config_path: &Path, schedule_name: &str, enabled:
                     found_name = true;
                 }
                 if k == "enabled" && found_name {
-                    let leading: String = lines[i].chars().take_while(|c| c.is_whitespace()).collect();
+                    let leading: String =
+                        lines[i].chars().take_while(|c| c.is_whitespace()).collect();
                     lines[i] = format!("{leading}enabled = {val_str}");
                     return write_lines(config_path, &lines);
                 }
@@ -587,16 +645,31 @@ pub fn toggle_schedule_enabled(config_path: &Path, schedule_name: &str, enabled:
 
 fn write_lines(config_path: &Path, lines: &[String]) -> Result<(), std::io::Error> {
     let mut output = lines.join("\n");
-    if !output.ends_with('\n') { output.push('\n'); }
+    if !output.ends_with('\n') {
+        output.push('\n');
+    }
     validated_atomic_write(config_path, &output)
 }
 
-pub fn write_app_access(config_path: &Path, binary: &str, access: &str) -> Result<(), std::io::Error> {
-    let serde_access = if access == "View Only" { "ViewOnly" } else { access };
-    // We MUST quote the binary name if it contains dots or special characters 
+pub fn write_app_access(
+    config_path: &Path,
+    binary: &str,
+    access: &str,
+) -> Result<(), std::io::Error> {
+    let serde_access = if access == "View Only" {
+        "ViewOnly"
+    } else {
+        access
+    };
+    // We MUST quote the binary name if it contains dots or special characters
     // to prevent TOML from interpreting it as nested child tables (`org: {gnome: {Terminal...}}`)
     let quoted_binary = format!("\"{}\"", binary.replace('"', "\\\""));
-    write_toml_string_create(config_path, "[desktop.app_access]", &quoted_binary, serde_access)
+    write_toml_string_create(
+        config_path,
+        "[desktop.app_access]",
+        &quoted_binary,
+        serde_access,
+    )
 }
 
 /// Resolve the TOML section name for an integration kind.
@@ -632,21 +705,34 @@ pub fn write_integration_config(
 
     let mut content = std::fs::read_to_string(config_path)?;
 
-    if !content.ends_with('\n') { content.push('\n'); }
+    if !content.ends_with('\n') {
+        content.push('\n');
+    }
     content.push('\n');
     content.push_str(&format!("[{section_name}]\n"));
     for (key, value) in fields {
-        if value.is_empty() { continue; }
+        if value.is_empty() {
+            continue;
+        }
         // Write booleans and numbers without quotes.
         // Comma-separated values are written as TOML arrays.
         if value == "true" || value == "false" || value.parse::<u16>().is_ok() {
             content.push_str(&format!("{key} = {value}\n"));
         } else if value.contains(',') {
-            let items: Vec<&str> = value.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
-            let array = items.iter().map(|s| format!("\"{s}\"")).collect::<Vec<_>>().join(", ");
+            let items: Vec<&str> = value
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .collect();
+            let array = items
+                .iter()
+                .map(|s| format!("\"{s}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
             content.push_str(&format!("{key} = [{array}]\n"));
         } else {
-            let safe: String = value.chars()
+            let safe: String = value
+                .chars()
                 .filter(|c| !c.is_control())
                 .map(|c| match c {
                     '"' => "\\\"".to_string(),
@@ -690,7 +776,8 @@ pub fn remove_integration_config(
                 return false;
             }
             // If it's a sub-table of the section we're removing (e.g., `[desktop.interaction]`), keep going
-            let is_subtable_or_array = t.starts_with(&format!("[{section_name}.")) || t.starts_with(&format!("[[{section_name}."));
+            let is_subtable_or_array = t.starts_with(&format!("[{section_name}."))
+                || t.starts_with(&format!("[[{section_name}."));
             !is_subtable_or_array
         })
         .map(|offset| start + 1 + offset)
@@ -725,7 +812,9 @@ pub fn remove_integration_config(
 
 /// Check if a schedule with the given name exists in config.toml.
 pub fn schedule_exists(config_path: &Path, name: &str) -> bool {
-    let Ok(content) = std::fs::read_to_string(config_path) else { return false };
+    let Ok(content) = std::fs::read_to_string(config_path) else {
+        return false;
+    };
     let mut in_schedule = false;
     for line in content.lines() {
         let trimmed = line.trim();
@@ -757,7 +846,9 @@ pub fn append_schedule(
     notify: bool,
 ) -> Result<(), std::io::Error> {
     let mut content = std::fs::read_to_string(config_path)?;
-    if !content.ends_with('\n') { content.push('\n'); }
+    if !content.ends_with('\n') {
+        content.push('\n');
+    }
 
     let safe_name = sanitize_toml_value(name);
     let safe_cron = sanitize_toml_value(cron);
@@ -823,7 +914,8 @@ pub fn edit_schedule_field(
                     found_name = true;
                 }
                 if k == field && found_name {
-                    let leading: String = lines[i].chars().take_while(|c| c.is_whitespace()).collect();
+                    let leading: String =
+                        lines[i].chars().take_while(|c| c.is_whitespace()).collect();
                     lines[i] = format!("{leading}{field} = {value}");
                     return write_lines(config_path, &lines);
                 }
@@ -931,8 +1023,8 @@ fn sanitize_toml_value(s: &str) -> String {
 pub fn reload_settings_snapshot(config_path: &Path) -> Result<SettingsSnapshot, String> {
     let toml_str = std::fs::read_to_string(config_path)
         .map_err(|e| format!("Cannot read {}: {e}", config_path.display()))?;
-    let core_config: AivyxConfig = toml::from_str(&toml_str)
-        .map_err(|e| format!("Core config parse error: {e}"))?;
+    let core_config: AivyxConfig =
+        toml::from_str(&toml_str).map_err(|e| format!("Core config parse error: {e}"))?;
     let pa_config: PaConfig = toml::from_str::<PaConfig>(&toml_str)
         .map_err(|e| format!("PA config parse error: {e}"))?
         .with_auto_desktop();
@@ -945,8 +1037,12 @@ pub fn reload_settings_snapshot(config_path: &Path) -> Result<SettingsSnapshot, 
     let style_ref = pa_config.style.as_ref();
 
     Ok(SettingsSnapshot {
-        agent_name: agent_cfg_ref.map(|a| a.name.clone()).unwrap_or_else(|| "assistant".into()),
-        agent_persona: agent_cfg_ref.map(|a| a.persona.clone()).unwrap_or_else(|| "assistant".into()),
+        agent_name: agent_cfg_ref
+            .map(|a| a.name.clone())
+            .unwrap_or_else(|| "assistant".into()),
+        agent_persona: agent_cfg_ref
+            .map(|a| a.persona.clone())
+            .unwrap_or_else(|| "assistant".into()),
         agent_max_tokens: agent_cfg_ref.map(|a| a.max_tokens).unwrap_or(4096),
         agent_skills: agent_cfg_ref.map(|a| a.skills.clone()).unwrap_or_default(),
         has_custom_soul: agent_cfg_ref.and_then(|a| a.soul.as_ref()).is_some(),
@@ -959,7 +1055,9 @@ pub fn reload_settings_snapshot(config_path: &Path) -> Result<SettingsSnapshot, 
         model_name: core_config.provider.model_name().to_string(),
         provider_base_url: match &core_config.provider {
             aivyx_config::ProviderConfig::Ollama { base_url, .. } => Some(base_url.clone()),
-            aivyx_config::ProviderConfig::OpenAICompatible { base_url, .. } => Some(base_url.clone()),
+            aivyx_config::ProviderConfig::OpenAICompatible { base_url, .. } => {
+                Some(base_url.clone())
+            }
             _ => None,
         },
         embedding_model: core_config.embedding.as_ref().map(|e| match e {
@@ -980,16 +1078,24 @@ pub fn reload_settings_snapshot(config_path: &Path) -> Result<SettingsSnapshot, 
         max_retries: core_config.autonomy.max_retries,
         require_approval_destructive: core_config.autonomy.require_approval_for_destructive,
         escalation_threshold: core_config.autonomy.escalation_confidence_threshold,
-        scope_overrides: core_config.autonomy.scope_overrides.iter()
+        scope_overrides: core_config
+            .autonomy
+            .scope_overrides
+            .iter()
             .map(|o| (o.scope.clone(), format!("{:?}", o.tier)))
             .collect(),
         persona_dimensions: persona_ref.map(|p| PaPersonaDimensions {
-            formality: p.formality, verbosity: p.verbosity,
-            warmth: p.warmth, humor: p.humor,
-            confidence: p.confidence, curiosity: p.curiosity,
+            formality: p.formality,
+            verbosity: p.verbosity,
+            warmth: p.warmth,
+            humor: p.humor,
+            confidence: p.confidence,
+            curiosity: p.curiosity,
             tone: p.tone.clone(),
-            uses_emoji: p.uses_emoji, uses_analogies: p.uses_analogies,
-            asks_followups: p.asks_followups, admits_uncertainty: p.admits_uncertainty,
+            uses_emoji: p.uses_emoji,
+            uses_analogies: p.uses_analogies,
+            asks_followups: p.asks_followups,
+            admits_uncertainty: p.admits_uncertainty,
         }),
         tool_discovery_mode: td_ref.map(|t| t.mode.clone()),
         tool_discovery_top_k: td_ref.map(|t| t.top_k),
@@ -1007,11 +1113,15 @@ pub fn reload_settings_snapshot(config_path: &Path) -> Result<SettingsSnapshot, 
         heartbeat_can_encourage: hb_ref.map(|h| h.can_encourage).unwrap_or(false),
         heartbeat_can_track_milestones: hb_ref.map(|h| h.can_track_milestones).unwrap_or(false),
         heartbeat_notification_pacing: hb_ref.map(|h| h.notification_pacing).unwrap_or(false),
-        heartbeat_max_notifications_per_hour: hb_ref.map(|h| h.max_notifications_per_hour).unwrap_or(5),
+        heartbeat_max_notifications_per_hour: hb_ref
+            .map(|h| h.max_notifications_per_hour)
+            .unwrap_or(5),
         loop_check_interval: loop_ref.map(|l| l.check_interval_minutes).unwrap_or(15),
         morning_briefing: loop_ref.map(|l| l.morning_briefing).unwrap_or(true),
         briefing_hour: loop_ref.map(|l| l.briefing_hour).unwrap_or(8),
-        schedules: pa_config.schedules.iter()
+        schedules: pa_config
+            .schedules
+            .iter()
             .map(|s| (s.name.clone(), s.cron.clone(), s.enabled))
             .collect(),
         email_configured: pa_config.email.is_some(),
@@ -1043,25 +1153,79 @@ pub fn reload_settings_snapshot(config_path: &Path) -> Result<SettingsSnapshot, 
         },
         devtools_configured: pa_config.devtools.is_some(),
         voice_enabled: pa_config.voice.as_ref().map(|v| v.enabled).unwrap_or(true),
-        stt_model_path: pa_config.voice.as_ref().and_then(|v| v.stt_model_path.clone()),
-        tts_model_path: pa_config.voice.as_ref().and_then(|v| v.tts_model_path.clone()),
+        stt_model_path: pa_config
+            .voice
+            .as_ref()
+            .and_then(|v| v.stt_model_path.clone()),
+        tts_model_path: pa_config
+            .voice
+            .as_ref()
+            .and_then(|v| v.tts_model_path.clone()),
         webhook_configured: pa_config.webhook.is_some(),
         triage_configured: pa_config.triage.is_some(),
-        mcp_servers: pa_config.mcp_servers.iter().map(|s| s.name.clone()).collect(),
+        mcp_servers: pa_config
+            .mcp_servers
+            .iter()
+            .map(|s| s.name.clone())
+            .collect(),
         style_tone: style_ref.and_then(|s| s.tone.as_ref().cloned()),
         style_detail: style_ref.and_then(|s| s.detail_level.as_ref().cloned()),
         style_prefs: style_ref.map(|s| s.preferences.clone()).unwrap_or_default(),
-        resilience_circuit_breaker: pa_config.resilience.as_ref().map(|r| r.circuit_breaker).unwrap_or(false),
-        resilience_cache_enabled: pa_config.resilience.as_ref().map(|r| r.cache_enabled).unwrap_or(false),
-        resilience_fallback_count: pa_config.resilience.as_ref().map(|r| r.fallback_providers.len()).unwrap_or(0),
-        consolidation_merge_threshold: pa_config.consolidation.as_ref().map(|c| c.merge_threshold).unwrap_or(0.85),
-        consolidation_stale_days: pa_config.consolidation.as_ref().map(|c| c.stale_days).unwrap_or(90),
-        consolidation_mine_patterns: pa_config.consolidation.as_ref().map(|c| c.mine_patterns).unwrap_or(true),
-        mission_default_mode: pa_config.missions.as_ref().map(|m| m.default_mode.clone()).unwrap_or_else(|| "sequential".into()),
-        mission_recipe_dir: pa_config.missions.as_ref().and_then(|m| m.recipe_dir.clone()).unwrap_or_else(|| "~/.aivyx/recipes".into()),
-        mission_experiment_tracking: pa_config.missions.as_ref().map(|m| m.experiment_tracking).unwrap_or(false),
-        abuse_detection_enabled: pa_config.abuse_detection.as_ref().map(|a| a.enabled).unwrap_or(false),
-        routing_enabled: pa_config.routing.as_ref().map(|r| r.enabled).unwrap_or(false),
+        resilience_circuit_breaker: pa_config
+            .resilience
+            .as_ref()
+            .map(|r| r.circuit_breaker)
+            .unwrap_or(false),
+        resilience_cache_enabled: pa_config
+            .resilience
+            .as_ref()
+            .map(|r| r.cache_enabled)
+            .unwrap_or(false),
+        resilience_fallback_count: pa_config
+            .resilience
+            .as_ref()
+            .map(|r| r.fallback_providers.len())
+            .unwrap_or(0),
+        consolidation_merge_threshold: pa_config
+            .consolidation
+            .as_ref()
+            .map(|c| c.merge_threshold)
+            .unwrap_or(0.85),
+        consolidation_stale_days: pa_config
+            .consolidation
+            .as_ref()
+            .map(|c| c.stale_days)
+            .unwrap_or(90),
+        consolidation_mine_patterns: pa_config
+            .consolidation
+            .as_ref()
+            .map(|c| c.mine_patterns)
+            .unwrap_or(true),
+        mission_default_mode: pa_config
+            .missions
+            .as_ref()
+            .map(|m| m.default_mode.clone())
+            .unwrap_or_else(|| "sequential".into()),
+        mission_recipe_dir: pa_config
+            .missions
+            .as_ref()
+            .and_then(|m| m.recipe_dir.clone())
+            .unwrap_or_else(|| "~/.aivyx/recipes".into()),
+        mission_experiment_tracking: pa_config
+            .missions
+            .as_ref()
+            .map(|m| m.experiment_tracking)
+            .unwrap_or(false),
+        abuse_detection_enabled: pa_config
+            .abuse_detection
+            .as_ref()
+            .map(|a| a.enabled)
+            .unwrap_or(false),
+        routing_enabled: pa_config
+            .routing
+            .as_ref()
+            .map(|r| r.enabled)
+            .unwrap_or(false),
     })
 }
 
@@ -1078,10 +1242,10 @@ mod tests {
 
     #[test]
     fn replace_single_line_string() {
-        let f = temp_config(
-            "[agent]\nname = \"test\"\nsoul = \"old soul\"\npersona = \"assistant\"\n"
-        );
-        write_toml_multiline_string(f.path(), "[agent]", "soul", "new narrative\nline two").unwrap();
+        let f =
+            temp_config("[agent]\nname = \"test\"\nsoul = \"old soul\"\npersona = \"assistant\"\n");
+        write_toml_multiline_string(f.path(), "[agent]", "soul", "new narrative\nline two")
+            .unwrap();
         let content = std::fs::read_to_string(f.path()).unwrap();
         assert!(content.contains("soul = \"\"\"\nnew narrative\nline two\"\"\""));
         assert!(!content.contains("old soul"));
@@ -1090,7 +1254,7 @@ mod tests {
     #[test]
     fn replace_triple_quoted_string() {
         let f = temp_config(
-            "[agent]\nname = \"test\"\nsoul = \"\"\"\nold soul\nline two\"\"\"\npersona = \"assistant\"\n"
+            "[agent]\nname = \"test\"\nsoul = \"\"\"\nold soul\nline two\"\"\"\npersona = \"assistant\"\n",
         );
         write_toml_multiline_string(f.path(), "[agent]", "soul", "replaced").unwrap();
         let content = std::fs::read_to_string(f.path()).unwrap();
@@ -1101,7 +1265,7 @@ mod tests {
     #[test]
     fn append_missing_key() {
         let f = temp_config(
-            "[agent]\nname = \"test\"\npersona = \"assistant\"\n\n[loop]\ncheck_interval_minutes = 15\n"
+            "[agent]\nname = \"test\"\npersona = \"assistant\"\n\n[loop]\ncheck_interval_minutes = 15\n",
         );
         write_toml_multiline_string(f.path(), "[agent]", "soul", "appended soul").unwrap();
         let content = std::fs::read_to_string(f.path()).unwrap();
@@ -1142,7 +1306,14 @@ enabled = true
     #[test]
     fn append_schedule_adds_block() {
         let f = temp_config(BASE_CONFIG);
-        append_schedule(f.path(), "evening-review", "0 18 * * *", "Review the day", false).unwrap();
+        append_schedule(
+            f.path(),
+            "evening-review",
+            "0 18 * * *",
+            "Review the day",
+            false,
+        )
+        .unwrap();
         let content = std::fs::read_to_string(f.path()).unwrap();
         assert!(content.contains("name = \"evening-review\""));
         assert!(content.contains("cron = \"0 18 * * *\""));
@@ -1273,7 +1444,9 @@ prompt = \"Second task\"
 
     #[test]
     fn write_app_access_updates_existing_key() {
-        let f = temp_config("[desktop]\nclipboard = true\n\n[desktop.app_access]\nfirefox = \"Full\"\n");
+        let f = temp_config(
+            "[desktop]\nclipboard = true\n\n[desktop.app_access]\nfirefox = \"Full\"\n",
+        );
         write_app_access(f.path(), "firefox", "Blocked").unwrap();
         let content = std::fs::read_to_string(f.path()).unwrap();
         assert!(content.contains("firefox = \"Blocked\""));
@@ -1286,22 +1459,41 @@ prompt = \"Second task\"
     fn write_integration_config_types() {
         let f = temp_config("[agent]\nname = \"test\"\npersona = \"assistant\"\n");
         // Desktop: booleans
-        write_integration_config(f.path(), IntegrationKind::Desktop, &[
-            ("clipboard".into(), "true".into()),
-            ("windows".into(), "false".into()),
-            ("notifications".into(), "true".into()),
-        ]).unwrap();
+        write_integration_config(
+            f.path(),
+            IntegrationKind::Desktop,
+            &[
+                ("clipboard".into(), "true".into()),
+                ("windows".into(), "false".into()),
+                ("notifications".into(), "true".into()),
+            ],
+        )
+        .unwrap();
         let content = std::fs::read_to_string(f.path()).unwrap();
-        assert!(content.contains("clipboard = true\n"), "bool should be unquoted: {content}");
-        assert!(content.contains("windows = false\n"), "bool should be unquoted: {content}");
+        assert!(
+            content.contains("clipboard = true\n"),
+            "bool should be unquoted: {content}"
+        );
+        assert!(
+            content.contains("windows = false\n"),
+            "bool should be unquoted: {content}"
+        );
         // Vault: comma-separated → array
         let _ = remove_integration_config(f.path(), IntegrationKind::Desktop);
-        write_integration_config(f.path(), IntegrationKind::Vault, &[
-            ("path".into(), "~/docs".into()),
-            ("extensions".into(), "md,txt,pdf".into()),
-        ]).unwrap();
+        write_integration_config(
+            f.path(),
+            IntegrationKind::Vault,
+            &[
+                ("path".into(), "~/docs".into()),
+                ("extensions".into(), "md,txt,pdf".into()),
+            ],
+        )
+        .unwrap();
         let content = std::fs::read_to_string(f.path()).unwrap();
-        assert!(content.contains(r#"extensions = ["md", "txt", "pdf"]"#), "comma list should be array: {content}");
+        assert!(
+            content.contains(r#"extensions = ["md", "txt", "pdf"]"#),
+            "comma list should be array: {content}"
+        );
         // Verify the resulting config parses
         let pa: crate::config::PaConfig = toml::from_str(&content).unwrap();
         let vault = pa.vault.expect("vault section missing");

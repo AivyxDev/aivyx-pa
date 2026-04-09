@@ -34,7 +34,9 @@ pub struct EncryptedStorageAdapter {
 
 impl EncryptedStorageAdapter {
     pub fn new(store: Arc<EncryptedStore>, key: &MasterKey) -> Self {
-        let key_bytes: [u8; 32] = key.expose_secret().try_into()
+        let key_bytes: [u8; 32] = key
+            .expose_secret()
+            .try_into()
             .expect("master key must be 32 bytes");
         Self {
             store,
@@ -50,23 +52,27 @@ impl EncryptedStorageAdapter {
 impl StorageBackend for EncryptedStorageAdapter {
     fn put(&self, key: &str, value: &[u8]) -> Result<()> {
         let mk = self.key();
-        self.store.put(key, value, &mk)
+        self.store
+            .put(key, value, &mk)
             .map_err(|e| AivyxError::Other(format!("EncryptedStore put failed: {e}")))
     }
 
     fn get(&self, key: &str) -> Result<Option<Vec<u8>>> {
         let mk = self.key();
-        self.store.get(key, &mk)
+        self.store
+            .get(key, &mk)
             .map_err(|e| AivyxError::Other(format!("EncryptedStore get failed: {e}")))
     }
 
     fn delete(&self, key: &str) -> Result<()> {
-        self.store.delete(key)
+        self.store
+            .delete(key)
             .map_err(|e| AivyxError::Other(format!("EncryptedStore delete failed: {e}")))
     }
 
     fn list_keys(&self) -> Result<Vec<String>> {
-        self.store.list_keys()
+        self.store
+            .list_keys()
             .map_err(|e| AivyxError::Other(format!("EncryptedStore list_keys failed: {e}")))
     }
 }
@@ -220,10 +226,7 @@ where
         .await?;
 
     // Create token manager with encrypted storage.
-    let storage = Arc::new(EncryptedStorageAdapter::new(
-        Arc::clone(&store),
-        oauth_key,
-    ));
+    let storage = Arc::new(EncryptedStorageAdapter::new(Arc::clone(&store), oauth_key));
     let manager = OAuthTokenManager::new(oauth_client, server_name, storage);
     manager.set_tokens(tokens).await?;
 
@@ -243,9 +246,7 @@ pub fn load_token_manager(
     oauth_key: &MasterKey,
 ) -> Result<Option<OAuthTokenManager>> {
     let McpAuthMethod::OAuth {
-        client_id,
-        scopes,
-        ..
+        client_id, scopes, ..
     } = auth
     else {
         return Ok(None);
@@ -271,10 +272,7 @@ pub fn load_token_manager(
         return Ok(None);
     };
 
-    let storage: Arc<dyn StorageBackend> = Arc::new(EncryptedStorageAdapter::new(
-        store,
-        oauth_key,
-    ));
+    let storage: Arc<dyn StorageBackend> = Arc::new(EncryptedStorageAdapter::new(store, oauth_key));
     let manager = OAuthTokenManager::new(oauth_client, server_name, storage);
 
     Ok(Some(manager))

@@ -80,7 +80,9 @@ pub struct TemplateParameter {
     pub default: Option<String>,
 }
 
-fn default_required() -> bool { true }
+fn default_required() -> bool {
+    true
+}
 
 /// Conditions that control whether a step executes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,12 +110,10 @@ impl StepCondition {
         match self {
             StepCondition::OnSuccess => prev_success,
             StepCondition::OnFailure => !prev_success,
-            StepCondition::VarEquals { var, value } => {
-                context.get(var).is_some_and(|v| v == value)
-            }
-            StepCondition::VarContains { var, substring } => {
-                context.get(var).is_some_and(|v| v.contains(substring.as_str()))
-            }
+            StepCondition::VarEquals { var, value } => context.get(var).is_some_and(|v| v == value),
+            StepCondition::VarContains { var, substring } => context
+                .get(var)
+                .is_some_and(|v| v.contains(substring.as_str())),
             StepCondition::All { conditions } => {
                 conditions.iter().all(|c| c.evaluate(context, prev_success))
             }
@@ -143,10 +143,7 @@ pub enum WorkflowTrigger {
         path_glob: Option<String>,
     },
     /// Fire when a goal reaches a progress threshold.
-    GoalProgress {
-        goal_match: String,
-        threshold: f32,
-    },
+    GoalProgress { goal_match: String, threshold: f32 },
     /// Fire when a webhook is received at `/webhooks/{name}`.
     Webhook {
         /// Optional HMAC secret name in the encrypted store.
@@ -185,16 +182,14 @@ impl WorkflowTemplate {
     ///
     /// Replaces all `{param}` placeholders in step descriptions and arguments.
     /// Returns an error if a required parameter is missing.
-    pub fn instantiate(
-        &self,
-        params: &HashMap<String, String>,
-    ) -> Result<InstantiatedWorkflow> {
+    pub fn instantiate(&self, params: &HashMap<String, String>) -> Result<InstantiatedWorkflow> {
         // Validate required parameters
         for p in &self.parameters {
             if p.required && !params.contains_key(&p.name) && p.default.is_none() {
-                return Err(aivyx_core::AivyxError::Other(
-                    format!("missing required parameter: {}", p.name),
-                ));
+                return Err(aivyx_core::AivyxError::Other(format!(
+                    "missing required parameter: {}",
+                    p.name
+                )));
             }
         }
 
@@ -218,15 +213,23 @@ impl WorkflowTemplate {
 
         let goal = replace(&self.description);
 
-        let steps = self.steps.iter().map(|ts| {
-            let tool_hints = ts.tool.as_ref().map(|t| vec![replace(t)]).unwrap_or_default();
-            InstantiatedStep {
-                description: replace(&ts.description),
-                tool_hints,
-                requires_approval: ts.requires_approval,
-                depends_on: ts.depends_on.clone(),
-            }
-        }).collect();
+        let steps = self
+            .steps
+            .iter()
+            .map(|ts| {
+                let tool_hints = ts
+                    .tool
+                    .as_ref()
+                    .map(|t| vec![replace(t)])
+                    .unwrap_or_default();
+                InstantiatedStep {
+                    description: replace(&ts.description),
+                    tool_hints,
+                    requires_approval: ts.requires_approval,
+                    depends_on: ts.depends_on.clone(),
+                }
+            })
+            .collect();
 
         Ok(InstantiatedWorkflow {
             template_name: self.name.clone(),
@@ -262,10 +265,9 @@ pub fn load_template(
     let storage_key = format!("{KEY_PREFIX}{name}");
     match store.get(&storage_key, key)? {
         Some(bytes) => {
-            let template: WorkflowTemplate = serde_json::from_slice(&bytes)
-                .map_err(|e| aivyx_core::AivyxError::Other(
-                    format!("deserialize template '{name}': {e}"),
-                ))?;
+            let template: WorkflowTemplate = serde_json::from_slice(&bytes).map_err(|e| {
+                aivyx_core::AivyxError::Other(format!("deserialize template '{name}': {e}"))
+            })?;
             Ok(Some(template))
         }
         None => Ok(None),
@@ -309,9 +311,10 @@ impl WorkflowContext {
 
     /// Reconstruct the workflow domain key from saved bytes.
     pub fn workflow_key(&self) -> Result<MasterKey> {
-        let bytes: [u8; 32] = self.key_bytes.as_slice()
-            .try_into()
-            .map_err(|_| aivyx_core::AivyxError::Other("workflow key must be 32 bytes".into()))?;
+        let bytes: [u8; 32] =
+            self.key_bytes.as_slice().try_into().map_err(|_| {
+                aivyx_core::AivyxError::Other("workflow key must be 32 bytes".into())
+            })?;
         Ok(MasterKey::from_bytes(bytes))
     }
 }
@@ -325,7 +328,9 @@ pub struct CreateWorkflowAction {
 
 #[async_trait::async_trait]
 impl crate::Action for CreateWorkflowAction {
-    fn name(&self) -> &str { "create_workflow" }
+    fn name(&self) -> &str {
+        "create_workflow"
+    }
 
     fn description(&self) -> &str {
         "Create or update a reusable workflow template with parameterized steps and optional triggers"
@@ -382,25 +387,30 @@ impl crate::Action for CreateWorkflowAction {
     }
 
     async fn execute(&self, input: serde_json::Value) -> aivyx_core::Result<serde_json::Value> {
-        let name = input.get("name")
+        let name = input
+            .get("name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| aivyx_core::AivyxError::Other("missing 'name'".into()))?;
-        let description = input.get("description")
+        let description = input
+            .get("description")
             .and_then(|v| v.as_str())
             .ok_or_else(|| aivyx_core::AivyxError::Other("missing 'description'".into()))?;
-        let steps_val = input.get("steps")
+        let steps_val = input
+            .get("steps")
             .ok_or_else(|| aivyx_core::AivyxError::Other("missing 'steps'".into()))?;
 
         let steps: Vec<TemplateStep> = serde_json::from_value(steps_val.clone())
             .map_err(|e| aivyx_core::AivyxError::Other(format!("invalid steps: {e}")))?;
 
-        let parameters: Vec<TemplateParameter> = input.get("parameters")
+        let parameters: Vec<TemplateParameter> = input
+            .get("parameters")
             .map(|v| serde_json::from_value(v.clone()))
             .transpose()
             .map_err(|e| aivyx_core::AivyxError::Other(format!("invalid parameters: {e}")))?
             .unwrap_or_default();
 
-        let triggers: Vec<WorkflowTrigger> = input.get("triggers")
+        let triggers: Vec<WorkflowTrigger> = input
+            .get("triggers")
             .map(|v| serde_json::from_value(v.clone()))
             .transpose()
             .map_err(|e| aivyx_core::AivyxError::Other(format!("invalid triggers: {e}")))?
@@ -443,7 +453,9 @@ pub struct ListWorkflowsAction {
 
 #[async_trait::async_trait]
 impl crate::Action for ListWorkflowsAction {
-    fn name(&self) -> &str { "list_workflows" }
+    fn name(&self) -> &str {
+        "list_workflows"
+    }
 
     fn description(&self) -> &str {
         "List all available workflow templates with their descriptions and trigger counts"
@@ -462,7 +474,10 @@ impl crate::Action for ListWorkflowsAction {
     }
 
     async fn execute(&self, input: serde_json::Value) -> aivyx_core::Result<serde_json::Value> {
-        let details = input.get("details").and_then(|v| v.as_bool()).unwrap_or(false);
+        let details = input
+            .get("details")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let names = list_templates(&self.ctx.store)?;
 
         if !details {
@@ -522,7 +537,9 @@ pub struct RunWorkflowAction {
 
 #[async_trait::async_trait]
 impl crate::Action for RunWorkflowAction {
-    fn name(&self) -> &str { "run_workflow" }
+    fn name(&self) -> &str {
+        "run_workflow"
+    }
 
     fn description(&self) -> &str {
         "Instantiate a workflow template with parameters, returning the concrete steps for mission creation"
@@ -547,17 +564,18 @@ impl crate::Action for RunWorkflowAction {
     }
 
     async fn execute(&self, input: serde_json::Value) -> aivyx_core::Result<serde_json::Value> {
-        let name = input.get("name")
+        let name = input
+            .get("name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| aivyx_core::AivyxError::Other("missing 'name'".into()))?;
 
         let key = self.ctx.workflow_key()?;
-        let template = load_template(&self.ctx.store, &key, name)?
-            .ok_or_else(|| aivyx_core::AivyxError::Other(
-                format!("workflow template '{name}' not found"),
-            ))?;
+        let template = load_template(&self.ctx.store, &key, name)?.ok_or_else(|| {
+            aivyx_core::AivyxError::Other(format!("workflow template '{name}' not found"))
+        })?;
 
-        let params: HashMap<String, String> = input.get("params")
+        let params: HashMap<String, String> = input
+            .get("params")
             .map(|v| serde_json::from_value(v.clone()))
             .transpose()
             .map_err(|e| aivyx_core::AivyxError::Other(format!("invalid params: {e}")))?
@@ -589,7 +607,9 @@ pub struct WorkflowStatusAction {
 
 #[async_trait::async_trait]
 impl crate::Action for WorkflowStatusAction {
-    fn name(&self) -> &str { "workflow_status" }
+    fn name(&self) -> &str {
+        "workflow_status"
+    }
 
     fn description(&self) -> &str {
         "Get detailed status of a workflow template including steps, parameters, and trigger definitions"
@@ -609,15 +629,15 @@ impl crate::Action for WorkflowStatusAction {
     }
 
     async fn execute(&self, input: serde_json::Value) -> aivyx_core::Result<serde_json::Value> {
-        let name = input.get("name")
+        let name = input
+            .get("name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| aivyx_core::AivyxError::Other("missing 'name'".into()))?;
 
         let key = self.ctx.workflow_key()?;
-        let template = load_template(&self.ctx.store, &key, name)?
-            .ok_or_else(|| aivyx_core::AivyxError::Other(
-                format!("workflow template '{name}' not found"),
-            ))?;
+        let template = load_template(&self.ctx.store, &key, name)?.ok_or_else(|| {
+            aivyx_core::AivyxError::Other(format!("workflow template '{name}' not found"))
+        })?;
 
         Ok(serde_json::json!({
             "name": template.name,
@@ -714,7 +734,10 @@ mod tests {
         let result = template.instantiate(&params).unwrap();
         assert_eq!(result.template_name, "expense-report");
         assert_eq!(result.goal, "Process expense report for alice@example.com");
-        assert_eq!(result.steps[0].description, "Fetch email from alice@example.com");
+        assert_eq!(
+            result.steps[0].description,
+            "Fetch email from alice@example.com"
+        );
         assert_eq!(result.steps[2].description, "File receipt to receipts"); // default
         assert!(result.steps[2].requires_approval);
     }
@@ -789,24 +812,42 @@ mod tests {
 
         let all = StepCondition::All {
             conditions: vec![
-                StepCondition::VarEquals { var: "a".into(), value: "1".into() },
-                StepCondition::VarEquals { var: "b".into(), value: "2".into() },
+                StepCondition::VarEquals {
+                    var: "a".into(),
+                    value: "1".into(),
+                },
+                StepCondition::VarEquals {
+                    var: "b".into(),
+                    value: "2".into(),
+                },
             ],
         };
         assert!(all.evaluate(&ctx, true));
 
         let any = StepCondition::Any {
             conditions: vec![
-                StepCondition::VarEquals { var: "a".into(), value: "WRONG".into() },
-                StepCondition::VarEquals { var: "b".into(), value: "2".into() },
+                StepCondition::VarEquals {
+                    var: "a".into(),
+                    value: "WRONG".into(),
+                },
+                StepCondition::VarEquals {
+                    var: "b".into(),
+                    value: "2".into(),
+                },
             ],
         };
         assert!(any.evaluate(&ctx, true));
 
         let all_fail = StepCondition::All {
             conditions: vec![
-                StepCondition::VarEquals { var: "a".into(), value: "1".into() },
-                StepCondition::VarEquals { var: "b".into(), value: "WRONG".into() },
+                StepCondition::VarEquals {
+                    var: "a".into(),
+                    value: "1".into(),
+                },
+                StepCondition::VarEquals {
+                    var: "b".into(),
+                    value: "WRONG".into(),
+                },
             ],
         };
         assert!(!all_fail.evaluate(&ctx, true));
@@ -826,12 +867,16 @@ mod tests {
     #[test]
     fn trigger_variants_serialize() {
         let triggers = vec![
-            WorkflowTrigger::Cron { expression: "0 9 * * *".into() },
+            WorkflowTrigger::Cron {
+                expression: "0 9 * * *".into(),
+            },
             WorkflowTrigger::Email {
                 sender_contains: Some("vendor@".into()),
                 subject_contains: None,
             },
-            WorkflowTrigger::FileChange { path_glob: Some("*.pdf".into()) },
+            WorkflowTrigger::FileChange {
+                path_glob: Some("*.pdf".into()),
+            },
             WorkflowTrigger::GoalProgress {
                 goal_match: "quarterly review".into(),
                 threshold: 0.8,

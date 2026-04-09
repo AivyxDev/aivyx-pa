@@ -51,7 +51,9 @@ pub struct TriageConfig {
     pub categories: Vec<String>,
 }
 
-fn default_max_per_tick() -> usize { 10 }
+fn default_max_per_tick() -> usize {
+    10
+}
 
 impl Default for TriageConfig {
     fn default() -> Self {
@@ -89,11 +91,13 @@ impl AutoReplyRule {
         let from_lower = from.to_lowercase();
         let subject_lower = subject.to_lowercase();
 
-        let sender_match = self.sender_contains
+        let sender_match = self
+            .sender_contains
             .as_ref()
             .is_some_and(|s| from_lower.contains(&s.to_lowercase()));
 
-        let subject_match = self.subject_contains
+        let subject_match = self
+            .subject_contains
             .as_ref()
             .is_some_and(|s| subject_lower.contains(&s.to_lowercase()));
 
@@ -115,19 +119,13 @@ pub enum TriageAction {
         summary: String,
     },
     /// An auto-reply was sent.
-    AutoReplied {
-        rule_name: String,
-    },
+    AutoReplied { rule_name: String },
     /// Email was forwarded to the owner.
-    Forwarded {
-        to: String,
-    },
+    Forwarded { to: String },
     /// Email was ignored (matched ignore list).
     Ignored,
     /// Triage failed for this email.
-    Error {
-        reason: String,
-    },
+    Error { reason: String },
 }
 
 /// Urgency level assigned by LLM classification.
@@ -184,7 +182,8 @@ const TRIAGE_LOG_PREFIX: &str = "triage-log:";
 
 /// Load the last triaged IMAP sequence number.
 pub fn load_cursor(store: &EncryptedStore, key: &MasterKey) -> u32 {
-    store.get(TRIAGE_CURSOR_KEY, key)
+    store
+        .get(TRIAGE_CURSOR_KEY, key)
         .ok()
         .flatten()
         .and_then(|bytes| String::from_utf8(bytes).ok())
@@ -201,11 +200,7 @@ pub fn save_cursor(store: &EncryptedStore, key: &MasterKey, seq: u32) {
 const MAX_TRIAGE_LOG_ENTRIES: usize = 500;
 
 /// Save a triage log entry, pruning old entries if the log exceeds the cap.
-fn save_triage_log(
-    store: &EncryptedStore,
-    key: &MasterKey,
-    result: &TriageResult,
-) {
+fn save_triage_log(store: &EncryptedStore, key: &MasterKey, result: &TriageResult) {
     let log_key = format!("{TRIAGE_LOG_PREFIX}{}", result.seq);
     if let Ok(json) = serde_json::to_vec(result) {
         let _ = store.put(&log_key, &json, key);
@@ -241,11 +236,7 @@ fn prune_triage_log(store: &EncryptedStore, max_entries: usize) {
 }
 
 /// Load recent triage log entries.
-pub fn load_triage_log(
-    store: &EncryptedStore,
-    key: &MasterKey,
-    limit: usize,
-) -> Vec<TriageResult> {
+pub fn load_triage_log(store: &EncryptedStore, key: &MasterKey, limit: usize) -> Vec<TriageResult> {
     let Ok(keys) = store.list_keys() else {
         return vec![];
     };
@@ -254,9 +245,11 @@ pub fn load_triage_log(
         .iter()
         .filter(|k| k.starts_with(TRIAGE_LOG_PREFIX))
         .filter_map(|k| {
-            store.get(k, key).ok().flatten().and_then(|bytes| {
-                serde_json::from_slice(&bytes).ok()
-            })
+            store
+                .get(k, key)
+                .ok()
+                .flatten()
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         })
         .collect();
 
@@ -270,7 +263,9 @@ pub fn load_triage_log(
 /// Check if a sender should be ignored.
 fn should_ignore(from: &str, ignore_senders: &[String]) -> bool {
     let from_lower = from.to_lowercase();
-    ignore_senders.iter().any(|s| from_lower.contains(&s.to_lowercase()))
+    ignore_senders
+        .iter()
+        .any(|s| from_lower.contains(&s.to_lowercase()))
 }
 
 /// Find the first matching auto-reply rule.
@@ -306,8 +301,14 @@ struct ClassificationResponse {
 
 /// Default categories when none are configured.
 const DEFAULT_CATEGORIES: &[&str] = &[
-    "personal", "work", "newsletter", "notification",
-    "billing", "spam", "inquiry", "urgent",
+    "personal",
+    "work",
+    "newsletter",
+    "notification",
+    "billing",
+    "spam",
+    "inquiry",
+    "urgent",
 ];
 
 /// Build the classification prompt for a batch of emails.
@@ -316,7 +317,10 @@ fn build_classification_prompt(
     categories: &[String],
 ) -> String {
     let cats = if categories.is_empty() {
-        DEFAULT_CATEGORIES.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+        DEFAULT_CATEGORIES
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
     } else {
         categories.to_vec()
     };
@@ -338,7 +342,10 @@ fn build_classification_prompt(
     for (seq, from, subject, body) in emails {
         prompt.push_str(&format!(
             "\n[seq={}]\nFrom: {}\nSubject: {}\nPreview: {}\n",
-            seq, from, subject, &body[..body.len().min(500)],
+            seq,
+            from,
+            subject,
+            &body[..body.len().min(500)],
         ));
     }
 
@@ -407,13 +414,15 @@ pub async fn triage_inbox(
             &aivyx_actions::retry::RetryConfig::network(),
             || pool.fetch_inbox(config.max_per_tick, true),
             aivyx_actions::retry::is_transient,
-        ).await
+        )
+        .await
     } else {
         aivyx_actions::retry::retry(
             &aivyx_actions::retry::RetryConfig::network(),
             || aivyx_actions::email::fetch_inbox_internal(email_config, config.max_per_tick, true),
             aivyx_actions::retry::is_transient,
-        ).await
+        )
+        .await
     } {
         Ok(e) => e,
         Err(e) => {
@@ -423,10 +432,7 @@ pub async fn triage_inbox(
     };
 
     // Filter to emails we haven't triaged yet
-    let new_emails: Vec<&EmailSummary> = emails
-        .iter()
-        .filter(|e| e.seq > cursor)
-        .collect();
+    let new_emails: Vec<&EmailSummary> = emails.iter().filter(|e| e.seq > cursor).collect();
 
     if new_emails.is_empty() {
         return summary;
@@ -466,40 +472,43 @@ pub async fn triage_inbox(
 
         // Check auto-reply rules
         if config.can_auto_reply
-            && let Some(rule) = find_auto_reply_rule(&email.from, &email.subject, &config.auto_reply_rules) {
-                // Extract sender's email address for reply
-                if let Some(reply_to) = extract_email_address(&email.from) {
-                    // ── Loop protection checks ──
+            && let Some(rule) =
+                find_auto_reply_rule(&email.from, &email.subject, &config.auto_reply_rules)
+        {
+            // Extract sender's email address for reply
+            if let Some(reply_to) = extract_email_address(&email.from) {
+                // ── Loop protection checks ──
 
-                    // 1. Never reply to our own address
-                    if reply_to.to_lowercase() == own_address {
-                        tracing::debug!("Triage: skipping auto-reply to self ({})", reply_to);
-                        // Fall through to classification
-                    }
-                    // 2. Per-tick cap reached
-                    else if auto_replies_this_tick >= MAX_AUTO_REPLIES_PER_TICK {
-                        tracing::info!(
-                            "Triage: auto-reply cap reached ({MAX_AUTO_REPLIES_PER_TICK}/tick), \
-                             skipping reply to '{}'", email.from,
-                        );
-                        // Fall through to classification
-                    }
-                    // 3. Already replied to this sender this tick
-                    else if replied_senders.contains(&reply_to.to_lowercase()) {
-                        tracing::debug!(
-                            "Triage: already replied to '{}' this tick, skipping duplicate",
-                            reply_to,
-                        );
-                        // Fall through to classification
-                    }
-                    // 4. Deep reply chain (3+ Re: prefixes) suggests a loop
-                    else if count_reply_depth(&email.subject) >= 3 {
-                        tracing::info!(
-                            "Triage: deep reply chain detected in '{}', skipping auto-reply",
-                            email.subject,
-                        );
-                        // Fall through to classification
-                    } else {
+                // 1. Never reply to our own address
+                if reply_to.to_lowercase() == own_address {
+                    tracing::debug!("Triage: skipping auto-reply to self ({})", reply_to);
+                    // Fall through to classification
+                }
+                // 2. Per-tick cap reached
+                else if auto_replies_this_tick >= MAX_AUTO_REPLIES_PER_TICK {
+                    tracing::info!(
+                        "Triage: auto-reply cap reached ({MAX_AUTO_REPLIES_PER_TICK}/tick), \
+                             skipping reply to '{}'",
+                        email.from,
+                    );
+                    // Fall through to classification
+                }
+                // 3. Already replied to this sender this tick
+                else if replied_senders.contains(&reply_to.to_lowercase()) {
+                    tracing::debug!(
+                        "Triage: already replied to '{}' this tick, skipping duplicate",
+                        reply_to,
+                    );
+                    // Fall through to classification
+                }
+                // 4. Deep reply chain (3+ Re: prefixes) suggests a loop
+                else if count_reply_depth(&email.subject) >= 3 {
+                    tracing::info!(
+                        "Triage: deep reply chain detected in '{}', skipping auto-reply",
+                        email.subject,
+                    );
+                    // Fall through to classification
+                } else {
                     // ── Safe to auto-reply ──
 
                     let subject = if email.subject.starts_with("Re:") {
@@ -514,13 +523,17 @@ pub async fn triage_inbox(
                         &subject,
                         &rule.reply_body,
                         email.message_id.as_deref(),
-                    ).await {
+                    )
+                    .await
+                    {
                         Ok(()) => {
                             let result = TriageResult {
                                 seq: email.seq,
                                 from: email.from.clone(),
                                 subject: email.subject.clone(),
-                                action: TriageAction::AutoReplied { rule_name: rule.name.clone() },
+                                action: TriageAction::AutoReplied {
+                                    rule_name: rule.name.clone(),
+                                },
                                 timestamp: Utc::now(),
                             };
                             save_triage_log(store, key, &result);
@@ -528,7 +541,11 @@ pub async fn triage_inbox(
                             summary.processed += 1;
                             auto_replies_this_tick += 1;
                             replied_senders.insert(reply_to.to_lowercase());
-                            tracing::info!("Triage: auto-replied to '{}' (rule: {})", email.from, rule.name);
+                            tracing::info!(
+                                "Triage: auto-replied to '{}' (rule: {})",
+                                email.from,
+                                rule.name
+                            );
                             continue;
                         }
                         Err(e) => {
@@ -536,12 +553,17 @@ pub async fn triage_inbox(
                             // Fall through to classification
                         }
                     }
-                    } // end else (safe to auto-reply)
-                }
+                } // end else (safe to auto-reply)
             }
+        }
 
         // Queue for LLM classification
-        to_classify.push((email.seq, email.from.clone(), email.subject.clone(), email.preview.clone()));
+        to_classify.push((
+            email.seq,
+            email.from.clone(),
+            email.subject.clone(),
+            email.preview.clone(),
+        ));
     }
 
     // LLM classification for remaining emails
@@ -553,7 +575,9 @@ pub async fn triage_inbox(
 
         let prompt = build_classification_prompt(&refs, &config.categories);
         let request = ChatRequest {
-            system_prompt: Some("You are an email triage assistant. Be concise and accurate.".into()),
+            system_prompt: Some(
+                "You are an email triage assistant. Be concise and accurate.".into(),
+            ),
             messages: vec![ChatMessage::user(prompt)],
             tools: vec![],
             model: None,
@@ -563,14 +587,14 @@ pub async fn triage_inbox(
         match aivyx_actions::retry::retry(
             &aivyx_actions::retry::RetryConfig::llm(),
             || async {
-                tokio::time::timeout(
-                    std::time::Duration::from_secs(60),
-                    provider.chat(&request),
-                ).await
-                .map_err(|_| aivyx_core::AivyxError::LlmProvider("triage timeout".into()))?
+                tokio::time::timeout(std::time::Duration::from_secs(60), provider.chat(&request))
+                    .await
+                    .map_err(|_| aivyx_core::AivyxError::LlmProvider("triage timeout".into()))?
             },
             aivyx_actions::retry::is_transient,
-        ).await {
+        )
+        .await
+        {
             Ok(response) => {
                 let text = response.message.content.to_text();
                 let classifications = parse_classification_response(&text);
@@ -580,44 +604,53 @@ pub async fn triage_inbox(
                     to_classify.iter().map(|item| (item.0, item)).collect();
 
                 for (seq, classification) in &classifications {
-                    let (_, from, subject, _) = classify_map.get(seq)
+                    let (_, from, subject, _) = classify_map
+                        .get(seq)
                         .map(|item| (item.0, item.1.as_str(), item.2.as_str(), item.3.as_str()))
                         .unwrap_or((0, "unknown", "unknown", ""));
 
                     let urgency = parse_urgency(&classification.urgency);
 
                     // Forward if LLM recommends and forwarding is permitted
-                    if classification.should_forward && config.can_forward
-                        && let Some(ref fwd_to) = config.forward_to {
-                            let fwd_subject = format!("[FWD by Agent] {}", subject);
-                            let fwd_body = format!(
-                                "Forwarded by your AI assistant.\n\n\
+                    if classification.should_forward
+                        && config.can_forward
+                        && let Some(ref fwd_to) = config.forward_to
+                    {
+                        let fwd_subject = format!("[FWD by Agent] {}", subject);
+                        let fwd_body = format!(
+                            "Forwarded by your AI assistant.\n\n\
                                  Original from: {}\n\
                                  Category: {} | Urgency: {}\n\
                                  Summary: {}\n\n\
                                  ---\n\
                                  (Original preview: see inbox seq={})",
-                                from, classification.category, urgency, classification.summary, seq,
-                            );
+                            from, classification.category, urgency, classification.summary, seq,
+                        );
 
-                            if let Err(e) = aivyx_actions::email::send_reply(
-                                email_config, fwd_to, &fwd_subject, &fwd_body, None,
-                            ).await {
-                                tracing::warn!("Triage: forward failed for seq={seq}: {e}");
-                            } else {
-                                let result = TriageResult {
-                                    seq: *seq,
-                                    from: from.to_string(),
-                                    subject: subject.to_string(),
-                                    action: TriageAction::Forwarded { to: fwd_to.clone() },
-                                    timestamp: Utc::now(),
-                                };
-                                save_triage_log(store, key, &result);
-                                summary.forwarded += 1;
-                                summary.processed += 1;
-                                continue;
-                            }
+                        if let Err(e) = aivyx_actions::email::send_reply(
+                            email_config,
+                            fwd_to,
+                            &fwd_subject,
+                            &fwd_body,
+                            None,
+                        )
+                        .await
+                        {
+                            tracing::warn!("Triage: forward failed for seq={seq}: {e}");
+                        } else {
+                            let result = TriageResult {
+                                seq: *seq,
+                                from: from.to_string(),
+                                subject: subject.to_string(),
+                                action: TriageAction::Forwarded { to: fwd_to.clone() },
+                                timestamp: Utc::now(),
+                            };
+                            save_triage_log(store, key, &result);
+                            summary.forwarded += 1;
+                            summary.processed += 1;
+                            continue;
                         }
+                    }
 
                     // Store classification
                     let result = TriageResult {
@@ -643,7 +676,9 @@ pub async fn triage_inbox(
                             seq: item.0,
                             from: item.1.clone(),
                             subject: item.2.clone(),
-                            action: TriageAction::Error { reason: "LLM did not classify this email".into() },
+                            action: TriageAction::Error {
+                                reason: "LLM did not classify this email".into(),
+                            },
                             timestamp: Utc::now(),
                         };
                         save_triage_log(store, key, &result);
@@ -659,7 +694,9 @@ pub async fn triage_inbox(
                         seq: item.0,
                         from: item.1.clone(),
                         subject: item.2.clone(),
-                        action: TriageAction::Error { reason: format!("LLM error: {e}") },
+                        action: TriageAction::Error {
+                            reason: format!("LLM error: {e}"),
+                        },
                         timestamp: Utc::now(),
                     };
                     save_triage_log(store, key, &result);
@@ -675,9 +712,14 @@ pub async fn triage_inbox(
         save_cursor(store, key, highest_seq);
         tracing::info!(
             "Triage: cursor advanced {} → {} ({} processed: {} classified, {} auto-replied, {} forwarded, {} ignored, {} errors)",
-            cursor, highest_seq,
-            summary.processed, summary.classified, summary.auto_replied,
-            summary.forwarded, summary.ignored, summary.errors,
+            cursor,
+            highest_seq,
+            summary.processed,
+            summary.classified,
+            summary.auto_replied,
+            summary.forwarded,
+            summary.ignored,
+            summary.errors,
         );
     }
 
@@ -687,9 +729,10 @@ pub async fn triage_inbox(
 /// Extract a bare email address from a "Name <addr>" or "addr" string.
 fn extract_email_address(from: &str) -> Option<String> {
     if let Some(start) = from.find('<')
-        && let Some(end) = from.find('>') {
-            return Some(from[start + 1..end].to_string());
-        }
+        && let Some(end) = from.find('>')
+    {
+        return Some(from[start + 1..end].to_string());
+    }
     // Bare address
     if from.contains('@') {
         Some(from.trim().to_string())
@@ -752,7 +795,10 @@ mod tests {
 
     #[test]
     fn ignore_senders_case_insensitive() {
-        assert!(should_ignore("Newsletter <news@SPAM.com>", &["spam.com".into()]));
+        assert!(should_ignore(
+            "Newsletter <news@SPAM.com>",
+            &["spam.com".into()]
+        ));
         assert!(!should_ignore("alice@work.com", &["spam.com".into()]));
     }
 

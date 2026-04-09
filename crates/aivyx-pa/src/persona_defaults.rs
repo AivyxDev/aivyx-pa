@@ -760,18 +760,21 @@ mod tests {
     use super::*;
 
     const ALL_PERSONAS: &[&str] = &[
-        "assistant", "coder", "researcher", "writer",
-        "coach", "companion", "ops", "analyst",
+        "assistant",
+        "coder",
+        "researcher",
+        "writer",
+        "coach",
+        "companion",
+        "ops",
+        "analyst",
     ];
 
     #[test]
     fn all_personas_have_skills() {
         for name in ALL_PERSONAS {
             let bundle = for_persona(name);
-            assert!(
-                !bundle.skills.is_empty(),
-                "persona '{name}' has no skills",
-            );
+            assert!(!bundle.skills.is_empty(), "persona '{name}' has no skills",);
         }
     }
 
@@ -779,10 +782,7 @@ mod tests {
     fn all_personas_have_goals() {
         for name in ALL_PERSONAS {
             let bundle = for_persona(name);
-            assert!(
-                !bundle.goals.is_empty(),
-                "persona '{name}' has no goals",
-            );
+            assert!(!bundle.goals.is_empty(), "persona '{name}' has no goals",);
             for goal in bundle.goals {
                 assert!(!goal.description.is_empty());
                 assert!(!goal.success_criteria.is_empty());
@@ -811,7 +811,8 @@ mod tests {
                 assert!(
                     parts.len() == 5,
                     "persona '{name}' schedule '{}' has invalid cron: {}",
-                    sched.name, sched.cron,
+                    sched.name,
+                    sched.cron,
                 );
             }
         }
@@ -867,58 +868,110 @@ mod tests {
         // If a persona references a tool not in this list, it's likely a stale rename.
         const VALID_TOOLS: &[&str] = &[
             // Brain
-            "brain_set_goal", "brain_list_goals", "brain_update_goal",
-            "brain_reflect", "brain_update_self_model",
+            "brain_set_goal",
+            "brain_list_goals",
+            "brain_update_goal",
+            "brain_reflect",
+            "brain_update_self_model",
             // Memory
-            "memory_store", "memory_retrieve", "memory_search",
-            "memory_forget", "memory_patterns", "memory_triple",
+            "memory_store",
+            "memory_retrieve",
+            "memory_search",
+            "memory_forget",
+            "memory_patterns",
+            "memory_triple",
             // Reminders
-            "set_reminder", "list_reminders", "dismiss_reminder",
+            "set_reminder",
+            "list_reminders",
+            "dismiss_reminder",
             // Web
-            "search_web", "fetch_webpage",
+            "search_web",
+            "fetch_webpage",
             // Files
-            "read_file", "write_file", "list_directory",
+            "read_file",
+            "write_file",
+            "list_directory",
             // Shell
             "run_command",
             // Dev tools
-            "git_status", "git_log", "git_diff", "git_branches",
-            "ci_status", "ci_logs",
-            "list_issues", "get_issue", "create_issue",
-            "list_prs", "get_pr_diff", "create_pr_comment",
+            "git_status",
+            "git_log",
+            "git_diff",
+            "git_branches",
+            "ci_status",
+            "ci_logs",
+            "list_issues",
+            "get_issue",
+            "create_issue",
+            "list_prs",
+            "get_pr_diff",
+            "create_pr_comment",
             // Email
-            "read_email", "fetch_email", "send_email",
+            "read_email",
+            "fetch_email",
+            "send_email",
             // Calendar
-            "today_agenda", "fetch_calendar_events", "check_calendar_conflicts",
+            "today_agenda",
+            "fetch_calendar_events",
+            "check_calendar_conflicts",
             // Contacts
-            "search_contacts", "list_contacts", "sync_contacts",
+            "search_contacts",
+            "list_contacts",
+            "sync_contacts",
             // Documents
-            "search_documents", "read_document", "list_vault_documents", "index_vault",
+            "search_documents",
+            "read_document",
+            "list_vault_documents",
+            "index_vault",
             // Finance
-            "add_transaction", "list_transactions", "budget_summary",
-            "set_budget", "mark_bill_paid", "file_receipt",
+            "add_transaction",
+            "list_transactions",
+            "budget_summary",
+            "set_budget",
+            "mark_bill_paid",
+            "file_receipt",
             // Knowledge
-            "traverse_knowledge", "find_knowledge_paths",
-            "search_knowledge", "knowledge_graph_stats",
+            "traverse_knowledge",
+            "find_knowledge_paths",
+            "search_knowledge",
+            "knowledge_graph_stats",
             // Missions
-            "mission_create", "mission_list", "mission_status", "mission_control",
+            "mission_create",
+            "mission_list",
+            "mission_status",
+            "mission_control",
             "mission_from_recipe",
             // Delegation
             "team_delegate",
             // Messaging
-            "send_telegram", "read_telegram",
-            "send_matrix", "read_matrix",
-            "send_signal", "read_signal",
+            "send_telegram",
+            "read_telegram",
+            "send_matrix",
+            "read_matrix",
+            "send_signal",
+            "read_signal",
             "send_sms",
             // Plugins
-            "list_plugins", "install_plugin", "search_plugins",
+            "list_plugins",
+            "install_plugin",
+            "search_plugins",
             // Schedules
-            "schedule_create", "schedule_edit", "schedule_delete",
+            "schedule_create",
+            "schedule_edit",
+            "schedule_delete",
             // Workflows
-            "create_workflow", "list_workflows", "run_workflow",
-            "workflow_status", "delete_workflow",
+            "create_workflow",
+            "list_workflows",
+            "run_workflow",
+            "workflow_status",
+            "delete_workflow",
             // Desktop
-            "open_application", "clipboard_read", "clipboard_write",
-            "ui_inspect", "ui_click", "ui_type_text",
+            "open_application",
+            "clipboard_read",
+            "clipboard_write",
+            "ui_inspect",
+            "ui_click",
+            "ui_type_text",
         ];
 
         for name in ALL_PERSONAS {

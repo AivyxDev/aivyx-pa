@@ -83,7 +83,9 @@ pub async fn spawn_webhook_server(
     master_key: &MasterKey,
     notify_tx: mpsc::Sender<Notification>,
 ) -> anyhow::Result<tokio::task::JoinHandle<()>> {
-    let key_bytes: [u8; 32] = master_key.expose_secret().try_into()
+    let key_bytes: [u8; 32] = master_key
+        .expose_secret()
+        .try_into()
         .expect("master key must be 32 bytes");
 
     let state = WebhookState {
@@ -212,13 +214,12 @@ fn verify_hmac_signature(
         })?;
 
     // Compute HMAC-SHA256.
-    let mut mac = Hmac::<Sha256>::new_from_slice(&secret_bytes)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Invalid HMAC key: {e}"),
-            )
-        })?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(&secret_bytes).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Invalid HMAC key: {e}"),
+        )
+    })?;
     mac.update(body);
 
     // Parse expected signature: "sha256=hex_digest"
@@ -229,12 +230,8 @@ fn verify_hmac_signature(
         )
     })?;
 
-    let expected_bytes = decode_hex(hex_digest).map_err(|_| {
-        (
-            StatusCode::UNAUTHORIZED,
-            "Invalid hex in signature".into(),
-        )
-    })?;
+    let expected_bytes = decode_hex(hex_digest)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid hex in signature".into()))?;
 
     mac.verify_slice(&expected_bytes).map_err(|_| {
         (
@@ -255,7 +252,7 @@ fn find_webhook_secret(
     key: &MasterKey,
     webhook_name: &str,
 ) -> Option<String> {
-    use aivyx_actions::workflow::{list_templates, load_template, WorkflowTrigger};
+    use aivyx_actions::workflow::{WorkflowTrigger, list_templates, load_template};
 
     let names = list_templates(store).ok()?;
     for name in &names {

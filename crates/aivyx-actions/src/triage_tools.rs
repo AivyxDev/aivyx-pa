@@ -21,7 +21,9 @@ pub struct ListTriageLog {
 
 #[async_trait::async_trait]
 impl Action for ListTriageLog {
-    fn name(&self) -> &str { "list_triage_log" }
+    fn name(&self) -> &str {
+        "list_triage_log"
+    }
 
     fn description(&self) -> &str {
         "Show recent email triage activity — what the agent did autonomously with incoming emails."
@@ -48,9 +50,11 @@ impl Action for ListTriageLog {
             .iter()
             .filter(|k| k.starts_with(TRIAGE_LOG_PREFIX))
             .filter_map(|k| {
-                self.store.get(k, &self.key).ok().flatten().and_then(|bytes| {
-                    serde_json::from_slice(&bytes).ok()
-                })
+                self.store
+                    .get(k, &self.key)
+                    .ok()
+                    .flatten()
+                    .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             })
             .collect();
 
@@ -90,7 +94,9 @@ pub struct SetTriageRule {
 
 #[async_trait::async_trait]
 impl Action for SetTriageRule {
-    fn name(&self) -> &str { "set_triage_rule" }
+    fn name(&self) -> &str {
+        "set_triage_rule"
+    }
 
     fn description(&self) -> &str {
         "Add or update an auto-reply triage rule. Rules are matched on sender or subject."
@@ -111,8 +117,14 @@ impl Action for SetTriageRule {
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         let name = input["name"].as_str().unwrap_or("").to_string();
-        let sender_contains = input.get("sender_contains").and_then(|v| v.as_str()).map(String::from);
-        let subject_contains = input.get("subject_contains").and_then(|v| v.as_str()).map(String::from);
+        let sender_contains = input
+            .get("sender_contains")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let subject_contains = input
+            .get("subject_contains")
+            .and_then(|v| v.as_str())
+            .map(String::from);
         let reply_body = input["reply_body"].as_str().unwrap_or("").to_string();
 
         if name.is_empty() || reply_body.is_empty() {
@@ -128,7 +140,8 @@ impl Action for SetTriageRule {
         }
 
         // Load existing rules
-        let mut rules: Vec<StoredRule> = self.store
+        let mut rules: Vec<StoredRule> = self
+            .store
             .get(TRIAGE_RULES_KEY, &self.key)
             .ok()
             .flatten()
@@ -150,8 +163,7 @@ impl Action for SetTriageRule {
         }
 
         // Save
-        let json = serde_json::to_vec(&rules)
-            .map_err(aivyx_core::AivyxError::Serialization)?;
+        let json = serde_json::to_vec(&rules).map_err(aivyx_core::AivyxError::Serialization)?;
         self.store.put(TRIAGE_RULES_KEY, &json, &self.key)?;
 
         Ok(serde_json::json!({
@@ -166,11 +178,9 @@ impl Action for SetTriageRule {
 ///
 /// These are merged with config-file rules at runtime. Config rules
 /// take precedence (matched first); stored rules are appended.
-pub fn load_custom_rules(
-    store: &EncryptedStore,
-    key: &MasterKey,
-) -> Vec<StoredRule> {
-    store.get(TRIAGE_RULES_KEY, key)
+pub fn load_custom_rules(store: &EncryptedStore, key: &MasterKey) -> Vec<StoredRule> {
+    store
+        .get(TRIAGE_RULES_KEY, key)
         .ok()
         .flatten()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())

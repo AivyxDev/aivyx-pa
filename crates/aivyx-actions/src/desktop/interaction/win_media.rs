@@ -32,7 +32,8 @@ pub async fn list_sessions() -> Result<Vec<MediaSession>> {
             .get()
             .map_err(|e| AivyxError::Other(format!("SMTC get manager: {e}")))?;
 
-        let sessions = manager.GetSessions()
+        let sessions = manager
+            .GetSessions()
             .map_err(|e| AivyxError::Other(format!("SMTC GetSessions: {e}")))?;
 
         let mut results = Vec::new();
@@ -42,11 +43,13 @@ pub async fn list_sessions() -> Result<Vec<MediaSession>> {
                 Err(_) => continue,
             };
 
-            let source_id = session.SourceAppUserModelId()
+            let source_id = session
+                .SourceAppUserModelId()
                 .map(|s| s.to_string())
                 .unwrap_or_else(|_| "unknown".into());
 
-            let info = session.TryGetMediaPropertiesAsync()
+            let info = session
+                .TryGetMediaPropertiesAsync()
                 .ok()
                 .and_then(|a| a.get().ok());
 
@@ -77,7 +80,9 @@ pub async fn list_sessions() -> Result<Vec<MediaSession>> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        Err(AivyxError::Other("win_media: only available on Windows".into()))
+        Err(AivyxError::Other(
+            "win_media: only available on Windows".into(),
+        ))
     }
 }
 
@@ -96,16 +101,19 @@ pub async fn control(session_name: &str, action: &str) -> Result<serde_json::Val
             .map_err(|e| AivyxError::Other(format!("SMTC get manager: {e}")))?;
 
         let session = if session_name == "current" || session_name.is_empty() {
-            manager.GetCurrentSession()
+            manager
+                .GetCurrentSession()
                 .map_err(|e| AivyxError::Other(format!("SMTC: no active session: {e}")))?
         } else {
             // Find session by name.
-            let sessions = manager.GetSessions()
+            let sessions = manager
+                .GetSessions()
                 .map_err(|e| AivyxError::Other(format!("SMTC GetSessions: {e}")))?;
             let mut found = None;
             for i in 0..sessions.Size().unwrap_or(0) {
                 if let Ok(s) = sessions.GetAt(i) {
-                    let id = s.SourceAppUserModelId()
+                    let id = s
+                        .SourceAppUserModelId()
                         .map(|s| s.to_string())
                         .unwrap_or_default();
                     if id.to_lowercase().contains(&session_name.to_lowercase()) {
@@ -114,44 +122,50 @@ pub async fn control(session_name: &str, action: &str) -> Result<serde_json::Val
                     }
                 }
             }
-            found.ok_or_else(|| AivyxError::Other(format!(
-                "SMTC: session '{session_name}' not found"
-            )))?
+            found.ok_or_else(|| {
+                AivyxError::Other(format!("SMTC: session '{session_name}' not found"))
+            })?
         };
 
         match action {
             "play" => {
-                session.TryPlayAsync()
+                session
+                    .TryPlayAsync()
                     .map_err(|e| AivyxError::Other(format!("TryPlayAsync: {e}")))?
                     .get()
                     .map_err(|e| AivyxError::Other(format!("play: {e}")))?;
             }
             "pause" => {
-                session.TryPauseAsync()
+                session
+                    .TryPauseAsync()
                     .map_err(|e| AivyxError::Other(format!("TryPauseAsync: {e}")))?
                     .get()
                     .map_err(|e| AivyxError::Other(format!("pause: {e}")))?;
             }
             "toggle" => {
-                session.TryTogglePlayPauseAsync()
+                session
+                    .TryTogglePlayPauseAsync()
                     .map_err(|e| AivyxError::Other(format!("TryTogglePlayPauseAsync: {e}")))?
                     .get()
                     .map_err(|e| AivyxError::Other(format!("toggle: {e}")))?;
             }
             "next" => {
-                session.TrySkipNextAsync()
+                session
+                    .TrySkipNextAsync()
                     .map_err(|e| AivyxError::Other(format!("TrySkipNextAsync: {e}")))?
                     .get()
                     .map_err(|e| AivyxError::Other(format!("next: {e}")))?;
             }
             "previous" => {
-                session.TrySkipPreviousAsync()
+                session
+                    .TrySkipPreviousAsync()
                     .map_err(|e| AivyxError::Other(format!("TrySkipPreviousAsync: {e}")))?
                     .get()
                     .map_err(|e| AivyxError::Other(format!("previous: {e}")))?;
             }
             "stop" => {
-                session.TryStopAsync()
+                session
+                    .TryStopAsync()
                     .map_err(|e| AivyxError::Other(format!("TryStopAsync: {e}")))?
                     .get()
                     .map_err(|e| AivyxError::Other(format!("stop: {e}")))?;
@@ -164,14 +178,17 @@ pub async fn control(session_name: &str, action: &str) -> Result<serde_json::Val
         }
 
         // Return current state after the action.
-        let info = session.TryGetMediaPropertiesAsync()
+        let info = session
+            .TryGetMediaPropertiesAsync()
             .ok()
             .and_then(|a| a.get().ok());
 
-        let title = info.as_ref()
+        let title = info
+            .as_ref()
             .and_then(|p| p.Title().ok())
             .map(|s| s.to_string());
-        let artist = info.as_ref()
+        let artist = info
+            .as_ref()
             .and_then(|p| p.Artist().ok())
             .map(|s| s.to_string());
 
@@ -184,7 +201,9 @@ pub async fn control(session_name: &str, action: &str) -> Result<serde_json::Val
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (session_name, action);
-        Err(AivyxError::Other("win_media: only available on Windows".into()))
+        Err(AivyxError::Other(
+            "win_media: only available on Windows".into(),
+        ))
     }
 }
 
@@ -199,7 +218,9 @@ pub async fn media_info() -> Result<serde_json::Value> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        Err(AivyxError::Other("win_media: only available on Windows".into()))
+        Err(AivyxError::Other(
+            "win_media: only available on Windows".into(),
+        ))
     }
 }
 

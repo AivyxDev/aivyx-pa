@@ -5,9 +5,7 @@
 //! loads all templates, checks each trigger against the current state,
 //! and emits notifications to create missions when triggers fire.
 
-use aivyx_actions::workflow::{
-    WorkflowTemplate, WorkflowTrigger, list_templates, load_template,
-};
+use aivyx_actions::workflow::{WorkflowTemplate, WorkflowTrigger, list_templates, load_template};
 use aivyx_crypto::{EncryptedStore, MasterKey};
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
@@ -50,11 +48,16 @@ impl TriggerState {
     }
 
     /// Check if a trigger has fired recently (within cooldown period).
-    fn recently_fired(&self, template_name: &str, trigger_index: usize, cooldown_secs: i64) -> bool {
+    fn recently_fired(
+        &self,
+        template_name: &str,
+        trigger_index: usize,
+        cooldown_secs: i64,
+    ) -> bool {
         let key = Self::trigger_key(template_name, trigger_index);
-        self.last_fired.get(&key).is_some_and(|last| {
-            (Utc::now() - *last).num_seconds() < cooldown_secs
-        })
+        self.last_fired
+            .get(&key)
+            .is_some_and(|last| (Utc::now() - *last).num_seconds() < cooldown_secs)
     }
 
     /// Record that a trigger fired.
@@ -164,12 +167,14 @@ fn evaluate_single_trigger(
         WorkflowTrigger::Cron { expression } => {
             evaluate_cron_trigger(template, expression, ctx.last_tick_at)
         }
-        WorkflowTrigger::Email { sender_contains, subject_contains } => {
-            evaluate_email_trigger(template, sender_contains, subject_contains, ctx)
-        }
-        WorkflowTrigger::GoalProgress { goal_match, threshold } => {
-            evaluate_goal_trigger(template, goal_match, *threshold, ctx)
-        }
+        WorkflowTrigger::Email {
+            sender_contains,
+            subject_contains,
+        } => evaluate_email_trigger(template, sender_contains, subject_contains, ctx),
+        WorkflowTrigger::GoalProgress {
+            goal_match,
+            threshold,
+        } => evaluate_goal_trigger(template, goal_match, *threshold, ctx),
         WorkflowTrigger::FileChange { path_glob } => {
             // File change detection requires an OS-level watcher (e.g. `notify` crate)
             // running in the background. This is deferred to a future release.
@@ -199,7 +204,8 @@ fn evaluate_cron_trigger(
         Err(e) => {
             tracing::warn!(
                 "Invalid cron '{}' on template '{}': {e}",
-                expression, template.name
+                expression,
+                template.name
             );
             return None;
         }
@@ -208,7 +214,10 @@ fn evaluate_cron_trigger(
     // Use the last tick time as baseline so we don't miss cron triggers
     // when the loop interval is longer than 61 seconds.
     let from = last_tick_at.unwrap_or_else(|| Utc::now() - chrono::Duration::seconds(61));
-    if cron.find_next_occurrence(&from, false).is_ok_and(|next| next <= Utc::now()) {
+    if cron
+        .find_next_occurrence(&from, false)
+        .is_ok_and(|next| next <= Utc::now())
+    {
         Some(FiredTrigger {
             template_name: template.name.clone(),
             params: HashMap::new(),
@@ -315,32 +324,18 @@ mod tests {
         };
 
         // Match by sender
-        let result = evaluate_email_trigger(
-            &template,
-            &Some("vendor.com".into()),
-            &None,
-            &ctx,
-        );
+        let result = evaluate_email_trigger(&template, &Some("vendor.com".into()), &None, &ctx);
         assert!(result.is_some());
         let fired = result.unwrap();
         assert_eq!(fired.params["trigger_sender"], "billing@vendor.com");
 
         // Match by subject
-        let result = evaluate_email_trigger(
-            &template,
-            &None,
-            &Some("Invoice".into()),
-            &ctx,
-        );
+        let result = evaluate_email_trigger(&template, &None, &Some("Invoice".into()), &ctx);
         assert!(result.is_some());
 
         // No match
-        let result = evaluate_email_trigger(
-            &template,
-            &Some("noreply@other.com".into()),
-            &None,
-            &ctx,
-        );
+        let result =
+            evaluate_email_trigger(&template, &Some("noreply@other.com".into()), &None, &ctx);
         assert!(result.is_none());
     }
 
@@ -384,7 +379,9 @@ mod tests {
         let mut state = TriggerState::default();
         // Insert an entry 2 hours ago
         let key = TriggerState::trigger_key("old-template", 0);
-        state.last_fired.insert(key.clone(), Utc::now() - chrono::Duration::hours(2));
+        state
+            .last_fired
+            .insert(key.clone(), Utc::now() - chrono::Duration::hours(2));
         // Insert a recent entry
         state.mark_fired("recent-template", 0);
 
@@ -394,7 +391,11 @@ mod tests {
         state.prune(3600);
         assert_eq!(state.last_fired.len(), 1);
         assert!(!state.last_fired.contains_key(&key));
-        assert!(state.last_fired.contains_key(&TriggerState::trigger_key("recent-template", 0)));
+        assert!(
+            state
+                .last_fired
+                .contains_key(&TriggerState::trigger_key("recent-template", 0))
+        );
     }
 
     #[test]
@@ -409,30 +410,18 @@ mod tests {
             updated_at: Utc::now(),
         };
 
-        let emails = vec![
-            ("Billing@VENDOR.COM".into(), "INVOICE #1234".into()),
-        ];
+        let emails = vec![("Billing@VENDOR.COM".into(), "INVOICE #1234".into())];
         let ctx = TriggerContext {
             recent_emails: &emails,
             ..Default::default()
         };
 
         // Lowercase pattern should match uppercase sender
-        let result = evaluate_email_trigger(
-            &template,
-            &Some("vendor.com".into()),
-            &None,
-            &ctx,
-        );
+        let result = evaluate_email_trigger(&template, &Some("vendor.com".into()), &None, &ctx);
         assert!(result.is_some());
 
         // Lowercase pattern should match uppercase subject
-        let result = evaluate_email_trigger(
-            &template,
-            &None,
-            &Some("invoice".into()),
-            &ctx,
-        );
+        let result = evaluate_email_trigger(&template, &None, &Some("invoice".into()), &ctx);
         assert!(result.is_some());
 
         // Mixed case pattern should still match

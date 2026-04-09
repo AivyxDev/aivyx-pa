@@ -6,6 +6,8 @@
 
 use std::sync::Arc;
 
+use crate::agent::BuiltAgent;
+use crate::config::PaConfig;
 use aivyx_actions::email::EmailConfig;
 use aivyx_audit::AuditLog;
 use aivyx_config::{AivyxDirs, ScheduleEntry};
@@ -13,8 +15,6 @@ use aivyx_core::ToolRegistry;
 use aivyx_crypto::MasterKey;
 use aivyx_llm::LlmProvider;
 use aivyx_loop::LoopContext;
-use crate::agent::BuiltAgent;
-use crate::config::PaConfig;
 
 // ── Derived Keys ───────────────────────────────────────────────
 
@@ -137,10 +137,7 @@ pub struct LoopInputs {
 /// `ServiceConfigs`; in API mode they can be re-resolved from `PaConfig`.
 impl LoopInputs {
     /// Build from already-resolved service configs (used by TUI path).
-    pub fn from_services(
-        services: &crate::agent::ServiceConfigs,
-        pa_config: &PaConfig,
-    ) -> Self {
+    pub fn from_services(services: &crate::agent::ServiceConfigs, pa_config: &PaConfig) -> Self {
         Self {
             email_config: services.email.clone(),
             calendar_config: services.calendar.clone(),
@@ -177,15 +174,15 @@ pub fn build_schedule_tools(
         inputs.signal_config.clone(),
     );
     if let Some(ref cc) = inputs.calendar_config {
-        tools.register(Box::new(aivyx_actions::bridge::ActionTool::new(
-            Box::new(aivyx_actions::calendar::TodayAgenda { config: cc.clone() }),
-        )));
-        tools.register(Box::new(aivyx_actions::bridge::ActionTool::new(
-            Box::new(aivyx_actions::calendar::FetchCalendarEvents { config: cc.clone() }),
-        )));
-        tools.register(Box::new(aivyx_actions::bridge::ActionTool::new(
-            Box::new(aivyx_actions::calendar::CheckConflicts { config: cc.clone() }),
-        )));
+        tools.register(Box::new(aivyx_actions::bridge::ActionTool::new(Box::new(
+            aivyx_actions::calendar::TodayAgenda { config: cc.clone() },
+        ))));
+        tools.register(Box::new(aivyx_actions::bridge::ActionTool::new(Box::new(
+            aivyx_actions::calendar::FetchCalendarEvents { config: cc.clone() },
+        ))));
+        tools.register(Box::new(aivyx_actions::bridge::ActionTool::new(Box::new(
+            aivyx_actions::calendar::CheckConflicts { config: cc.clone() },
+        ))));
     }
     tools
 }
@@ -241,7 +238,9 @@ pub fn build_loop_context(
             Some(aivyx_loop::VaultCtx { config, key })
         }),
         finance: if inputs.finance_enabled {
-            keys.loop_finance_key.take().map(|key| aivyx_loop::FinanceCtx { key })
+            keys.loop_finance_key
+                .take()
+                .map(|key| aivyx_loop::FinanceCtx { key })
         } else {
             None
         },
@@ -261,18 +260,25 @@ pub fn build_loop_context(
         imap_pool: built.imap_pool.clone(),
         audit_log: Some(AuditLog::new(dirs.audit_path(), &keys.loop_audit_key)),
         mcp_pool: built.mcp_pool.clone(),
-        consolidation_config: pa_config.consolidation.as_ref()
+        consolidation_config: pa_config
+            .consolidation
+            .as_ref()
             .map(|c| c.to_consolidation_config()),
         backup_destination: pa_config.backup.as_ref().and_then(|b| {
             if b.enabled {
-                Some(b.destination.as_deref()
-                    .map(std::path::PathBuf::from)
-                    .unwrap_or_else(|| dirs.root().join("backups")))
+                Some(
+                    b.destination
+                        .as_deref()
+                        .map(std::path::PathBuf::from)
+                        .unwrap_or_else(|| dirs.root().join("backups")),
+                )
             } else {
                 None
             }
         }),
-        backup_retention_days: pa_config.backup.as_ref()
+        backup_retention_days: pa_config
+            .backup
+            .as_ref()
             .map(|b| b.retention_days)
             .unwrap_or(30),
         data_dir: Some(dirs.root().to_path_buf()),
@@ -288,9 +294,8 @@ pub fn build_loop_context(
         heartbeat_consecutive_failures: 0,
         tick_email_cache: None,
         tick_calendar_cache: None,
-        dispatch_config: pa_config.notifications
-            .as_ref()
-            .map(|n| aivyx_loop::NotificationDispatchConfig {
+        dispatch_config: pa_config.notifications.as_ref().map(|n| {
+            aivyx_loop::NotificationDispatchConfig {
                 desktop: n.desktop,
                 urgency_level: n.urgency_level.clone(),
                 telegram: n.telegram,
@@ -298,7 +303,8 @@ pub fn build_loop_context(
                 quiet_hours_start: n.quiet_hours_start,
                 quiet_hours_end: n.quiet_hours_end,
                 min_kind: n.min_kind.clone(),
-            }),
+            }
+        }),
         // Injected by AgentLoop::start() — starts as None here.
         approval_rx: None,
         pending_approval_responses: Vec::new(),
@@ -323,7 +329,11 @@ pub fn build_loop_config(pa_config: &PaConfig) -> aivyx_loop::LoopConfig {
             can_extract_knowledge: pa_hb.can_extract_knowledge,
             can_prune_audit: pa_hb.can_prune_audit,
             audit_retention_days: pa_hb.audit_retention_days,
-            can_backup: pa_config.backup.as_ref().map(|b| b.enabled).unwrap_or(false),
+            can_backup: pa_config
+                .backup
+                .as_ref()
+                .map(|b| b.enabled)
+                .unwrap_or(false),
             can_plan_review: pa_hb.can_plan_review,
             can_strategy_review: pa_hb.can_strategy_review,
             can_track_mood: pa_hb.can_track_mood,

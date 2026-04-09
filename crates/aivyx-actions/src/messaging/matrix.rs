@@ -245,10 +245,7 @@ impl Action for ReadMatrix {
         let room_id = input["room_id"]
             .as_str()
             .ok_or_else(|| AivyxError::Other("room_id is required".into()))?;
-        let limit = input
-            .get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(10) as usize;
+        let limit = input.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
 
         let messages = crate::retry::retry(
             &crate::retry::RetryConfig::network(),
@@ -269,11 +266,7 @@ impl Action for ReadMatrix {
 /// Forward a notification to the default Matrix room.
 ///
 /// Returns `Ok(())` silently if no `default_room_id` is configured.
-pub async fn forward_notification(
-    config: &MatrixConfig,
-    title: &str,
-    body: &str,
-) -> Result<()> {
+pub async fn forward_notification(config: &MatrixConfig, title: &str, body: &str) -> Result<()> {
     if let Some(ref room_id) = config.default_room_id {
         let text = format!("**{}**\n{}", title, body);
         send_room_message(config, room_id, &text).await?;
@@ -383,7 +376,9 @@ mod tests {
 
     #[test]
     fn send_matrix_schema_valid() {
-        let action = SendMatrix { config: test_config() };
+        let action = SendMatrix {
+            config: test_config(),
+        };
         let schema = action.input_schema();
         let required = schema["required"].as_array().unwrap();
         assert!(required.iter().any(|v| v == "room_id"));
@@ -392,7 +387,9 @@ mod tests {
 
     #[test]
     fn read_matrix_schema_valid() {
-        let action = ReadMatrix { config: test_config() };
+        let action = ReadMatrix {
+            config: test_config(),
+        };
         let schema = action.input_schema();
         let required = schema["required"].as_array().unwrap();
         assert!(required.iter().any(|v| v == "room_id"));

@@ -112,7 +112,10 @@ pub fn is_transient(error: &aivyx_core::AivyxError) -> bool {
         AivyxError::LlmProvider(msg) => {
             let m = msg.to_lowercase();
             // Don't retry auth failures or quota exhaustion
-            !(m.contains("auth") || m.contains("key") || m.contains("quota") || m.contains("rate limit"))
+            !(m.contains("auth")
+                || m.contains("key")
+                || m.contains("quota")
+                || m.contains("rate limit"))
         }
         AivyxError::Channel(msg) => {
             let m = msg.to_lowercase();
@@ -149,7 +152,8 @@ mod tests {
                 async { Ok("success") }
             },
             |_| true,
-        ).await;
+        )
+        .await;
 
         assert_eq!(result.unwrap(), "success");
         assert_eq!(count.load(Ordering::SeqCst), 1);
@@ -177,7 +181,8 @@ mod tests {
                 }
             },
             |_| true,
-        ).await;
+        )
+        .await;
 
         assert_eq!(result.unwrap(), "recovered");
         assert_eq!(count.load(Ordering::SeqCst), 3); // 2 failures + 1 success
@@ -199,7 +204,8 @@ mod tests {
                 async { Err("always fails".to_string()) }
             },
             |_| true,
-        ).await;
+        )
+        .await;
 
         assert_eq!(result.unwrap_err(), "always fails");
         assert_eq!(count.load(Ordering::SeqCst), 3); // initial + 2 retries
@@ -221,7 +227,8 @@ mod tests {
                 async { Err("auth failure".to_string()) }
             },
             |e| !e.contains("auth"), // auth is permanent
-        ).await;
+        )
+        .await;
 
         assert_eq!(result.unwrap_err(), "auth failure");
         assert_eq!(count.load(Ordering::SeqCst), 1); // no retries
@@ -244,9 +251,15 @@ mod tests {
     fn is_transient_classifies_errors() {
         use aivyx_core::AivyxError;
 
-        assert!(is_transient(&AivyxError::LlmProvider("connection refused".into())));
-        assert!(!is_transient(&AivyxError::LlmProvider("invalid auth key".into())));
-        assert!(is_transient(&AivyxError::Channel("connection reset".into())));
+        assert!(is_transient(&AivyxError::LlmProvider(
+            "connection refused".into()
+        )));
+        assert!(!is_transient(&AivyxError::LlmProvider(
+            "invalid auth key".into()
+        )));
+        assert!(is_transient(&AivyxError::Channel(
+            "connection reset".into()
+        )));
         assert!(!is_transient(&AivyxError::Channel("bad password".into())));
         assert!(is_transient(&AivyxError::Http("timeout".into())));
         assert!(!is_transient(&AivyxError::Http("404 not found".into())));

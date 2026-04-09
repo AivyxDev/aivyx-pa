@@ -6,7 +6,9 @@
 
 use aivyx_core::{AivyxError, Result};
 
-use super::{ElementQuery, InputBackend, ScrollDirection, UiBackend, UiElement, UiTreeNode, WindowRef};
+use super::{
+    ElementQuery, InputBackend, ScrollDirection, UiBackend, UiElement, UiTreeNode, WindowRef,
+};
 
 /// ydotool-based input backend. Always available (subprocess, no crate deps).
 pub struct YdotoolBackend;
@@ -31,7 +33,7 @@ impl YdotoolBackend {
             "click",
             "--point",
             &format!("{x}:{y}"),
-            "0xC0",  // left button click (down+up)
+            "0xC0", // left button click (down+up)
         ])
         .await?;
         Ok(())
@@ -130,24 +132,12 @@ impl YdotoolBackend {
 
     /// Move the mouse to absolute screen coordinates.
     pub async fn mouse_move_to(&self, x: i32, y: i32) -> Result<()> {
-        run_ydotool(&[
-            "mousemove",
-            "--absolute",
-            &format!("{x}"),
-            &format!("{y}"),
-        ])
-        .await?;
+        run_ydotool(&["mousemove", "--absolute", &format!("{x}"), &format!("{y}")]).await?;
         Ok(())
     }
 
     /// Drag from one position to another (left-button hold + move + release).
-    pub async fn drag(
-        &self,
-        from_x: i32,
-        from_y: i32,
-        to_x: i32,
-        to_y: i32,
-    ) -> Result<()> {
+    pub async fn drag(&self, from_x: i32, from_y: i32, to_x: i32, to_y: i32) -> Result<()> {
         // Move to start position.
         self.mouse_move_to(from_x, from_y).await?;
         // Small delay for position to register.
@@ -217,11 +207,7 @@ impl UiBackend for YdotoolBackend {
         "ydotool"
     }
 
-    async fn inspect(
-        &self,
-        _window: &WindowRef,
-        _max_depth: u32,
-    ) -> Result<Vec<UiTreeNode>> {
+    async fn inspect(&self, _window: &WindowRef, _max_depth: u32) -> Result<Vec<UiTreeNode>> {
         Err(AivyxError::Other(
             "ydotool cannot inspect UI trees — enable the accessibility feature for AT-SPI2 support"
                 .into(),
@@ -241,9 +227,7 @@ impl UiBackend for YdotoolBackend {
 
     async fn click(&self, element: &UiElement) -> Result<()> {
         let bounds = element.bounds.ok_or_else(|| {
-            AivyxError::Other(
-                "ydotool click requires element bounds (x, y, width, height)".into(),
-            )
+            AivyxError::Other("ydotool click requires element bounds (x, y, width, height)".into())
         })?;
         // Click center of the element.
         let cx = bounds[0] + bounds[2] / 2;
@@ -251,19 +235,14 @@ impl UiBackend for YdotoolBackend {
         self.click_at(cx, cy).await
     }
 
-    async fn type_text(
-        &self,
-        _element: Option<&UiElement>,
-        text: &str,
-    ) -> Result<()> {
+    async fn type_text(&self, _element: Option<&UiElement>, text: &str) -> Result<()> {
         // ydotool types into whatever is currently focused.
         self.type_string(text).await
     }
 
     async fn read_text(&self, _element: &UiElement) -> Result<String> {
         Err(AivyxError::Other(
-            "ydotool cannot read text from UI elements — enable the accessibility feature"
-                .into(),
+            "ydotool cannot read text from UI elements — enable the accessibility feature".into(),
         ))
     }
 
@@ -311,9 +290,7 @@ impl UiBackend for YdotoolBackend {
 
     async fn hover(&self, element: &UiElement) -> Result<()> {
         let bounds = element.bounds.ok_or_else(|| {
-            AivyxError::Other(
-                "ydotool hover requires element bounds (x, y, width, height)".into(),
-            )
+            AivyxError::Other("ydotool hover requires element bounds (x, y, width, height)".into())
         })?;
         let cx = bounds[0] + bounds[2] / 2;
         let cy = bounds[1] + bounds[3] / 2;
@@ -353,9 +330,8 @@ fn parse_key_combo(combo: &str) -> Result<String> {
 
     let mut codes = Vec::new();
     for part in &parts {
-        let code = key_name_to_code(part).ok_or_else(|| {
-            AivyxError::Other(format!("unknown key: '{part}'"))
-        })?;
+        let code = key_name_to_code(part)
+            .ok_or_else(|| AivyxError::Other(format!("unknown key: '{part}'")))?;
         codes.push(code);
     }
 
@@ -500,13 +476,10 @@ async fn run_ydotool(args: &[&str]) -> Result<String> {
                     || stderr.contains("No such file or directory")
                 {
                     Err(AivyxError::Other(
-                        "ydotoold daemon is not running. Start it with: ydotoold &"
-                            .into(),
+                        "ydotoold daemon is not running. Start it with: ydotoold &".into(),
                     ))
                 } else {
-                    Err(AivyxError::Other(format!(
-                        "ydotool failed: {stderr}"
-                    )))
+                    Err(AivyxError::Other(format!("ydotool failed: {stderr}")))
                 }
             }
         }
@@ -518,14 +491,10 @@ async fn run_ydotool(args: &[&str]) -> Result<String> {
                         .into(),
                 ))
             } else {
-                Err(AivyxError::Other(format!(
-                    "failed to run ydotool: {e}"
-                )))
+                Err(AivyxError::Other(format!("failed to run ydotool: {e}")))
             }
         }
-        Err(_) => Err(AivyxError::Other(
-            "ydotool timed out after 5s".into(),
-        )),
+        Err(_) => Err(AivyxError::Other("ydotool timed out after 5s".into())),
     }
 }
 
@@ -583,9 +552,18 @@ mod tests {
         // Verify ScrollDirection variants exist and parse.
         use super::super::ScrollDirection;
         assert_eq!(ScrollDirection::parse("up").unwrap(), ScrollDirection::Up);
-        assert_eq!(ScrollDirection::parse("down").unwrap(), ScrollDirection::Down);
-        assert_eq!(ScrollDirection::parse("left").unwrap(), ScrollDirection::Left);
-        assert_eq!(ScrollDirection::parse("right").unwrap(), ScrollDirection::Right);
+        assert_eq!(
+            ScrollDirection::parse("down").unwrap(),
+            ScrollDirection::Down
+        );
+        assert_eq!(
+            ScrollDirection::parse("left").unwrap(),
+            ScrollDirection::Left
+        );
+        assert_eq!(
+            ScrollDirection::parse("right").unwrap(),
+            ScrollDirection::Right
+        );
     }
 
     #[test]

@@ -48,10 +48,7 @@ async fn jsonrpc_call(
 }
 
 /// Send JSON-RPC over a Unix domain socket.
-async fn jsonrpc_unix(
-    socket_path: &str,
-    payload: &serde_json::Value,
-) -> Result<String> {
+async fn jsonrpc_unix(socket_path: &str, payload: &serde_json::Value) -> Result<String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let mut stream = tokio::time::timeout(
@@ -73,7 +70,9 @@ async fn jsonrpc_unix(
         // Read until we get a complete JSON line
         let mut temp = [0u8; 4096];
         loop {
-            let n = stream.read(&mut temp).await
+            let n = stream
+                .read(&mut temp)
+                .await
                 .map_err(|e| AivyxError::Channel(format!("Signal socket read failed: {e}")))?;
             if n == 0 {
                 break;
@@ -93,10 +92,7 @@ async fn jsonrpc_unix(
 }
 
 /// Send JSON-RPC over TCP.
-async fn jsonrpc_tcp(
-    addr: &str,
-    payload: &serde_json::Value,
-) -> Result<String> {
+async fn jsonrpc_tcp(addr: &str, payload: &serde_json::Value) -> Result<String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let mut stream = tokio::time::timeout(
@@ -117,7 +113,9 @@ async fn jsonrpc_tcp(
     tokio::time::timeout(std::time::Duration::from_secs(30), async {
         let mut temp = [0u8; 4096];
         loop {
-            let n = stream.read(&mut temp).await
+            let n = stream
+                .read(&mut temp)
+                .await
                 .map_err(|e| AivyxError::Channel(format!("Signal TCP read failed: {e}")))?;
             if n == 0 {
                 break;
@@ -241,7 +239,8 @@ impl Action for ReadSignal {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let timeout = input.get("timeout")
+        let timeout = input
+            .get("timeout")
             .and_then(|v| v.as_u64())
             .unwrap_or(1)
             .min(10);
@@ -302,11 +301,7 @@ fn parse_signal_message(entry: &serde_json::Value) -> Option<Message> {
 /// Forward a notification to the default Signal recipient.
 ///
 /// Returns `Ok(())` silently if no `default_recipient` is configured.
-pub async fn forward_notification(
-    config: &SignalConfig,
-    title: &str,
-    body: &str,
-) -> Result<()> {
+pub async fn forward_notification(config: &SignalConfig, title: &str, body: &str) -> Result<()> {
     if let Some(ref recipient) = config.default_recipient {
         let text = format!("*{}*\n{}", title, body);
         let params = serde_json::json!({
@@ -333,7 +328,9 @@ mod tests {
 
     #[test]
     fn send_signal_schema_valid() {
-        let action = SendSignal { config: test_config() };
+        let action = SendSignal {
+            config: test_config(),
+        };
         assert_eq!(action.name(), "send_signal");
         let schema = action.input_schema();
         let required = schema["required"].as_array().unwrap();
@@ -343,7 +340,9 @@ mod tests {
 
     #[test]
     fn read_signal_schema_valid() {
-        let action = ReadSignal { config: test_config() };
+        let action = ReadSignal {
+            config: test_config(),
+        };
         assert_eq!(action.name(), "read_signal");
         let schema = action.input_schema();
         let props = schema["properties"].as_object().unwrap();
@@ -418,11 +417,15 @@ mod tests {
 
     #[tokio::test]
     async fn send_signal_rejects_empty_text() {
-        let action = SendSignal { config: test_config() };
-        let result = action.execute(serde_json::json!({
-            "recipient": "+15559876543",
-            "text": "  "
-        })).await;
+        let action = SendSignal {
+            config: test_config(),
+        };
+        let result = action
+            .execute(serde_json::json!({
+                "recipient": "+15559876543",
+                "text": "  "
+            }))
+            .await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("empty"));
@@ -430,15 +433,21 @@ mod tests {
 
     #[tokio::test]
     async fn send_signal_rejects_missing_recipient() {
-        let action = SendSignal { config: test_config() };
+        let action = SendSignal {
+            config: test_config(),
+        };
         let result = action.execute(serde_json::json!({ "text": "hello" })).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn send_signal_rejects_missing_text() {
-        let action = SendSignal { config: test_config() };
-        let result = action.execute(serde_json::json!({ "recipient": "+1555" })).await;
+        let action = SendSignal {
+            config: test_config(),
+        };
+        let result = action
+            .execute(serde_json::json!({ "recipient": "+1555" }))
+            .await;
         assert!(result.is_err());
     }
 }

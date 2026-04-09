@@ -44,22 +44,22 @@ pub mod ydotool;
 
 // ── Windows-specific backends ───────────────────────────────────
 #[cfg(target_os = "windows")]
+pub mod win_desktop_info;
+#[cfg(target_os = "windows")]
 pub mod win_input;
+#[cfg(target_os = "windows")]
+pub mod win_media;
+#[cfg(target_os = "windows")]
+pub mod win_ocr;
+#[cfg(target_os = "windows")]
+pub mod win_screenshot;
+#[cfg(target_os = "windows")]
+pub mod win_system;
 #[cfg(target_os = "windows")]
 #[cfg(feature = "windows-automation")]
 pub mod win_uia;
 #[cfg(target_os = "windows")]
-pub mod win_screenshot;
-#[cfg(target_os = "windows")]
 pub mod win_window;
-#[cfg(target_os = "windows")]
-pub mod win_system;
-#[cfg(target_os = "windows")]
-pub mod win_ocr;
-#[cfg(target_os = "windows")]
-pub mod win_media;
-#[cfg(target_os = "windows")]
-pub mod win_desktop_info;
 
 use aivyx_core::{AivyxError, Result};
 use serde::{Deserialize, Serialize};
@@ -184,10 +184,7 @@ pub enum WindowRef {
 
 impl WindowRef {
     /// Parse from optional tool input fields.
-    pub fn from_input(
-        window: Option<&str>,
-        window_id: Option<&str>,
-    ) -> Self {
+    pub fn from_input(window: Option<&str>, window_id: Option<&str>) -> Self {
         if let Some(id) = window_id {
             WindowRef::Id(id.to_string())
         } else if let Some(title) = window {
@@ -325,11 +322,7 @@ pub(crate) trait UiBackend: Send + Sync {
     fn name(&self) -> &str;
 
     /// Inspect the accessibility/DOM tree of a window.
-    async fn inspect(
-        &self,
-        window: &WindowRef,
-        max_depth: u32,
-    ) -> Result<Vec<UiTreeNode>>;
+    async fn inspect(&self, window: &WindowRef, max_depth: u32) -> Result<Vec<UiTreeNode>>;
 
     /// Find elements matching a query.
     async fn find_element(
@@ -342,11 +335,7 @@ pub(crate) trait UiBackend: Send + Sync {
     async fn click(&self, element: &UiElement) -> Result<()>;
 
     /// Type text into an element or the focused field.
-    async fn type_text(
-        &self,
-        element: Option<&UiElement>,
-        text: &str,
-    ) -> Result<()>;
+    async fn type_text(&self, element: Option<&UiElement>, text: &str) -> Result<()>;
 
     /// Read text content from an element.
     async fn read_text(&self, element: &UiElement) -> Result<String>;
@@ -560,25 +549,34 @@ pub struct InteractionContext {
 }
 
 impl InteractionContext {
-    pub fn new(config: InteractionConfig, desktop_config: crate::desktop::DesktopConfig) -> Arc<Self> {
+    pub fn new(
+        config: InteractionConfig,
+        desktop_config: crate::desktop::DesktopConfig,
+    ) -> Arc<Self> {
         let router = BackendRouter::new(&config);
-        Arc::new(Self { config, desktop_config, router })
+        Arc::new(Self {
+            config,
+            desktop_config,
+            router,
+        })
     }
 
     /// Evaluates if the agent's interaction tools are permitted to manipulate this window.
     pub async fn enforce_access(&self, window: &WindowRef, require_interact: bool) -> Result<()> {
         if let Ok(Some(class)) = get_window_class(window).await {
             let access = crate::desktop::resolve_app_access(&class, &self.desktop_config);
-            
+
             if access == crate::desktop::AppAccess::Blocked {
                 return Err(aivyx_core::AivyxError::CapabilityDenied(format!(
-                    "Application {} is Blocked. Interaction denied.", class
+                    "Application {} is Blocked. Interaction denied.",
+                    class
                 )));
             }
 
             if require_interact && access == crate::desktop::AppAccess::ViewOnly {
                 return Err(aivyx_core::AivyxError::CapabilityDenied(format!(
-                    "Application {} is View-Only. Click / Type interaction denied.", class
+                    "Application {} is View-Only. Click / Type interaction denied.",
+                    class
                 )));
             }
         }
@@ -670,7 +668,9 @@ async fn get_class_xdotool(window: &WindowRef) -> Result<String> {
     let output = output.map_err(|e| AivyxError::Other(format!("xdotool: {e}")))?;
 
     if !output.status.success() {
-        return Err(AivyxError::Other("xdotool getwindowclassname failed".into()));
+        return Err(AivyxError::Other(
+            "xdotool getwindowclassname failed".into(),
+        ));
     }
 
     let class = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -758,7 +758,10 @@ mod tests {
 
     #[test]
     fn window_ref_from_input() {
-        assert!(matches!(WindowRef::from_input(None, None), WindowRef::Active));
+        assert!(matches!(
+            WindowRef::from_input(None, None),
+            WindowRef::Active
+        ));
         assert!(matches!(
             WindowRef::from_input(Some("Firefox"), None),
             WindowRef::Title(t) if t == "Firefox"
@@ -791,9 +794,18 @@ mod tests {
     #[test]
     fn scroll_direction_parse() {
         assert_eq!(ScrollDirection::parse("up").unwrap(), ScrollDirection::Up);
-        assert_eq!(ScrollDirection::parse("DOWN").unwrap(), ScrollDirection::Down);
-        assert_eq!(ScrollDirection::parse("Left").unwrap(), ScrollDirection::Left);
-        assert_eq!(ScrollDirection::parse("right").unwrap(), ScrollDirection::Right);
+        assert_eq!(
+            ScrollDirection::parse("DOWN").unwrap(),
+            ScrollDirection::Down
+        );
+        assert_eq!(
+            ScrollDirection::parse("Left").unwrap(),
+            ScrollDirection::Left
+        );
+        assert_eq!(
+            ScrollDirection::parse("right").unwrap(),
+            ScrollDirection::Right
+        );
         assert!(ScrollDirection::parse("diagonal").is_err());
         assert!(ScrollDirection::parse("").is_err());
     }

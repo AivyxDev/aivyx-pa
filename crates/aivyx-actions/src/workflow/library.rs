@@ -9,9 +9,8 @@
 //! with `{param}` placeholders for user customization.
 
 use super::{
-    save_template, load_template, list_templates,
-    TemplateParameter, TemplateStep, StepCondition,
-    WorkflowContext, WorkflowTemplate, WorkflowTrigger,
+    StepCondition, TemplateParameter, TemplateStep, WorkflowContext, WorkflowTemplate,
+    WorkflowTrigger, list_templates, load_template, save_template,
 };
 use aivyx_core::Result;
 use chrono::Utc;
@@ -244,7 +243,8 @@ fn bill_pay_reminder() -> WorkflowTemplate {
     let now = Utc::now();
     WorkflowTemplate {
         name: "bill-pay-reminder".into(),
-        description: "Check for upcoming bills due within {days} days and send payment reminders".into(),
+        description: "Check for upcoming bills due within {days} days and send payment reminders"
+            .into(),
         steps: vec![
             TemplateStep {
                 description: "Review budget summary for bills due within {days} days".into(),
@@ -255,7 +255,8 @@ fn bill_pay_reminder() -> WorkflowTemplate {
                 depends_on: vec![],
             },
             TemplateStep {
-                description: "List recent transactions to check which bills have already been paid".into(),
+                description: "List recent transactions to check which bills have already been paid"
+                    .into(),
                 tool: Some("list_transactions".into()),
                 arguments: serde_json::json!({"days": "{days}"}),
                 requires_approval: false,
@@ -263,7 +264,9 @@ fn bill_pay_reminder() -> WorkflowTemplate {
                 depends_on: vec![],
             },
             TemplateStep {
-                description: "Identify unpaid bills by comparing budget due dates with recent payments".into(),
+                description:
+                    "Identify unpaid bills by comparing budget due dates with recent payments"
+                        .into(),
                 tool: None,
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
@@ -271,7 +274,8 @@ fn bill_pay_reminder() -> WorkflowTemplate {
                 depends_on: vec![0, 1],
             },
             TemplateStep {
-                description: "Set reminders for each unpaid bill with the due date and amount".into(),
+                description: "Set reminders for each unpaid bill with the due date and amount"
+                    .into(),
                 tool: Some("set_reminder".into()),
                 arguments: serde_json::Value::Null,
                 requires_approval: true,
@@ -279,16 +283,16 @@ fn bill_pay_reminder() -> WorkflowTemplate {
                 depends_on: vec![2],
             },
         ],
-        parameters: vec![
-            TemplateParameter {
-                name: "days".into(),
-                description: "Number of days ahead to check for upcoming bills".into(),
-                required: false,
-                default: Some("7".into()),
-            },
-        ],
+        parameters: vec![TemplateParameter {
+            name: "days".into(),
+            description: "Number of days ahead to check for upcoming bills".into(),
+            required: false,
+            default: Some("7".into()),
+        }],
         triggers: vec![
-            WorkflowTrigger::Cron { expression: "0 9 * * 1".into() }, // Monday 9am
+            WorkflowTrigger::Cron {
+                expression: "0 9 * * 1".into(),
+            }, // Monday 9am
             WorkflowTrigger::Manual,
         ],
         created_at: now,
@@ -820,7 +824,9 @@ pub struct InstallLibraryAction {
 
 #[async_trait::async_trait]
 impl crate::Action for InstallLibraryAction {
-    fn name(&self) -> &str { "install_workflow_library" }
+    fn name(&self) -> &str {
+        "install_workflow_library"
+    }
 
     fn description(&self) -> &str {
         "Install the built-in workflow template library. Use force=true to \
@@ -840,7 +846,10 @@ impl crate::Action for InstallLibraryAction {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let force = input.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+        let force = input
+            .get("force")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         let count = if force {
             reinstall_library(&self.ctx)?
@@ -867,7 +876,9 @@ pub struct DeleteWorkflowAction {
 
 #[async_trait::async_trait]
 impl crate::Action for DeleteWorkflowAction {
-    fn name(&self) -> &str { "delete_workflow" }
+    fn name(&self) -> &str {
+        "delete_workflow"
+    }
 
     fn description(&self) -> &str {
         "Delete a workflow template by name. This is irreversible — the template \
@@ -888,7 +899,8 @@ impl crate::Action for DeleteWorkflowAction {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let name = input.get("name")
+        let name = input
+            .get("name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| aivyx_core::AivyxError::Other("missing 'name'".into()))?;
 
@@ -897,9 +909,9 @@ impl crate::Action for DeleteWorkflowAction {
         let existed = load_template(&self.ctx.store, &key, name)?.is_some();
 
         if !existed {
-            return Err(aivyx_core::AivyxError::Other(
-                format!("workflow template '{name}' not found"),
-            ));
+            return Err(aivyx_core::AivyxError::Other(format!(
+                "workflow template '{name}' not found"
+            )));
         }
 
         super::delete_template(&self.ctx.store, name)?;
@@ -948,9 +960,18 @@ mod tests {
     #[test]
     fn all_templates_have_descriptions() {
         for t in all_templates() {
-            assert!(!t.description.is_empty(), "template '{}' has no description", t.name);
+            assert!(
+                !t.description.is_empty(),
+                "template '{}' has no description",
+                t.name
+            );
             for (i, s) in t.steps.iter().enumerate() {
-                assert!(!s.description.is_empty(), "template '{}' step {} has no description", t.name, i);
+                assert!(
+                    !s.description.is_empty(),
+                    "template '{}' step {} has no description",
+                    t.name,
+                    i
+                );
             }
         }
     }
@@ -963,8 +984,15 @@ mod tests {
                 "template '{}' has no triggers",
                 t.name,
             );
-            let has_manual = t.triggers.iter().any(|tr| matches!(tr, WorkflowTrigger::Manual));
-            assert!(has_manual, "template '{}' should have a Manual trigger fallback", t.name);
+            let has_manual = t
+                .triggers
+                .iter()
+                .any(|tr| matches!(tr, WorkflowTrigger::Manual));
+            assert!(
+                has_manual,
+                "template '{}' should have a Manual trigger fallback",
+                t.name
+            );
         }
     }
 
@@ -989,12 +1017,16 @@ mod tests {
                     assert!(
                         dep < i,
                         "template '{}' step {} depends on step {} which is not before it",
-                        t.name, i, dep,
+                        t.name,
+                        i,
+                        dep,
                     );
                     assert!(
                         dep < step_count,
                         "template '{}' step {} depends on non-existent step {}",
-                        t.name, i, dep,
+                        t.name,
+                        i,
+                        dep,
                     );
                 }
             }
@@ -1006,12 +1038,19 @@ mod tests {
         // Templates with required params should fail without them
         // and succeed with them
         for t in all_templates() {
-            let has_required = t.parameters.iter().any(|p| p.required && p.default.is_none());
+            let has_required = t
+                .parameters
+                .iter()
+                .any(|p| p.required && p.default.is_none());
 
             if has_required {
                 // Should fail with empty params
                 let result = t.instantiate(&HashMap::new());
-                assert!(result.is_err(), "template '{}' should require params", t.name);
+                assert!(
+                    result.is_err(),
+                    "template '{}' should require params",
+                    t.name
+                );
             }
 
             // Should succeed with all params provided
@@ -1022,7 +1061,12 @@ mod tests {
                 }
             }
             let result = t.instantiate(&params);
-            assert!(result.is_ok(), "template '{}' failed to instantiate: {:?}", t.name, result.err());
+            assert!(
+                result.is_ok(),
+                "template '{}' failed to instantiate: {:?}",
+                t.name,
+                result.err()
+            );
 
             // Verify placeholders were replaced
             let inst = result.unwrap();
@@ -1031,12 +1075,16 @@ mod tests {
                     if let Some(val) = params.get(&p.name) {
                         // If the original step used this param, the instantiated version
                         // should have the test value, not the placeholder
-                        if t.steps.iter().any(|s| s.description.contains(&format!("{{{}}}", p.name))) {
+                        if t.steps
+                            .iter()
+                            .any(|s| s.description.contains(&format!("{{{}}}", p.name)))
+                        {
                             assert!(
                                 !step.description.contains(&format!("{{{}}}", p.name))
                                     || !t.steps.iter().any(|s| s.description == step.description),
                                 "template '{}' has unreplaced placeholder for '{}'",
-                                t.name, p.name,
+                                t.name,
+                                p.name,
                             );
                         }
                         let _ = val; // suppress unused warning
@@ -1059,9 +1107,11 @@ mod tests {
                 if let WorkflowTrigger::Cron { expression } = trigger {
                     let parts: Vec<&str> = expression.split_whitespace().collect();
                     assert_eq!(
-                        parts.len(), 5,
+                        parts.len(),
+                        5,
                         "template '{}' has invalid cron expression '{}' (expected 5 fields)",
-                        t.name, expression,
+                        t.name,
+                        expression,
                     );
                 }
             }

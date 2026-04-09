@@ -34,8 +34,20 @@ impl Widget for Header<'_> {
 
         // Left side: Brand + View Context
         let title = Line::from(vec![
-            Span::styled("AIVYX.STUDIO ", Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("// {} {}", self.app.view.icon(), self.app.view.label().to_uppercase()), theme::secondary()),
+            Span::styled(
+                "AIVYX.STUDIO ",
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!(
+                    "// {} {}",
+                    self.app.view.icon(),
+                    self.app.view.label().to_uppercase()
+                ),
+                theme::secondary(),
+            ),
         ]);
         buf.set_line(inner.x + 1, inner.y, &title, inner.width / 2);
 
@@ -56,10 +68,12 @@ impl Widget for Header<'_> {
 
         let right_side_str = format!("{} // ", info);
         let right_x = inner.x + inner.width.saturating_sub(right_side_str.len() as u16 + 11); // 11 is "● STREAMING" max length
-        let rs_line = Line::from(vec![
-            Span::styled(right_side_str, theme::dim()),
-            status,
-        ]);
-        buf.set_line(right_x, inner.y, &rs_line, inner.width.saturating_sub(right_x) + 1);
+        let rs_line = Line::from(vec![Span::styled(right_side_str, theme::dim()), status]);
+        buf.set_line(
+            right_x,
+            inner.y,
+            &rs_line,
+            inner.width.saturating_sub(right_x) + 1,
+        );
     }
 }

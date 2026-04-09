@@ -20,15 +20,35 @@ const MAX_OUTPUT_BYTES: usize = 1_024 * 1_024;
 /// Patterns that are always denied regardless of capability tier.
 /// These prevent catastrophic damage even if the LLM is confused or injected.
 const DENIED_PATTERNS: &[&str] = &[
-    "rm -rf /", "rm -rf /*", "mkfs", "dd if=", "> /dev/sd",
-    "cat /etc/shadow", "cat /etc/passwd",
-    "chmod 777 /", "chown root",
-    "nc -e", "ncat -e", "bash -i >& /dev/tcp", "/dev/tcp/", "curl.*|.*sh", "wget.*|.*sh",
-    "shutdown", "reboot", "init 0", "init 6", "poweroff", "halt",
+    "rm -rf /",
+    "rm -rf /*",
+    "mkfs",
+    "dd if=",
+    "> /dev/sd",
+    "cat /etc/shadow",
+    "cat /etc/passwd",
+    "chmod 777 /",
+    "chown root",
+    "nc -e",
+    "ncat -e",
+    "bash -i >& /dev/tcp",
+    "/dev/tcp/",
+    "curl.*|.*sh",
+    "wget.*|.*sh",
+    "shutdown",
+    "reboot",
+    "init 0",
+    "init 6",
+    "poweroff",
+    "halt",
 ];
 
 const DENIED_PATH_FRAGMENTS: &[&str] = &[
-    "/etc/shadow", "/.ssh/", "/.gnupg/", "/.aws/credentials", "/.config/gcloud",
+    "/etc/shadow",
+    "/.ssh/",
+    "/.gnupg/",
+    "/.aws/credentials",
+    "/.config/gcloud",
 ];
 
 fn is_command_denied(command: &str) -> Option<&'static str> {
@@ -38,7 +58,10 @@ fn is_command_denied(command: &str) -> Option<&'static str> {
             return Some(pattern);
         }
     }
-    DENIED_PATH_FRAGMENTS.iter().find(|&path| lower.contains(&path.to_lowercase())).map(|v| v as _)
+    DENIED_PATH_FRAGMENTS
+        .iter()
+        .find(|&path| lower.contains(&path.to_lowercase()))
+        .map(|v| v as _)
 }
 
 fn cap_output(bytes: &[u8]) -> String {
@@ -87,11 +110,17 @@ impl tokio::io::AsyncWrite for WriteAdapter {
         std::task::Poll::Ready(Ok(buf.len()))
     }
 
-    fn poll_flush(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<std::result::Result<(), std::io::Error>> {
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::result::Result<(), std::io::Error>> {
         std::task::Poll::Ready(Ok(()))
     }
 
-    fn poll_shutdown(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<std::result::Result<(), std::io::Error>> {
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::result::Result<(), std::io::Error>> {
         std::task::Poll::Ready(Ok(()))
     }
 }
@@ -102,7 +131,9 @@ pub struct RunCommand;
 
 #[async_trait::async_trait]
 impl Action for RunCommand {
-    fn name(&self) -> &str { "run_command" }
+    fn name(&self) -> &str {
+        "run_command"
+    }
 
     fn description(&self) -> &str {
         "Execute a shell command and return its output (requires Trust tier). \
@@ -126,7 +157,9 @@ impl Action for RunCommand {
             return Err(aivyx_core::AivyxError::Validation("command empty".into()));
         }
         if let Some(pattern) = is_command_denied(command) {
-            return Err(aivyx_core::AivyxError::CapabilityDenied(format!("Blocked: {pattern}")));
+            return Err(aivyx_core::AivyxError::CapabilityDenied(format!(
+                "Blocked: {pattern}"
+            )));
         }
 
         let mut cmd = tokio::process::Command::new("sh");
@@ -138,16 +171,15 @@ impl Action for RunCommand {
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(COMMAND_TIMEOUT_SECS),
             cmd.output(),
-        ).await;
+        )
+        .await;
 
         match result {
-            Ok(Ok(output)) => {
-                Ok(serde_json::json!({
-                    "exit_code": output.status.code().unwrap_or(-1),
-                    "stdout": cap_output(&output.stdout),
-                    "stderr": cap_output(&output.stderr),
-                }))
-            }
+            Ok(Ok(output)) => Ok(serde_json::json!({
+                "exit_code": output.status.code().unwrap_or(-1),
+                "stdout": cap_output(&output.stdout),
+                "stderr": cap_output(&output.stderr),
+            })),
             Ok(Err(e)) => Err(aivyx_core::AivyxError::Io(e)),
             Err(_) => Err(aivyx_core::AivyxError::Other("Timeout".into())),
         }
@@ -160,7 +192,9 @@ pub struct SpawnBackgroundCommand;
 
 #[async_trait::async_trait]
 impl Action for SpawnBackgroundCommand {
-    fn name(&self) -> &str { "spawn_background_command" }
+    fn name(&self) -> &str {
+        "spawn_background_command"
+    }
 
     fn description(&self) -> &str {
         "Spawn a background shell command interactively."
@@ -183,7 +217,9 @@ impl Action for SpawnBackgroundCommand {
             return Err(aivyx_core::AivyxError::Validation("command empty".into()));
         }
         if let Some(pattern) = is_command_denied(command) {
-            return Err(aivyx_core::AivyxError::CapabilityDenied(format!("Blocked: {pattern}")));
+            return Err(aivyx_core::AivyxError::CapabilityDenied(format!(
+                "Blocked: {pattern}"
+            )));
         }
 
         let mut cmd = tokio::process::Command::new("sh");
@@ -194,8 +230,8 @@ impl Action for SpawnBackgroundCommand {
 
         use std::process::Stdio;
         cmd.stdin(Stdio::piped())
-           .stdout(Stdio::piped())
-           .stderr(Stdio::piped());
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
         let mut child = cmd.spawn().map_err(aivyx_core::AivyxError::Io)?;
 
@@ -219,7 +255,7 @@ impl Action for SpawnBackgroundCommand {
 
         let exited = Arc::new(Mutex::new(None));
         let exited_clone = exited.clone();
-        
+
         let pid = child.id();
 
         tokio::spawn(async move {
@@ -256,7 +292,9 @@ pub struct GetCommandStatus;
 
 #[async_trait::async_trait]
 impl Action for GetCommandStatus {
-    fn name(&self) -> &str { "get_command_status" }
+    fn name(&self) -> &str {
+        "get_command_status"
+    }
 
     fn description(&self) -> &str {
         "Check status and get output of a background command."
@@ -281,10 +319,10 @@ impl Action for GetCommandStatus {
         if let Some(task) = map.get(task_id) {
             let mut out = task.stdout_buf.lock().await;
             let mut err = task.stderr_buf.lock().await;
-            
+
             let stdout_str = cap_output(&out);
             let stderr_str = cap_output(&err);
-            
+
             if clear {
                 out.clear();
                 err.clear();
@@ -310,7 +348,9 @@ pub struct SendCommandInput;
 
 #[async_trait::async_trait]
 impl Action for SendCommandInput {
-    fn name(&self) -> &str { "send_command_input" }
+    fn name(&self) -> &str {
+        "send_command_input"
+    }
 
     fn description(&self) -> &str {
         "Write to stdin of a background command."
@@ -330,11 +370,14 @@ impl Action for SendCommandInput {
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         let task_id = input["task_id"].as_str().unwrap_or("");
         let in_str = input["input"].as_str().unwrap_or("");
-        
+
         let mut map = get_tasks_map().lock().await;
         if let Some(task) = map.get_mut(task_id) {
             if let Some(ref mut stdin) = task.stdin {
-                stdin.write_all(in_str.as_bytes()).await.map_err(aivyx_core::AivyxError::Io)?;
+                stdin
+                    .write_all(in_str.as_bytes())
+                    .await
+                    .map_err(aivyx_core::AivyxError::Io)?;
                 stdin.flush().await.map_err(aivyx_core::AivyxError::Io)?;
                 Ok(serde_json::json!({ "status": "sent" }))
             } else {
@@ -352,7 +395,9 @@ pub struct ListBackgroundCommands;
 
 #[async_trait::async_trait]
 impl Action for ListBackgroundCommands {
-    fn name(&self) -> &str { "list_background_commands" }
+    fn name(&self) -> &str {
+        "list_background_commands"
+    }
 
     fn description(&self) -> &str {
         "List all tracked background commands."
@@ -365,7 +410,7 @@ impl Action for ListBackgroundCommands {
     async fn execute(&self, _input: serde_json::Value) -> Result<serde_json::Value> {
         let map = get_tasks_map().lock().await;
         let mut tasks = Vec::new();
-        
+
         for (id, task) in map.iter() {
             let exited = task.exited.lock().await;
             tasks.push(serde_json::json!({
@@ -386,7 +431,9 @@ pub struct CancelBackgroundCommand;
 
 #[async_trait::async_trait]
 impl Action for CancelBackgroundCommand {
-    fn name(&self) -> &str { "cancel_background_command" }
+    fn name(&self) -> &str {
+        "cancel_background_command"
+    }
 
     fn description(&self) -> &str {
         "Kill a background command by task_id."
@@ -402,11 +449,15 @@ impl Action for CancelBackgroundCommand {
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         let task_id = input["task_id"].as_str().unwrap_or("");
-        
+
         let mut map = get_tasks_map().lock().await;
         if let Some(task) = map.remove(task_id) {
             if let Some(pid) = task.pid {
-                let _ = tokio::process::Command::new("kill").arg("-9").arg(pid.to_string()).output().await;
+                let _ = tokio::process::Command::new("kill")
+                    .arg("-9")
+                    .arg(pid.to_string())
+                    .output()
+                    .await;
             }
             Ok(serde_json::json!({ "status": "killed", "task_id": task_id }))
         } else {

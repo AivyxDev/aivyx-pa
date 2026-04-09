@@ -5,7 +5,7 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, BorderType, Widget},
+    widgets::{Block, BorderType, Borders, Widget},
 };
 
 use crate::app::App;
@@ -34,7 +34,10 @@ impl Widget for TelemetrySidebar<'_> {
         let w = inner.width.saturating_sub(2) as usize;
 
         // Title
-        let title = Line::from(Span::styled("SYSTEM TELEMETRY", theme::muted().add_modifier(Modifier::BOLD)));
+        let title = Line::from(Span::styled(
+            "SYSTEM TELEMETRY",
+            theme::muted().add_modifier(Modifier::BOLD),
+        ));
         buf.set_line(inner.x + 2, y, &title, inner.width - 2);
         y += 2;
 
@@ -45,7 +48,10 @@ impl Widget for TelemetrySidebar<'_> {
         y += 2;
 
         // ── Token Usage ────────────────────────────────────────
-        let section = Line::from(Span::styled("TOKEN USAGE", theme::muted().add_modifier(Modifier::BOLD)));
+        let section = Line::from(Span::styled(
+            "TOKEN USAGE",
+            theme::muted().add_modifier(Modifier::BOLD),
+        ));
         buf.set_line(inner.x + 2, y, &section, inner.width - 2);
         y += 1;
 
@@ -54,9 +60,23 @@ impl Widget for TelemetrySidebar<'_> {
         let total = self.app.chat_input_tokens + self.app.chat_output_tokens;
         let total_str = format_tokens(total);
 
-        render_label_value(buf, inner.x + 2, y, w, "INPUT", &format!("{input_str} tokens"));
+        render_label_value(
+            buf,
+            inner.x + 2,
+            y,
+            w,
+            "INPUT",
+            &format!("{input_str} tokens"),
+        );
         y += 1;
-        render_label_value(buf, inner.x + 2, y, w, "OUTPUT", &format!("{output_str} tokens"));
+        render_label_value(
+            buf,
+            inner.x + 2,
+            y,
+            w,
+            "OUTPUT",
+            &format!("{output_str} tokens"),
+        );
         y += 1;
         render_label_value(buf, inner.x + 2, y, w, "TOTAL", &total_str);
         y += 1;
@@ -97,12 +117,24 @@ impl Widget for TelemetrySidebar<'_> {
         }
 
         // ── Last Turn Stats ────────────────────────────────────
-        if y < inner.y + inner.height && (self.app.turn_tool_calls > 0 || !self.app.turn_tool_log.is_empty()) {
-            let section = Line::from(Span::styled("LAST TURN", theme::muted().add_modifier(Modifier::BOLD)));
+        if y < inner.y + inner.height
+            && (self.app.turn_tool_calls > 0 || !self.app.turn_tool_log.is_empty())
+        {
+            let section = Line::from(Span::styled(
+                "LAST TURN",
+                theme::muted().add_modifier(Modifier::BOLD),
+            ));
             buf.set_line(inner.x + 2, y, &section, inner.width - 2);
             y += 1;
 
-            render_label_value(buf, inner.x + 2, y, w, "TOOL CALLS", &format!("{}", self.app.turn_tool_calls));
+            render_label_value(
+                buf,
+                inner.x + 2,
+                y,
+                w,
+                "TOOL CALLS",
+                &format!("{}", self.app.turn_tool_calls),
+            );
             y += 1;
 
             let turn_tok = format_tokens(self.app.turn_total_tokens);
@@ -112,7 +144,9 @@ impl Widget for TelemetrySidebar<'_> {
             // Mini tool log (most recent 5)
             let max_entries = 5.min(self.app.turn_tool_log.len());
             for entry in self.app.turn_tool_log.iter().rev().take(max_entries) {
-                if y >= inner.y + inner.height { break; }
+                if y >= inner.y + inner.height {
+                    break;
+                }
                 let (icon, style) = if entry.denied {
                     ("⊘", Style::default().fg(theme::ERROR))
                 } else if entry.error.is_some() {
@@ -120,7 +154,8 @@ impl Widget for TelemetrySidebar<'_> {
                 } else {
                     ("✓", Style::default().fg(theme::SAGE))
                 };
-                let ms_str = entry.duration_ms
+                let ms_str = entry
+                    .duration_ms
                     .map(|ms| format!(" {:.1}s", ms as f64 / 1000.0))
                     .unwrap_or_default();
                 // Truncate tool name to fit sidebar
@@ -129,10 +164,7 @@ impl Widget for TelemetrySidebar<'_> {
                 } else {
                     entry.tool_name.clone()
                 };
-                let tool_line = Line::from(Span::styled(
-                    format!("  {icon} {name}{ms_str}"),
-                    style,
-                ));
+                let tool_line = Line::from(Span::styled(format!("  {icon} {name}{ms_str}"), style));
                 buf.set_line(inner.x + 2, y, &tool_line, inner.width - 2);
                 y += 1;
             }
@@ -141,13 +173,25 @@ impl Widget for TelemetrySidebar<'_> {
 
         // ── Heartbeat ──────────────────────────────────────────
         if y < inner.y + inner.height {
-            let section = Line::from(Span::styled("HEARTBEAT", theme::muted().add_modifier(Modifier::BOLD)));
+            let section = Line::from(Span::styled(
+                "HEARTBEAT",
+                theme::muted().add_modifier(Modifier::BOLD),
+            ));
             buf.set_line(inner.x + 2, y, &section, inner.width - 2);
             y += 1;
 
-            let hb_enabled = self.app.settings.as_ref().map(|s| s.heartbeat_enabled).unwrap_or(false);
+            let hb_enabled = self
+                .app
+                .settings
+                .as_ref()
+                .map(|s| s.heartbeat_enabled)
+                .unwrap_or(false);
             let status = if hb_enabled { "Active" } else { "Disabled" };
-            let status_style = if hb_enabled { theme::sage() } else { theme::dim() };
+            let status_style = if hb_enabled {
+                theme::sage()
+            } else {
+                theme::dim()
+            };
             let status_line = Line::from(vec![
                 Span::styled(format!("{:<15}", "STATUS"), theme::dim()),
                 Span::styled(status, status_style),
@@ -156,7 +200,14 @@ impl Widget for TelemetrySidebar<'_> {
             y += 1;
 
             if hb_enabled {
-                render_label_value(buf, inner.x + 2, y, w, "INTERVAL", &format!("{}min", self.app.heartbeat_interval));
+                render_label_value(
+                    buf,
+                    inner.x + 2,
+                    y,
+                    w,
+                    "INTERVAL",
+                    &format!("{}min", self.app.heartbeat_interval),
+                );
             }
         }
     }

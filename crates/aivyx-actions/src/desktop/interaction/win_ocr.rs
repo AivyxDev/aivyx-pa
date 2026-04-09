@@ -18,14 +18,14 @@ use aivyx_core::{AivyxError, Result};
 pub async fn ocr_region(x: i32, y: i32, w: i32, h: i32) -> Result<String> {
     #[cfg(target_os = "windows")]
     {
-        use windows::Graphics::Imaging::{
-            BitmapPixelFormat, SoftwareBitmap,
-        };
+        use windows::Graphics::Imaging::{BitmapPixelFormat, SoftwareBitmap};
         use windows::Media::Ocr::OcrEngine;
 
         // Validate dimensions.
         if w <= 0 || h <= 0 {
-            return Err(AivyxError::Validation("OCR region must have positive dimensions".into()));
+            return Err(AivyxError::Validation(
+                "OCR region must have positive dimensions".into(),
+            ));
         }
         if (w * h * 4) as usize > super::MAX_SCREENSHOT_BYTES {
             return Err(AivyxError::Other("OCR region too large".into()));
@@ -35,30 +35,30 @@ pub async fn ocr_region(x: i32, y: i32, w: i32, h: i32) -> Result<String> {
         let pixels = capture_screen_region(x, y, w, h)?;
 
         // Create SoftwareBitmap from pixel data.
-        let bitmap = SoftwareBitmap::Create(
-            BitmapPixelFormat::Bgra8,
-            w,
-            h,
-        ).map_err(|e| AivyxError::Other(format!("SoftwareBitmap::Create: {e}")))?;
+        let bitmap = SoftwareBitmap::Create(BitmapPixelFormat::Bgra8, w, h)
+            .map_err(|e| AivyxError::Other(format!("SoftwareBitmap::Create: {e}")))?;
 
         // Copy pixels into the bitmap buffer.
-        let buffer = bitmap.LockBuffer(
-            windows::Graphics::Imaging::BitmapBufferAccessMode::Write,
-        ).map_err(|e| AivyxError::Other(format!("LockBuffer: {e}")))?;
+        let buffer = bitmap
+            .LockBuffer(windows::Graphics::Imaging::BitmapBufferAccessMode::Write)
+            .map_err(|e| AivyxError::Other(format!("LockBuffer: {e}")))?;
 
-        let reference = buffer.CreateReference()
+        let reference = buffer
+            .CreateReference()
             .map_err(|e| AivyxError::Other(format!("CreateReference: {e}")))?;
 
         // Use IMemoryBufferByteAccess to copy pixel data.
         use windows::Win32::System::WinRT::IMemoryBufferByteAccess;
         use windows::core::Interface;
-        let byte_access: IMemoryBufferByteAccess = reference.cast()
+        let byte_access: IMemoryBufferByteAccess = reference
+            .cast()
             .map_err(|e| AivyxError::Other(format!("IMemoryBufferByteAccess: {e}")))?;
 
         let mut data_ptr = std::ptr::null_mut();
         let mut capacity = 0u32;
         unsafe {
-            byte_access.GetBuffer(&mut data_ptr, &mut capacity)
+            byte_access
+                .GetBuffer(&mut data_ptr, &mut capacity)
                 .map_err(|e| AivyxError::Other(format!("GetBuffer: {e}")))?;
             std::ptr::copy_nonoverlapping(
                 pixels.as_ptr(),
@@ -73,12 +73,14 @@ pub async fn ocr_region(x: i32, y: i32, w: i32, h: i32) -> Result<String> {
         let engine = OcrEngine::TryCreateFromUserProfileLanguages()
             .map_err(|e| AivyxError::Other(format!("OcrEngine: {e}")))?;
 
-        let result = engine.RecognizeAsync(&bitmap)
+        let result = engine
+            .RecognizeAsync(&bitmap)
             .map_err(|e| AivyxError::Other(format!("RecognizeAsync: {e}")))?
             .get()
             .map_err(|e| AivyxError::Other(format!("OCR result: {e}")))?;
 
-        let text = result.Text()
+        let text = result
+            .Text()
             .map_err(|e| AivyxError::Other(format!("OCR text: {e}")))?
             .to_string();
 
@@ -87,7 +89,9 @@ pub async fn ocr_region(x: i32, y: i32, w: i32, h: i32) -> Result<String> {
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (x, y, w, h);
-        Err(AivyxError::Other("win_ocr: only available on Windows".into()))
+        Err(AivyxError::Other(
+            "win_ocr: only available on Windows".into(),
+        ))
     }
 }
 
@@ -102,7 +106,9 @@ pub async fn ocr_screen() -> Result<String> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        Err(AivyxError::Other("win_ocr: only available on Windows".into()))
+        Err(AivyxError::Other(
+            "win_ocr: only available on Windows".into(),
+        ))
     }
 }
 
@@ -111,9 +117,8 @@ pub async fn ocr_screen() -> Result<String> {
 fn capture_screen_region(x: i32, y: i32, w: i32, h: i32) -> Result<Vec<u8>> {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Gdi::{
-        BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject,
-        GetDC, GetDIBits, ReleaseDC, SelectObject,
-        BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, SRCCOPY,
+        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC,
+        DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetDIBits, ReleaseDC, SRCCOPY, SelectObject,
     };
 
     unsafe {

@@ -6,9 +6,7 @@
 use aivyx_core::{AivyxError, Result};
 
 /// Valid media control actions.
-pub const VALID_ACTIONS: &[&str] = &[
-    "play", "pause", "toggle", "next", "previous", "stop",
-];
+pub const VALID_ACTIONS: &[&str] = &["play", "pause", "toggle", "next", "previous", "stop"];
 
 /// MPRIS2 D-Bus interface name.
 const MPRIS_PLAYER_IFACE: &str = "org.mpris.MediaPlayer2.Player";
@@ -48,9 +46,7 @@ pub async fn list_players() -> Result<Vec<String>> {
 /// Get the "friendly" name of a player from its bus name.
 /// e.g., "org.mpris.MediaPlayer2.spotify" → "spotify"
 pub fn player_short_name(bus_name: &str) -> &str {
-    bus_name
-        .strip_prefix(MPRIS_BUS_PREFIX)
-        .unwrap_or(bus_name)
+    bus_name.strip_prefix(MPRIS_BUS_PREFIX).unwrap_or(bus_name)
 }
 
 /// Resolve the target player bus name. If `player` is None, pick the first available.
@@ -66,10 +62,9 @@ pub async fn resolve_player(player: Option<&str>) -> Result<String> {
     if let Some(name) = player {
         // Match by short name or full bus name.
         let lower = name.to_lowercase();
-        let found = players.iter().find(|p| {
-            p.to_lowercase() == lower
-                || player_short_name(p).to_lowercase() == lower
-        });
+        let found = players
+            .iter()
+            .find(|p| p.to_lowercase() == lower || player_short_name(p).to_lowercase() == lower);
         match found {
             Some(p) => Ok(p.clone()),
             None => {
@@ -190,9 +185,7 @@ async fn run_dbus_cmd(args: &[&str]) -> Result<String> {
                 Ok(String::from_utf8_lossy(&output.stdout).into_owned())
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                Err(AivyxError::Other(format!(
-                    "D-Bus command failed: {stderr}"
-                )))
+                Err(AivyxError::Other(format!("D-Bus command failed: {stderr}")))
             }
         }
         Ok(Err(e)) => {
@@ -271,10 +264,7 @@ mod tests {
             player_short_name("org.mpris.MediaPlayer2.spotify"),
             "spotify"
         );
-        assert_eq!(
-            player_short_name("org.mpris.MediaPlayer2.vlc"),
-            "vlc"
-        );
+        assert_eq!(player_short_name("org.mpris.MediaPlayer2.vlc"), "vlc");
         assert_eq!(player_short_name("custom"), "custom");
     }
 
@@ -289,10 +279,7 @@ mod tests {
     fn extract_variant_string_parses() {
         let output = r#"   variant       string "Playing"
 "#;
-        assert_eq!(
-            extract_variant_string(output),
-            Some("Playing".to_string())
-        );
+        assert_eq!(extract_variant_string(output), Some("Playing".to_string()));
     }
 
     #[test]

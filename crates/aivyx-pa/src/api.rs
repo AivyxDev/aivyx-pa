@@ -48,14 +48,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Json};
-use axum::Router;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, mpsc, Mutex};
+use tokio::sync::{Mutex, broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::CorsLayer;
 
@@ -63,11 +63,11 @@ use aivyx_agent::agent::Agent;
 use aivyx_audit::AuditLog;
 use aivyx_brain::{BrainStore, Goal, GoalFilter, GoalStatus, Priority};
 use aivyx_config::AivyxDirs;
+use aivyx_core::TaskId;
 use aivyx_core::{GoalId, MemoryId};
 use aivyx_crypto::{EncryptedStore, MasterKey};
 use aivyx_loop::Notification;
 use aivyx_memory::MemoryManager;
-use aivyx_core::TaskId;
 use aivyx_task_engine::MissionToolContext;
 
 use crate::config::PaConfig;
@@ -84,12 +84,22 @@ const MAX_LIST_VALUES: usize = 100;
 const MAX_VALUE_LEN: usize = 4_096;
 
 /// Reject empty or oversized strings at API boundaries.
-fn validate_non_empty(field: &str, value: &str, max_len: usize) -> Result<(), (StatusCode, String)> {
+fn validate_non_empty(
+    field: &str,
+    value: &str,
+    max_len: usize,
+) -> Result<(), (StatusCode, String)> {
     if value.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, format!("{field} must not be empty")));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("{field} must not be empty"),
+        ));
     }
     if value.len() > max_len {
-        return Err((StatusCode::PAYLOAD_TOO_LARGE, format!("{field} exceeds maximum length of {max_len}")));
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!("{field} exceeds maximum length of {max_len}"),
+        ));
     }
     Ok(())
 }
@@ -132,7 +142,10 @@ impl SubsystemHealth {
     }
 
     pub fn is_healthy(&self) -> bool {
-        matches!(self, SubsystemHealth::Healthy | SubsystemHealth::NotConfigured)
+        matches!(
+            self,
+            SubsystemHealth::Healthy | SubsystemHealth::NotConfigured
+        )
     }
 }
 
@@ -167,36 +180,36 @@ pub async fn run_health_checks(
     };
 
     // 1. LLM provider health check (3-second timeout)
-    status.provider = match tokio::time::timeout(
-        Duration::from_secs(3),
-        provider.health_check(),
-    ).await {
-        Ok(Ok(())) => SubsystemHealth::Healthy,
-        Ok(Err(e)) => SubsystemHealth::Degraded(format!("provider error: {e}")),
-        Err(_) => SubsystemHealth::Degraded("provider health check timed out (3s)".into()),
-    };
+    status.provider =
+        match tokio::time::timeout(Duration::from_secs(3), provider.health_check()).await {
+            Ok(Ok(())) => SubsystemHealth::Healthy,
+            Ok(Err(e)) => SubsystemHealth::Degraded(format!("provider error: {e}")),
+            Err(_) => SubsystemHealth::Degraded("provider health check timed out (3s)".into()),
+        };
 
     // 2. Email (IMAP) — quick connection test if configured
     if let Some(email_cfg) = email_config {
         match tokio::time::timeout(
             Duration::from_secs(5),
             aivyx_actions::email::imap_connect(email_cfg),
-        ).await {
+        )
+        .await
+        {
             Ok(Ok(_)) => status.email = SubsystemHealth::Healthy,
             Ok(Err(e)) => status.email = SubsystemHealth::Degraded(format!("IMAP: {e}")),
-            Err(_) => status.email = SubsystemHealth::Degraded("IMAP connection timed out (5s)".into()),
+            Err(_) => {
+                status.email = SubsystemHealth::Degraded("IMAP connection timed out (5s)".into())
+            }
         }
     }
     // else: remains NotConfigured
 
     // 3. Config parse check
     status.config = match std::fs::read_to_string(config_path) {
-        Ok(content) => {
-            match toml::from_str::<toml::Value>(&content) {
-                Ok(_) => SubsystemHealth::Healthy,
-                Err(e) => SubsystemHealth::Degraded(format!("parse error: {e}")),
-            }
-        }
+        Ok(content) => match toml::from_str::<toml::Value>(&content) {
+            Ok(_) => SubsystemHealth::Healthy,
+            Err(e) => SubsystemHealth::Degraded(format!("parse error: {e}")),
+        },
         Err(e) => SubsystemHealth::Degraded(format!("read error: {e}")),
     };
 
@@ -320,13 +333,28 @@ pub fn router(state: AppState) -> Router {
         // Chat
         .route("/api/chat", axum::routing::post(chat_stream))
         // Notifications
-        .route("/api/notifications", axum::routing::get(notifications_stream))
-        .route("/api/notifications/history", axum::routing::get(notification_history))
-        .route("/api/notifications/{id}/rate", axum::routing::post(rate_notification))
+        .route(
+            "/api/notifications",
+            axum::routing::get(notifications_stream),
+        )
+        .route(
+            "/api/notifications/history",
+            axum::routing::get(notification_history),
+        )
+        .route(
+            "/api/notifications/{id}/rate",
+            axum::routing::post(rate_notification),
+        )
         // Goals
-        .route("/api/goals", axum::routing::get(list_goals).post(create_goal))
+        .route(
+            "/api/goals",
+            axum::routing::get(list_goals).post(create_goal),
+        )
         .route("/api/goals/{id}", axum::routing::put(update_goal))
-        .route("/api/goals/{id}/complete", axum::routing::post(complete_goal))
+        .route(
+            "/api/goals/{id}/complete",
+            axum::routing::post(complete_goal),
+        )
         .route("/api/goals/{id}/abandon", axum::routing::post(abandon_goal))
         // Audit
         .route("/api/audit", axum::routing::get(list_audit))
@@ -334,26 +362,59 @@ pub fn router(state: AppState) -> Router {
         // Settings
         .route("/api/settings", axum::routing::get(get_settings))
         .route("/api/settings/toggle", axum::routing::put(toggle_setting))
-        .route("/api/settings/list", axum::routing::put(update_list_setting))
-        .route("/api/settings/value", axum::routing::put(update_value_setting))
-        .route("/api/settings/integration", axum::routing::post(configure_integration))
+        .route(
+            "/api/settings/list",
+            axum::routing::put(update_list_setting),
+        )
+        .route(
+            "/api/settings/value",
+            axum::routing::put(update_value_setting),
+        )
+        .route(
+            "/api/settings/integration",
+            axum::routing::post(configure_integration),
+        )
         // Sessions
-        .route("/api/sessions", axum::routing::get(list_sessions).post(create_session))
+        .route(
+            "/api/sessions",
+            axum::routing::get(list_sessions).post(create_session),
+        )
         .route("/api/sessions/{id}", axum::routing::delete(delete_session))
-        .route("/api/sessions/{id}/messages", axum::routing::get(get_session_messages))
+        .route(
+            "/api/sessions/{id}/messages",
+            axum::routing::get(get_session_messages),
+        )
         // Approvals
         .route("/api/approvals", axum::routing::get(list_approvals))
-        .route("/api/approvals/{id}/approve", axum::routing::post(approve_item))
+        .route(
+            "/api/approvals/{id}/approve",
+            axum::routing::post(approve_item),
+        )
         .route("/api/approvals/{id}/deny", axum::routing::post(deny_item))
         // Memories
         .route("/api/memories", axum::routing::get(list_memories))
-        .route("/api/memories/{id}", axum::routing::get(get_memory).delete(delete_memory))
+        .route(
+            "/api/memories/{id}",
+            axum::routing::get(get_memory).delete(delete_memory),
+        )
         // Missions
         .route("/api/missions", axum::routing::get(list_missions))
-        .route("/api/missions/{id}", axum::routing::get(get_mission).delete(delete_mission))
-        .route("/api/missions/{id}/cancel", axum::routing::post(cancel_mission))
-        .route("/api/missions/{id}/resume", axum::routing::post(resume_mission))
-        .route("/api/missions/{id}/approve", axum::routing::post(approve_mission))
+        .route(
+            "/api/missions/{id}",
+            axum::routing::get(get_mission).delete(delete_mission),
+        )
+        .route(
+            "/api/missions/{id}/cancel",
+            axum::routing::post(cancel_mission),
+        )
+        .route(
+            "/api/missions/{id}/resume",
+            axum::routing::post(resume_mission),
+        )
+        .route(
+            "/api/missions/{id}/approve",
+            axum::routing::post(approve_mission),
+        )
         // Dashboard
         .route("/api/dashboard", axum::routing::get(get_dashboard))
         // Health
@@ -407,7 +468,8 @@ pub struct ChatRequest {
 async fn chat_stream(
     State(state): State<AppState>,
     Json(req): Json<ChatRequest>,
-) -> Result<Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>>, (StatusCode, String)> {
+) -> Result<Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>>, (StatusCode, String)>
+{
     validate_non_empty("message", &req.message, MAX_CHAT_MESSAGE_LEN)?;
     if let Some(ref sid) = req.session_id {
         validate_non_empty("session_id", sid, MAX_SETTING_KEY_LEN)?;
@@ -446,7 +508,9 @@ async fn chat_stream(
             Ok(r) => r,
             Err(_) => {
                 cancel.cancel();
-                Err(aivyx_core::AivyxError::LlmProvider("agent turn timed out after 5 minutes".into()))
+                Err(aivyx_core::AivyxError::LlmProvider(
+                    "agent turn timed out after 5 minutes".into(),
+                ))
             }
         };
 
@@ -459,9 +523,8 @@ async fn chat_stream(
         };
 
         // Save to session
-        let sid = session_id.unwrap_or_else(|| {
-            format!("{}", chrono::Utc::now().timestamp_millis())
-        });
+        let sid =
+            session_id.unwrap_or_else(|| format!("{}", chrono::Utc::now().timestamp_millis()));
 
         // Extract the full conversation from the agent, preserving tool results.
         let messages = crate::sessions::conversation_to_session(agent.conversation());
@@ -478,7 +541,8 @@ async fn chat_stream(
 
         let title = {
             // Find the first user message for the title
-            let first_user = messages.iter()
+            let first_user = messages
+                .iter()
                 .find(|m| m.role == "user")
                 .map(|m| m.content.as_str())
                 .unwrap_or(&user_msg);
@@ -572,7 +636,9 @@ async fn notification_history(
     let history = state.notification_history.lock().await;
     let limit = query.limit.unwrap_or(100);
 
-    let filtered: Vec<&Notification> = history.iter().rev()
+    let filtered: Vec<&Notification> = history
+        .iter()
+        .rev()
         .filter(|n| {
             if let Some(ref src) = query.source {
                 n.source.starts_with(src.as_str())
@@ -602,21 +668,30 @@ async fn rate_notification(
     Path(id): Path<String>,
     Json(req): Json<RateRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let mm = state.memory_manager.as_ref()
+    let mm = state
+        .memory_manager
+        .as_ref()
         .ok_or((StatusCode::NOT_FOUND, "Memory manager not available".into()))?;
 
     // Find the notification
     let history = state.notification_history.lock().await;
-    let notif = history.iter().find(|n| n.id == id)
-        .ok_or((StatusCode::NOT_FOUND, format!("Notification {id} not found")))?;
+    let notif = history.iter().find(|n| n.id == id).ok_or((
+        StatusCode::NOT_FOUND,
+        format!("Notification {id} not found"),
+    ))?;
 
     // Only heartbeat items are ratable
     if !notif.source.starts_with("heartbeat") {
-        return Err((StatusCode::BAD_REQUEST, "Only heartbeat notifications can be rated".into()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Only heartbeat notifications can be rated".into(),
+        ));
     }
 
     let outcome = aivyx_memory::OutcomeRecord::new(
-        aivyx_memory::OutcomeSource::ToolCall { tool_name: "heartbeat_suggest".into() },
+        aivyx_memory::OutcomeSource::ToolCall {
+            tool_name: "heartbeat_suggest".into(),
+        },
         req.rating != aivyx_memory::Rating::Useless,
         notif.title.clone(),
         0,
@@ -629,10 +704,16 @@ async fn rate_notification(
     drop(history); // release lock before acquiring memory manager lock
 
     let mm_guard = mm.lock().await;
-    mm_guard.record_outcome(&outcome)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to record rating: {e}")))?;
+    mm_guard.record_outcome(&outcome).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to record rating: {e}"),
+        )
+    })?;
 
-    Ok(Json(serde_json::json!({ "status": "rated", "rating": req.rating })))
+    Ok(Json(
+        serde_json::json!({ "status": "rated", "rating": req.rating }),
+    ))
 }
 
 // ── Goals ──────────────────────────────────────────────────────
@@ -654,15 +735,29 @@ async fn list_goals(
     };
 
     let filter = match query.status.as_deref() {
-        Some("active") => GoalFilter { status: Some(GoalStatus::Active), ..Default::default() },
-        Some("completed") => GoalFilter { status: Some(GoalStatus::Completed), ..Default::default() },
-        Some("abandoned") => GoalFilter { status: Some(GoalStatus::Abandoned), ..Default::default() },
+        Some("active") => GoalFilter {
+            status: Some(GoalStatus::Active),
+            ..Default::default()
+        },
+        Some("completed") => GoalFilter {
+            status: Some(GoalStatus::Completed),
+            ..Default::default()
+        },
+        Some("abandoned") => GoalFilter {
+            status: Some(GoalStatus::Abandoned),
+            ..Default::default()
+        },
         _ => GoalFilter::default(),
     };
 
     match store.list_goals(&filter, key) {
-        Ok(goals) => Ok(Json(serde_json::json!({ "goals": goals, "available": true }))),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to load goals: {e}"))),
+        Ok(goals) => Ok(Json(
+            serde_json::json!({ "goals": goals, "available": true }),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to load goals: {e}"),
+        )),
     }
 }
 
@@ -670,10 +765,17 @@ async fn list_goals(
 const MAX_GOAL_TEXT_LEN: usize = 2_048;
 
 /// Helper: get brain store and key or return 404.
-fn brain_store_or_err(state: &AppState) -> Result<(&Arc<BrainStore>, &Arc<MasterKey>), (StatusCode, String)> {
-    state.brain_store.as_ref()
+fn brain_store_or_err(
+    state: &AppState,
+) -> Result<(&Arc<BrainStore>, &Arc<MasterKey>), (StatusCode, String)> {
+    state
+        .brain_store
+        .as_ref()
         .zip(state.brain_key.as_ref())
-        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "Brain not available".into()))
+        .ok_or((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Brain not available".into(),
+        ))
 }
 
 /// Parse a GoalId from a URL path segment.
@@ -722,10 +824,17 @@ async fn create_goal(
         goal.deadline = Some(deadline);
     }
 
-    store.upsert_goal(&goal, key)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create goal: {e}")))?;
+    store.upsert_goal(&goal, key).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create goal: {e}"),
+        )
+    })?;
 
-    Ok((StatusCode::CREATED, Json(serde_json::json!({ "goal": goal }))))
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "goal": goal })),
+    ))
 }
 
 /// Request body for `PUT /api/goals/:id`.
@@ -750,8 +859,14 @@ async fn update_goal(
     let (store, key) = brain_store_or_err(&state)?;
     let goal_id = parse_goal_id(&id)?;
 
-    let mut goal = store.get_goal(goal_id, key)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to load goal: {e}")))?
+    let mut goal = store
+        .get_goal(goal_id, key)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to load goal: {e}"),
+            )
+        })?
         .ok_or((StatusCode::NOT_FOUND, format!("Goal {id} not found")))?;
 
     if let Some(ref desc) = req.description {
@@ -770,8 +885,12 @@ async fn update_goal(
     }
     goal.updated_at = Utc::now();
 
-    store.upsert_goal(&goal, key)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update goal: {e}")))?;
+    store.upsert_goal(&goal, key).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to update goal: {e}"),
+        )
+    })?;
 
     Ok(Json(serde_json::json!({ "goal": goal })))
 }
@@ -784,24 +903,37 @@ async fn complete_goal(
     let (store, key) = brain_store_or_err(&state)?;
     let goal_id = parse_goal_id(&id)?;
 
-    let mut goal = store.get_goal(goal_id, key)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to load goal: {e}")))?
+    let mut goal = store
+        .get_goal(goal_id, key)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to load goal: {e}"),
+            )
+        })?
         .ok_or((StatusCode::NOT_FOUND, format!("Goal {id} not found")))?;
 
     if goal.status != GoalStatus::Active && goal.status != GoalStatus::Dormant {
-        return Err((StatusCode::CONFLICT, format!(
-            "Cannot complete goal in {:?} state", goal.status
-        )));
+        return Err((
+            StatusCode::CONFLICT,
+            format!("Cannot complete goal in {:?} state", goal.status),
+        ));
     }
 
     goal.status = GoalStatus::Completed;
     goal.progress = 1.0;
     goal.updated_at = Utc::now();
 
-    store.upsert_goal(&goal, key)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to complete goal: {e}")))?;
+    store.upsert_goal(&goal, key).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to complete goal: {e}"),
+        )
+    })?;
 
-    Ok(Json(serde_json::json!({ "status": "completed", "goal": goal })))
+    Ok(Json(
+        serde_json::json!({ "status": "completed", "goal": goal }),
+    ))
 }
 
 /// `POST /api/goals/:id/abandon` — mark a goal as abandoned.
@@ -812,23 +944,36 @@ async fn abandon_goal(
     let (store, key) = brain_store_or_err(&state)?;
     let goal_id = parse_goal_id(&id)?;
 
-    let mut goal = store.get_goal(goal_id, key)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to load goal: {e}")))?
+    let mut goal = store
+        .get_goal(goal_id, key)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to load goal: {e}"),
+            )
+        })?
         .ok_or((StatusCode::NOT_FOUND, format!("Goal {id} not found")))?;
 
     if goal.status != GoalStatus::Active && goal.status != GoalStatus::Dormant {
-        return Err((StatusCode::CONFLICT, format!(
-            "Cannot abandon goal in {:?} state", goal.status
-        )));
+        return Err((
+            StatusCode::CONFLICT,
+            format!("Cannot abandon goal in {:?} state", goal.status),
+        ));
     }
 
     goal.status = GoalStatus::Abandoned;
     goal.updated_at = Utc::now();
 
-    store.upsert_goal(&goal, key)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to abandon goal: {e}")))?;
+    store.upsert_goal(&goal, key).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to abandon goal: {e}"),
+        )
+    })?;
 
-    Ok(Json(serde_json::json!({ "status": "abandoned", "goal": goal })))
+    Ok(Json(
+        serde_json::json!({ "status": "abandoned", "goal": goal }),
+    ))
 }
 
 // ── Audit ──────────────────────────────────────────────────────
@@ -847,8 +992,13 @@ async fn list_audit(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let limit = query.limit.unwrap_or(100);
     match state.audit_log.recent(limit) {
-        Ok(entries) => Ok(Json(serde_json::json!({ "entries": entries, "count": entries.len() }))),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read audit log: {e}"))),
+        Ok(entries) => Ok(Json(
+            serde_json::json!({ "entries": entries, "count": entries.len() }),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to read audit log: {e}"),
+        )),
     }
 }
 
@@ -869,11 +1019,17 @@ async fn get_metrics(
     Query(query): Query<MetricsQuery>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let now = Utc::now();
-    let from = query.from.unwrap_or_else(|| now - chrono::Duration::hours(24));
+    let from = query
+        .from
+        .unwrap_or_else(|| now - chrono::Duration::hours(24));
     let to = query.to.unwrap_or(now);
 
-    let entries = state.audit_log.read_all_entries()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read audit log: {e}")))?;
+    let entries = state.audit_log.read_all_entries().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to read audit log: {e}"),
+        )
+    })?;
 
     let summary = aivyx_audit::compute_summary(&entries, from, to, &|_, _, _| 0.0);
     Ok(Json(summary))
@@ -939,8 +1095,12 @@ fn is_allowed(section: &str, key: &str, allowlist: &[(&str, &str)]) -> bool {
 async fn get_settings(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let snapshot = crate::settings::reload_settings_snapshot(&state.config_path)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to load settings: {e}")))?;
+    let snapshot = crate::settings::reload_settings_snapshot(&state.config_path).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to load settings: {e}"),
+        )
+    })?;
     Ok(Json(serde_json::json!({
         "settings": snapshot,
         "config_path": state.config_path,
@@ -966,15 +1126,26 @@ async fn toggle_setting(
     validate_non_empty("section", &req.section, MAX_SETTING_KEY_LEN)?;
     validate_non_empty("key", &req.key, MAX_SETTING_KEY_LEN)?;
     if !is_allowed(&req.section, &req.key, ALLOWED_TOGGLES) {
-        return Err((StatusCode::FORBIDDEN, format!(
-            "Setting [{}/{}] is not modifiable via this endpoint", req.section, req.key
-        )));
+        return Err((
+            StatusCode::FORBIDDEN,
+            format!(
+                "Setting [{}/{}] is not modifiable via this endpoint",
+                req.section, req.key
+            ),
+        ));
     }
     crate::settings::toggle_config_bool(&state.config_path, &req.section, &req.key, req.value)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to toggle setting: {e}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to toggle setting: {e}"),
+            )
+        })?;
 
     let snapshot = crate::settings::reload_settings_snapshot(&state.config_path).ok();
-    Ok(Json(serde_json::json!({ "status": "updated", "settings": snapshot })))
+    Ok(Json(
+        serde_json::json!({ "status": "updated", "settings": snapshot }),
+    ))
 }
 
 /// Request body for `PUT /api/settings/list`.
@@ -996,22 +1167,39 @@ async fn update_list_setting(
     validate_non_empty("section", &req.section, MAX_SETTING_KEY_LEN)?;
     validate_non_empty("key", &req.key, MAX_SETTING_KEY_LEN)?;
     if !is_allowed(&req.section, &req.key, ALLOWED_LISTS) {
-        return Err((StatusCode::FORBIDDEN, format!(
-            "Setting [{}/{}] is not modifiable via this endpoint", req.section, req.key
-        )));
+        return Err((
+            StatusCode::FORBIDDEN,
+            format!(
+                "Setting [{}/{}] is not modifiable via this endpoint",
+                req.section, req.key
+            ),
+        ));
     }
     if req.values.len() > MAX_LIST_VALUES {
-        return Err((StatusCode::PAYLOAD_TOO_LARGE, format!("values list exceeds maximum of {MAX_LIST_VALUES} entries")));
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!("values list exceeds maximum of {MAX_LIST_VALUES} entries"),
+        ));
     }
     for (i, v) in req.values.iter().enumerate() {
         if v.len() > MAX_VALUE_LEN {
-            return Err((StatusCode::PAYLOAD_TOO_LARGE, format!("values[{i}] exceeds maximum length of {MAX_VALUE_LEN}")));
+            return Err((
+                StatusCode::PAYLOAD_TOO_LARGE,
+                format!("values[{i}] exceeds maximum length of {MAX_VALUE_LEN}"),
+            ));
         }
     }
-    crate::settings::write_toml_string_array(&state.config_path, &req.section, &req.key, &req.values);
+    crate::settings::write_toml_string_array(
+        &state.config_path,
+        &req.section,
+        &req.key,
+        &req.values,
+    );
 
     let snapshot = crate::settings::reload_settings_snapshot(&state.config_path).ok();
-    Ok(Json(serde_json::json!({ "status": "updated", "settings": snapshot })))
+    Ok(Json(
+        serde_json::json!({ "status": "updated", "settings": snapshot }),
+    ))
 }
 
 /// Request body for `POST /api/settings/integration`.
@@ -1034,14 +1222,25 @@ async fn configure_integration(
     for (key, value) in &req.fields {
         validate_non_empty("field key", key, MAX_SETTING_KEY_LEN)?;
         if value.len() > MAX_VALUE_LEN {
-            return Err((StatusCode::PAYLOAD_TOO_LARGE, format!("field '{key}' value exceeds maximum length of {MAX_VALUE_LEN}")));
+            return Err((
+                StatusCode::PAYLOAD_TOO_LARGE,
+                format!("field '{key}' value exceeds maximum length of {MAX_VALUE_LEN}"),
+            ));
         }
     }
-    crate::settings::write_integration_config(&state.config_path, req.kind, &req.fields)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to configure integration: {e}")))?;
+    crate::settings::write_integration_config(&state.config_path, req.kind, &req.fields).map_err(
+        |e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to configure integration: {e}"),
+            )
+        },
+    )?;
 
     let snapshot = crate::settings::reload_settings_snapshot(&state.config_path).ok();
-    Ok(Json(serde_json::json!({ "status": "configured", "settings": snapshot })))
+    Ok(Json(
+        serde_json::json!({ "status": "configured", "settings": snapshot }),
+    ))
 }
 
 /// Request body for `PUT /api/settings/value`.
@@ -1068,41 +1267,65 @@ async fn update_value_setting(
     validate_non_empty("key", &req.key, MAX_SETTING_KEY_LEN)?;
     validate_non_empty("value", &req.value, MAX_VALUE_LEN)?;
     if !is_allowed(&req.section, &req.key, ALLOWED_VALUES) {
-        return Err((StatusCode::FORBIDDEN, format!(
-            "Setting [{}/{}] is not modifiable via this endpoint", req.section, req.key
-        )));
+        return Err((
+            StatusCode::FORBIDDEN,
+            format!(
+                "Setting [{}/{}] is not modifiable via this endpoint",
+                req.section, req.key
+            ),
+        ));
     }
 
     // Numeric keys are written without quotes; string keys with quotes
     let numeric_keys = [
-        "max_tool_calls_per_min", "max_cost_usd",
-        "formality", "verbosity", "warmth", "humor", "confidence",
+        "max_tool_calls_per_min",
+        "max_cost_usd",
+        "formality",
+        "verbosity",
+        "warmth",
+        "humor",
+        "confidence",
     ];
 
     if numeric_keys.contains(&req.key.as_str()) {
         // Validate it parses as a number
         if req.value.parse::<f64>().is_err() {
-            return Err((StatusCode::BAD_REQUEST, format!(
-                "'{key}' requires a numeric value, got: {val}", key = req.key, val = req.value
-            )));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "'{key}' requires a numeric value, got: {val}",
+                    key = req.key,
+                    val = req.value
+                ),
+            ));
         }
         crate::settings::write_toml_number(&state.config_path, &req.section, &req.key, &req.value)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write setting: {e}")))?;
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to write setting: {e}"),
+                )
+            })?;
     } else {
         crate::settings::write_toml_string(&state.config_path, &req.section, &req.key, &req.value)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write setting: {e}")))?;
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to write setting: {e}"),
+                )
+            })?;
     }
 
     let snapshot = crate::settings::reload_settings_snapshot(&state.config_path).ok();
-    Ok(Json(serde_json::json!({ "status": "updated", "settings": snapshot })))
+    Ok(Json(
+        serde_json::json!({ "status": "updated", "settings": snapshot }),
+    ))
 }
 
 // ── Sessions ───────────────────────────────────────────────────
 
 /// `GET /api/sessions` — list all chat sessions.
-async fn list_sessions(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn list_sessions(State(state): State<AppState>) -> impl IntoResponse {
     let sessions = crate::sessions::list_chat_sessions(&state.store, &state.conversation_key);
     Json(serde_json::json!({ "sessions": sessions }))
 }
@@ -1149,17 +1372,18 @@ async fn delete_session(
     crate::sessions::load_chat_messages(&state.store, &state.conversation_key, &id)
         .ok_or((StatusCode::NOT_FOUND, format!("Session {id} not found")))?;
     crate::sessions::delete_chat_session(&state.store, &id);
-    Ok(Json(serde_json::json!({ "status": "deleted", "session_id": id })))
+    Ok(Json(
+        serde_json::json!({ "status": "deleted", "session_id": id }),
+    ))
 }
 
 // ── Approvals ──────────────────────────────────────────────────
 
 /// `GET /api/approvals` — list approval items.
-async fn list_approvals(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn list_approvals(State(state): State<AppState>) -> impl IntoResponse {
     let approvals = state.approvals.lock().await;
-    let pending: Vec<&ApprovalItem> = approvals.iter()
+    let pending: Vec<&ApprovalItem> = approvals
+        .iter()
         .filter(|a| a.status == ApprovalStatus::Pending)
         .collect();
     Json(serde_json::json!({
@@ -1174,9 +1398,13 @@ async fn approve_item(
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let mut approvals = state.approvals.lock().await;
-    let item = approvals.iter_mut()
+    let item = approvals
+        .iter_mut()
         .find(|a| a.notification.id == id && a.status == ApprovalStatus::Pending)
-        .ok_or((StatusCode::NOT_FOUND, format!("Pending approval {id} not found")))?;
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            format!("Pending approval {id} not found"),
+        ))?;
 
     item.status = ApprovalStatus::Approved;
     item.resolved_at = Some(Utc::now());
@@ -1199,9 +1427,13 @@ async fn deny_item(
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let mut approvals = state.approvals.lock().await;
-    let item = approvals.iter_mut()
+    let item = approvals
+        .iter_mut()
         .find(|a| a.notification.id == id && a.status == ApprovalStatus::Pending)
-        .ok_or((StatusCode::NOT_FOUND, format!("Pending approval {id} not found")))?;
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            format!("Pending approval {id} not found"),
+        ))?;
 
     item.status = ApprovalStatus::Denied;
     item.resolved_at = Some(Utc::now());
@@ -1234,26 +1466,39 @@ async fn list_memories(
     State(state): State<AppState>,
     Query(query): Query<MemoriesQuery>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let mm = state.memory_manager.as_ref()
+    let mm = state
+        .memory_manager
+        .as_ref()
         .ok_or((StatusCode::NOT_FOUND, "Memory manager not available".into()))?;
 
     let mm_guard = mm.lock().await;
-    let ids = mm_guard.list_memories()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to list memories: {e}")))?;
+    let ids = mm_guard.list_memories().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to list memories: {e}"),
+        )
+    })?;
 
     let limit = query.limit.unwrap_or(200);
     let search = query.q.as_deref().unwrap_or("").to_lowercase();
 
     let mut memories: Vec<serde_json::Value> = Vec::new();
     for id in &ids {
-        if memories.len() >= limit { break; }
+        if memories.len() >= limit {
+            break;
+        }
 
         if let Ok(Some(entry)) = mm_guard.load_memory(id) {
             // Apply search filter if present
             if !search.is_empty() {
                 let content_match = entry.content.to_lowercase().contains(&search);
-                let tag_match = entry.tags.iter().any(|t| t.to_lowercase().contains(&search));
-                if !content_match && !tag_match { continue; }
+                let tag_match = entry
+                    .tags
+                    .iter()
+                    .any(|t| t.to_lowercase().contains(&search));
+                if !content_match && !tag_match {
+                    continue;
+                }
             }
 
             memories.push(serde_json::json!({
@@ -1282,7 +1527,9 @@ async fn get_memory(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let mm = state.memory_manager.as_ref()
+    let mm = state
+        .memory_manager
+        .as_ref()
         .ok_or((StatusCode::NOT_FOUND, "Memory manager not available".into()))?;
 
     let uuid = uuid::Uuid::parse_str(&id)
@@ -1290,8 +1537,14 @@ async fn get_memory(
     let memory_id = MemoryId::from_uuid(uuid);
 
     let mm_guard = mm.lock().await;
-    let entry = mm_guard.load_memory(&memory_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to load memory: {e}")))?
+    let entry = mm_guard
+        .load_memory(&memory_id)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to load memory: {e}"),
+            )
+        })?
         .ok_or((StatusCode::NOT_FOUND, format!("Memory {id} not found")))?;
 
     Ok(Json(serde_json::json!({
@@ -1305,7 +1558,9 @@ async fn delete_memory(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let mm = state.memory_manager.as_ref()
+    let mm = state
+        .memory_manager
+        .as_ref()
         .ok_or((StatusCode::NOT_FOUND, "Memory manager not available".into()))?;
 
     let uuid = uuid::Uuid::parse_str(&id)
@@ -1313,8 +1568,12 @@ async fn delete_memory(
     let memory_id = MemoryId::from_uuid(uuid);
 
     let mut mm_guard = mm.lock().await;
-    mm_guard.forget(&memory_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete memory: {e}")))?;
+    mm_guard.forget(&memory_id).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to delete memory: {e}"),
+        )
+    })?;
 
     Ok(Json(serde_json::json!({ "status": "deleted", "id": id })))
 }
@@ -1326,10 +1585,16 @@ const MAX_APPROVAL_MESSAGE_LEN: usize = 4_096;
 
 /// Helper: build a `TaskEngine` from the AppState's mission context.
 fn build_engine(state: &AppState) -> Result<aivyx_task_engine::TaskEngine, (StatusCode, String)> {
-    let ctx = state.mission_ctx.as_ref()
-        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "Mission engine not available".into()))?;
-    crate::agent::build_task_engine(ctx)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to build task engine: {e}")))
+    let ctx = state.mission_ctx.as_ref().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Mission engine not available".into(),
+    ))?;
+    crate::agent::build_task_engine(ctx).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to build task engine: {e}"),
+        )
+    })
 }
 
 /// Parse a TaskId from a URL path segment.
@@ -1353,8 +1618,12 @@ async fn list_missions(
     Query(query): Query<MissionsQuery>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let engine = build_engine(&state)?;
-    let mut missions = engine.list_missions()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to list missions: {e}")))?;
+    let mut missions = engine.list_missions().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to list missions: {e}"),
+        )
+    })?;
 
     // Filter by status
     if let Some(ref status) = query.status {
@@ -1372,7 +1641,9 @@ async fn list_missions(
     missions.sort_by(|a, b| {
         let a_active = !a.status.is_terminal();
         let b_active = !b.status.is_terminal();
-        b_active.cmp(&a_active).then(b.updated_at.cmp(&a.updated_at))
+        b_active
+            .cmp(&a_active)
+            .then(b.updated_at.cmp(&a.updated_at))
     });
 
     let limit = query.limit.unwrap_or(50);
@@ -1394,8 +1665,14 @@ async fn get_mission(
     let engine = build_engine(&state)?;
     let task_id = parse_task_id(&id)?;
 
-    let mission = engine.get_mission(&task_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to load mission: {e}")))?
+    let mission = engine
+        .get_mission(&task_id)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to load mission: {e}"),
+            )
+        })?
         .ok_or((StatusCode::NOT_FOUND, format!("Mission {id} not found")))?;
 
     Ok(Json(serde_json::json!({ "mission": mission })))
@@ -1409,8 +1686,12 @@ async fn cancel_mission(
     let engine = build_engine(&state)?;
     let task_id = parse_task_id(&id)?;
 
-    engine.cancel(&task_id)
-        .map_err(|e| (StatusCode::CONFLICT, format!("Failed to cancel mission: {e}")))?;
+    engine.cancel(&task_id).map_err(|e| {
+        (
+            StatusCode::CONFLICT,
+            format!("Failed to cancel mission: {e}"),
+        )
+    })?;
 
     Ok(Json(serde_json::json!({ "status": "cancelled", "id": id })))
 }
@@ -1427,14 +1708,24 @@ async fn resume_mission(
     let engine = build_engine(&state)?;
     let task_id = parse_task_id(&id)?;
 
-    let mission = engine.get_mission(&task_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to load mission: {e}")))?
+    let mission = engine
+        .get_mission(&task_id)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to load mission: {e}"),
+            )
+        })?
         .ok_or((StatusCode::NOT_FOUND, format!("Mission {id} not found")))?;
 
     if mission.status.is_terminal() {
-        return Err((StatusCode::CONFLICT, format!(
-            "Cannot resume mission in terminal state: {:?}", mission.status
-        )));
+        return Err((
+            StatusCode::CONFLICT,
+            format!(
+                "Cannot resume mission in terminal state: {:?}",
+                mission.status
+            ),
+        ));
     }
 
     // Spawn background resume — build a fresh engine for the background task.
@@ -1476,9 +1767,10 @@ async fn approve_mission(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     if let Some(ref msg) = req.message {
         if msg.len() > MAX_APPROVAL_MESSAGE_LEN {
-            return Err((StatusCode::PAYLOAD_TOO_LARGE, format!(
-                "message exceeds maximum length of {MAX_APPROVAL_MESSAGE_LEN}"
-            )));
+            return Err((
+                StatusCode::PAYLOAD_TOO_LARGE,
+                format!("message exceeds maximum length of {MAX_APPROVAL_MESSAGE_LEN}"),
+            ));
         }
     }
 
@@ -1486,19 +1778,37 @@ async fn approve_mission(
     let task_id = parse_task_id(&id)?;
 
     // Find which step is awaiting approval
-    let mission = engine.get_mission(&task_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to load mission: {e}")))?
+    let mission = engine
+        .get_mission(&task_id)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to load mission: {e}"),
+            )
+        })?
         .ok_or((StatusCode::NOT_FOUND, format!("Mission {id} not found")))?;
 
     let step_index = match &mission.status {
         aivyx_task_engine::TaskStatus::AwaitingApproval { step_index, .. } => *step_index,
-        _ => return Err((StatusCode::CONFLICT, format!(
-            "Mission is not awaiting approval; current status: {:?}", mission.status
-        ))),
+        _ => {
+            return Err((
+                StatusCode::CONFLICT,
+                format!(
+                    "Mission is not awaiting approval; current status: {:?}",
+                    mission.status
+                ),
+            ));
+        }
     };
 
-    engine.resolve_approval(&task_id, step_index, req.approved, req.message)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to resolve approval: {e}")))?;
+    engine
+        .resolve_approval(&task_id, step_index, req.approved, req.message)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to resolve approval: {e}"),
+            )
+        })?;
 
     let action = if req.approved { "approved" } else { "denied" };
 
@@ -1509,7 +1819,9 @@ async fn approve_mission(
         tokio::spawn(async move {
             let timeout = std::time::Duration::from_secs(1800);
             match tokio::time::timeout(timeout, bg_engine.resume(&bg_task_id, None, None)).await {
-                Ok(Err(e)) => tracing::error!("Background mission resume after approval failed: {e}"),
+                Ok(Err(e)) => {
+                    tracing::error!("Background mission resume after approval failed: {e}")
+                }
                 Err(_) => tracing::error!("Background mission resume after approval timed out"),
                 Ok(Ok(_)) => {}
             }
@@ -1532,8 +1844,12 @@ async fn delete_mission(
     let engine = build_engine(&state)?;
     let task_id = parse_task_id(&id)?;
 
-    engine.delete_mission(&task_id)
-        .map_err(|e| (StatusCode::CONFLICT, format!("Failed to delete mission: {e}")))?;
+    engine.delete_mission(&task_id).map_err(|e| {
+        (
+            StatusCode::CONFLICT,
+            format!("Failed to delete mission: {e}"),
+        )
+    })?;
 
     Ok(Json(serde_json::json!({ "status": "deleted", "id": id })))
 }
@@ -1569,34 +1885,53 @@ struct ScheduleSummary {
 }
 
 /// `GET /api/dashboard` — hydrate the frontend dashboard.
-async fn get_dashboard(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
-    let pending = state.approvals.lock().await
-        .iter().filter(|a| a.status == ApprovalStatus::Pending).count();
+async fn get_dashboard(State(state): State<AppState>) -> impl IntoResponse {
+    let pending = state
+        .approvals
+        .lock()
+        .await
+        .iter()
+        .filter(|a| a.status == ApprovalStatus::Pending)
+        .count();
     let notif_count = state.notification_history.lock().await.len();
 
-    let active_goals = state.brain_store.as_ref()
+    let active_goals = state
+        .brain_store
+        .as_ref()
         .zip(state.brain_key.as_ref())
         .and_then(|(store, key)| {
-            let filter = GoalFilter { status: Some(GoalStatus::Active), ..Default::default() };
+            let filter = GoalFilter {
+                status: Some(GoalStatus::Active),
+                ..Default::default()
+            };
             store.list_goals(&filter, key).ok().map(|g| g.len())
         })
         .unwrap_or(0);
 
-    let goal_count = state.brain_store.as_ref()
+    let goal_count = state
+        .brain_store
+        .as_ref()
         .zip(state.brain_key.as_ref())
         .and_then(|(store, key)| {
-            store.list_goals(&GoalFilter::default(), key).ok().map(|g| g.len())
+            store
+                .list_goals(&GoalFilter::default(), key)
+                .ok()
+                .map(|g| g.len())
         })
         .unwrap_or(0);
 
     let settings = crate::settings::reload_settings_snapshot(&state.config_path).ok();
-    let persona = state.pa_config.agent.as_ref()
+    let persona = state
+        .pa_config
+        .agent
+        .as_ref()
         .map(|a| a.persona.clone())
         .unwrap_or_else(|| "assistant".into());
 
-    let schedules: Vec<ScheduleSummary> = state.pa_config.schedules.iter()
+    let schedules: Vec<ScheduleSummary> = state
+        .pa_config
+        .schedules
+        .iter()
         .map(|s| ScheduleSummary {
             name: s.name.clone(),
             cron: s.cron.clone(),
@@ -1609,8 +1944,14 @@ async fn get_dashboard(
         if let Ok(engine) = build_engine(&state) {
             if let Ok(list) = engine.list_missions() {
                 let total = list.len();
-                let active = list.iter().filter(|m| !m.status.is_terminal() && !m.status.is_awaiting_approval()).count();
-                let awaiting = list.iter().filter(|m| m.status.is_awaiting_approval()).count();
+                let active = list
+                    .iter()
+                    .filter(|m| !m.status.is_terminal() && !m.status.is_awaiting_approval())
+                    .count();
+                let awaiting = list
+                    .iter()
+                    .filter(|m| m.status.is_awaiting_approval())
+                    .count();
                 (true, total, active, awaiting)
             } else {
                 (true, 0, 0, 0)

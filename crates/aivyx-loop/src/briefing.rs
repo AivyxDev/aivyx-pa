@@ -81,14 +81,14 @@ pub async fn build_briefing(
     let response_text = match aivyx_actions::retry::retry(
         &aivyx_actions::retry::RetryConfig::llm(),
         || async {
-            tokio::time::timeout(
-                std::time::Duration::from_secs(60),
-                provider.chat(&request),
-            ).await
-            .map_err(|_| aivyx_core::AivyxError::LlmProvider("timeout after 60s".into()))?
+            tokio::time::timeout(std::time::Duration::from_secs(60), provider.chat(&request))
+                .await
+                .map_err(|_| aivyx_core::AivyxError::LlmProvider("timeout after 60s".into()))?
         },
         aivyx_actions::retry::is_transient,
-    ).await {
+    )
+    .await
+    {
         Ok(response) => {
             tracing::info!(
                 "Morning briefing generated ({} tokens)",
@@ -123,12 +123,16 @@ const MAX_PROMPT_ITEM_LEN: usize = 200;
 /// Strips control characters, truncates to `MAX_PROMPT_ITEM_LEN`, and
 /// replaces characters that could confuse prompt parsing.
 pub fn sanitize_for_prompt(s: &str) -> String {
-    let cleaned: String = s.chars()
+    let cleaned: String = s
+        .chars()
         .filter(|c| !c.is_control() || *c == ' ')
         .take(MAX_PROMPT_ITEM_LEN)
         .collect();
     // Replace backticks and angle brackets that could form code fences or tags
-    cleaned.replace('`', "'").replace('<', "[").replace('>', "]")
+    cleaned
+        .replace('`', "'")
+        .replace('<', "[")
+        .replace('>', "]")
 }
 
 /// Compose the user-facing prompt that asks the LLM to summarize the day.
@@ -147,23 +151,37 @@ fn compose_briefing_prompt(ctx: &BriefingContext) -> String {
     ];
 
     // Goals section
-    let active: Vec<&Goal> = ctx.goals.iter()
+    let active: Vec<&Goal> = ctx
+        .goals
+        .iter()
         .filter(|g| g.status == GoalStatus::Active)
         .collect();
     if !active.is_empty() {
         parts.push("\n## Active Goals".to_string());
         for goal in &active {
-            parts.push(format!("- {} ({:.0}% complete)", goal.description, goal.progress * 100.0));
+            parts.push(format!(
+                "- {} ({:.0}% complete)",
+                goal.description,
+                goal.progress * 100.0
+            ));
         }
     }
 
     // Calendar section
     if !ctx.calendar_events.is_empty() {
-        parts.push(format!("\n## Today's Calendar ({})", ctx.calendar_events.len()));
+        parts.push(format!(
+            "\n## Today's Calendar ({})",
+            ctx.calendar_events.len()
+        ));
         for event in &ctx.calendar_events {
             let summary = sanitize_for_prompt(&event.summary);
             if let Some(ref loc) = event.location {
-                parts.push(format!("- {} {} ({})", event.time, summary, sanitize_for_prompt(loc)));
+                parts.push(format!(
+                    "- {} {} ({})",
+                    event.time,
+                    summary,
+                    sanitize_for_prompt(loc)
+                ));
             } else {
                 parts.push(format!("- {} {}", event.time, summary));
             }
@@ -207,7 +225,10 @@ fn compose_briefing_prompt(ctx: &BriefingContext) -> String {
 
     // Finance section
     if !ctx.upcoming_bills.is_empty() {
-        parts.push(format!("\n## Upcoming Bills ({})", ctx.upcoming_bills.len()));
+        parts.push(format!(
+            "\n## Upcoming Bills ({})",
+            ctx.upcoming_bills.len()
+        ));
         for bill in &ctx.upcoming_bills {
             parts.push(format!("- {}", sanitize_for_prompt(bill)));
         }
@@ -219,7 +240,12 @@ fn compose_briefing_prompt(ctx: &BriefingContext) -> String {
         }
     }
 
-    if active.is_empty() && ctx.calendar_events.is_empty() && ctx.email_subjects.is_empty() && ctx.recent_schedules.is_empty() && ctx.upcoming_bills.is_empty() {
+    if active.is_empty()
+        && ctx.calendar_events.is_empty()
+        && ctx.email_subjects.is_empty()
+        && ctx.recent_schedules.is_empty()
+        && ctx.upcoming_bills.is_empty()
+    {
         parts.push("\nNo pending items. Give a brief, friendly good-morning message.".to_string());
     }
 
@@ -234,16 +260,21 @@ fn parse_briefing_response(text: &str) -> (String, Vec<BriefingItem>) {
 
     // Try to find and parse a JSON object.
     if let Some(json_str) = crate::extract_json_object(&cleaned)
-        && let Ok(parsed) = serde_json::from_str::<BriefingJson>(json_str) {
-            let items = parsed.items.into_iter().map(|i| BriefingItem {
+        && let Ok(parsed) = serde_json::from_str::<BriefingJson>(json_str)
+    {
+        let items = parsed
+            .items
+            .into_iter()
+            .map(|i| BriefingItem {
                 source: i.source,
                 title: i.title,
                 detail: i.detail,
                 priority: parse_priority(&i.priority),
                 actionable: i.actionable,
-            }).collect();
-            return (parsed.summary, items);
-        }
+            })
+            .collect();
+        return (parsed.summary, items);
+    }
 
     // Fallback: use raw text as summary, no structured items.
     tracing::debug!("Briefing response was not valid JSON, using raw text as summary");
@@ -269,7 +300,9 @@ struct BriefingItemJson {
     actionable: bool,
 }
 
-fn default_priority_str() -> String { "Normal".to_string() }
+fn default_priority_str() -> String {
+    "Normal".to_string()
+}
 
 fn parse_priority(s: &str) -> Priority {
     match s.to_ascii_lowercase().as_str() {
@@ -297,34 +330,54 @@ fn strip_code_fences(text: &str) -> String {
     trimmed.to_string()
 }
 
-
 /// Fallback briefing when the LLM call fails — plain text from raw data.
 fn fallback_briefing(ctx: &BriefingContext) -> String {
     let mut lines = vec!["Good morning! Here's what I know:".to_string()];
 
-    let active_count = ctx.goals.iter().filter(|g| g.status == GoalStatus::Active).count();
+    let active_count = ctx
+        .goals
+        .iter()
+        .filter(|g| g.status == GoalStatus::Active)
+        .count();
     if active_count > 0 {
         lines.push(format!("- {active_count} active goal(s)"));
     }
     if !ctx.calendar_events.is_empty() {
-        lines.push(format!("- {} calendar event(s) today", ctx.calendar_events.len()));
+        lines.push(format!(
+            "- {} calendar event(s) today",
+            ctx.calendar_events.len()
+        ));
     }
     if !ctx.calendar_conflicts.is_empty() {
-        lines.push(format!("- {} scheduling conflict(s) detected!", ctx.calendar_conflicts.len()));
+        lines.push(format!(
+            "- {} scheduling conflict(s) detected!",
+            ctx.calendar_conflicts.len()
+        ));
     }
     if !ctx.email_subjects.is_empty() {
         lines.push(format!("- {} unread email(s)", ctx.email_subjects.len()));
     }
     if !ctx.recent_schedules.is_empty() {
-        lines.push(format!("- {} schedule(s) ran recently", ctx.recent_schedules.len()));
+        lines.push(format!(
+            "- {} schedule(s) ran recently",
+            ctx.recent_schedules.len()
+        ));
     }
     if !ctx.upcoming_bills.is_empty() {
         lines.push(format!("- {} upcoming bill(s)", ctx.upcoming_bills.len()));
     }
     if !ctx.over_budget.is_empty() {
-        lines.push(format!("- {} category budget(s) exceeded", ctx.over_budget.len()));
+        lines.push(format!(
+            "- {} category budget(s) exceeded",
+            ctx.over_budget.len()
+        ));
     }
-    if active_count == 0 && ctx.calendar_events.is_empty() && ctx.email_subjects.is_empty() && ctx.recent_schedules.is_empty() && ctx.upcoming_bills.is_empty() {
+    if active_count == 0
+        && ctx.calendar_events.is_empty()
+        && ctx.email_subjects.is_empty()
+        && ctx.recent_schedules.is_empty()
+        && ctx.upcoming_bills.is_empty()
+    {
         lines.push("- No pending items. Have a great day!".to_string());
     }
 
@@ -345,7 +398,9 @@ mod tests {
 
     #[async_trait::async_trait]
     impl LlmProvider for MockProvider {
-        fn name(&self) -> &str { "mock" }
+        fn name(&self) -> &str {
+            "mock"
+        }
 
         async fn chat(&self, _request: &aivyx_llm::ChatRequest) -> Result<aivyx_llm::ChatResponse> {
             Ok(aivyx_llm::ChatResponse {
@@ -364,10 +419,14 @@ mod tests {
 
     #[async_trait::async_trait]
     impl LlmProvider for FailProvider {
-        fn name(&self) -> &str { "fail" }
+        fn name(&self) -> &str {
+            "fail"
+        }
 
         async fn chat(&self, _request: &aivyx_llm::ChatRequest) -> Result<aivyx_llm::ChatResponse> {
-            Err(aivyx_core::AivyxError::LlmProvider("connection refused".into()))
+            Err(aivyx_core::AivyxError::LlmProvider(
+                "connection refused".into(),
+            ))
         }
     }
 
@@ -413,7 +472,10 @@ mod tests {
         };
 
         let briefing = build_briefing(&provider, "You are helpful.", ctx).await;
-        assert_eq!(briefing.summary, "Good morning! You have 2 goals and 3 emails.");
+        assert_eq!(
+            briefing.summary,
+            "Good morning! You have 2 goals and 3 emails."
+        );
         assert_eq!(briefing.items.len(), 1);
         assert_eq!(briefing.items[0].source, "goal");
         assert!(briefing.items[0].actionable);
@@ -478,10 +540,7 @@ mod tests {
     fn compose_prompt_includes_emails() {
         let ctx = BriefingContext {
             goals: vec![],
-            email_subjects: vec![
-                "Subject 1".into(),
-                "Subject 2".into(),
-            ],
+            email_subjects: vec!["Subject 1".into(), "Subject 2".into()],
             recent_schedules: vec![],
             calendar_events: vec![],
             calendar_conflicts: vec![],
@@ -614,7 +673,10 @@ mod tests {
     #[test]
     fn extract_json_with_string_braces() {
         let text = r#"{"msg": "hello {world}"}"#;
-        assert_eq!(extract_json_object(text), Some(r#"{"msg": "hello {world}"}"#));
+        assert_eq!(
+            extract_json_object(text),
+            Some(r#"{"msg": "hello {world}"}"#)
+        );
     }
 
     #[test]

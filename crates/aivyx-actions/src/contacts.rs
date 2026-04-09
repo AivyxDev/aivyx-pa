@@ -74,21 +74,13 @@ const CONTACT_PREFIX: &str = "contact:";
 // ── Local contact store ──────────────────────────────────────────
 
 /// Save a contact to the encrypted store.
-pub fn save_contact(
-    store: &EncryptedStore,
-    key: &MasterKey,
-    contact: &Contact,
-) -> Result<()> {
-    let json = serde_json::to_vec(contact)
-        .map_err(aivyx_core::AivyxError::Serialization)?;
+pub fn save_contact(store: &EncryptedStore, key: &MasterKey, contact: &Contact) -> Result<()> {
+    let json = serde_json::to_vec(contact).map_err(aivyx_core::AivyxError::Serialization)?;
     store.put(&format!("{CONTACT_PREFIX}{}", contact.uid), &json, key)
 }
 
 /// Load all contacts from the encrypted store.
-pub fn load_all_contacts(
-    store: &EncryptedStore,
-    key: &MasterKey,
-) -> Result<Vec<Contact>> {
+pub fn load_all_contacts(store: &EncryptedStore, key: &MasterKey) -> Result<Vec<Contact>> {
     let keys = store.list_keys()?;
     let mut contacts = Vec::new();
 
@@ -128,10 +120,16 @@ pub fn resolve_contact(
         .into_iter()
         .filter(|c| {
             c.name.to_lowercase().contains(&q)
-                || c.first_name.as_ref().is_some_and(|n| n.to_lowercase().contains(&q))
-                || c.last_name.as_ref().is_some_and(|n| n.to_lowercase().contains(&q))
+                || c.first_name
+                    .as_ref()
+                    .is_some_and(|n| n.to_lowercase().contains(&q))
+                || c.last_name
+                    .as_ref()
+                    .is_some_and(|n| n.to_lowercase().contains(&q))
                 || c.emails.iter().any(|e| e.to_lowercase().contains(&q))
-                || c.company.as_ref().is_some_and(|co| co.to_lowercase().contains(&q))
+                || c.company
+                    .as_ref()
+                    .is_some_and(|co| co.to_lowercase().contains(&q))
         })
         .collect())
 }
@@ -191,10 +189,7 @@ pub async fn fetch_contacts(config: &ContactsConfig) -> Result<Vec<Contact>> {
 }
 
 /// Discover the first address book URL via PROPFIND.
-async fn discover_addressbook(
-    client: &reqwest::Client,
-    config: &ContactsConfig,
-) -> Result<String> {
+async fn discover_addressbook(client: &reqwest::Client, config: &ContactsConfig) -> Result<String> {
     let propfind_body = r#"<?xml version="1.0" encoding="UTF-8"?>
 <d:propfind xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
   <d:prop>
@@ -221,9 +216,8 @@ async fn discover_addressbook(
         .await
         .map_err(|e| aivyx_core::AivyxError::Http(e.to_string()))?;
 
-    let doc = roxmltree::Document::parse(&body).map_err(|e| {
-        aivyx_core::AivyxError::Http(format!("CardDAV XML parse error: {e}"))
-    })?;
+    let doc = roxmltree::Document::parse(&body)
+        .map_err(|e| aivyx_core::AivyxError::Http(format!("CardDAV XML parse error: {e}")))?;
 
     // Look for <response> elements that have <resourcetype><addressbook/>.
     for response_node in doc.descendants().filter(|n| n.has_tag_name("response")) {
@@ -232,9 +226,10 @@ async fn discover_addressbook(
             .any(|n| n.has_tag_name("addressbook"));
         if is_addressbook
             && let Some(href_node) = response_node.descendants().find(|n| n.has_tag_name("href"))
-                && let Some(href) = href_node.text() {
-                    return Ok(resolve_url(&config.url, href));
-                }
+            && let Some(href) = href_node.text()
+        {
+            return Ok(resolve_url(&config.url, href));
+        }
     }
 
     Err(aivyx_core::AivyxError::Http(
@@ -260,18 +255,18 @@ use crate::resolve_url;
 
 /// Parse a CardDAV multistatus XML response and extract vCard contacts.
 fn parse_multistatus_contacts(xml: &str) -> Result<Vec<Contact>> {
-    let doc = roxmltree::Document::parse(xml).map_err(|e| {
-        aivyx_core::AivyxError::Http(format!("CardDAV XML parse error: {e}"))
-    })?;
+    let doc = roxmltree::Document::parse(xml)
+        .map_err(|e| aivyx_core::AivyxError::Http(format!("CardDAV XML parse error: {e}")))?;
 
     let mut contacts = Vec::new();
 
     for node in doc.descendants() {
         if node.has_tag_name("address-data")
             && let Some(vcard_text) = node.text()
-                && let Some(contact) = parse_vcard(vcard_text) {
-                    contacts.push(contact);
-                }
+            && let Some(contact) = parse_vcard(vcard_text)
+        {
+            contacts.push(contact);
+        }
     }
 
     contacts.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
@@ -406,9 +401,9 @@ pub fn enrich_from_email_header(
 
     // Check if we already have a contact with this email.
     let existing = load_all_contacts(store, key)?;
-    let already_exists = existing.iter().any(|c| {
-        c.emails.iter().any(|e| e.eq_ignore_ascii_case(&email))
-    });
+    let already_exists = existing
+        .iter()
+        .any(|c| c.emails.iter().any(|e| e.eq_ignore_ascii_case(&email)));
 
     if already_exists {
         return Ok(None);
@@ -443,14 +438,19 @@ fn parse_email_from(header: &str) -> (Option<String>, Option<String>) {
 
     // Try "Name <email@domain>" format
     if let Some(angle_start) = header.rfind('<')
-        && let Some(angle_end) = header.rfind('>') {
-            let email = header[angle_start + 1..angle_end].trim().to_string();
-            let name_part = header[..angle_start].trim();
-            // Strip quotes around name
-            let name = name_part.trim_matches('"').trim();
-            let name = if name.is_empty() { None } else { Some(name.to_string()) };
-            return (name, Some(email));
-        }
+        && let Some(angle_end) = header.rfind('>')
+    {
+        let email = header[angle_start + 1..angle_end].trim().to_string();
+        let name_part = header[..angle_start].trim();
+        // Strip quotes around name
+        let name = name_part.trim_matches('"').trim();
+        let name = if name.is_empty() {
+            None
+        } else {
+            Some(name.to_string())
+        };
+        return (name, Some(email));
+    }
 
     // Plain email address
     if header.contains('@') {
@@ -595,7 +595,10 @@ impl Action for SyncContacts {
             save_contact(&self.store, &self.key, contact)?;
         }
 
-        tracing::info!("Contact sync: {added} added, {updated} updated ({} total)", remote.len());
+        tracing::info!(
+            "Contact sync: {added} added, {updated} updated ({} total)",
+            remote.len()
+        );
 
         Ok(serde_json::json!({
             "status": "synced",
@@ -654,11 +657,19 @@ impl Action for AddContact {
             last_name: input["last_name"].as_str().map(String::from),
             emails: input["emails"]
                 .as_array()
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default(),
             phones: input["phones"]
                 .as_array()
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default(),
             company: input["company"].as_str().map(String::from),
             title: input["title"].as_str().map(String::from),
@@ -716,23 +727,42 @@ impl Action for UpdateContact {
             .ok_or_else(|| aivyx_core::AivyxError::Validation("'uid' is required".into()))?;
 
         let store_key = format!("{CONTACT_PREFIX}{uid}");
-        let bytes = self.store.get(&store_key, &self.key)?
-            .ok_or_else(|| aivyx_core::AivyxError::Validation(format!("Contact '{uid}' not found")))?;
+        let bytes = self.store.get(&store_key, &self.key)?.ok_or_else(|| {
+            aivyx_core::AivyxError::Validation(format!("Contact '{uid}' not found"))
+        })?;
         let mut contact: Contact = serde_json::from_slice(&bytes)
             .map_err(|e| aivyx_core::AivyxError::Other(format!("Corrupt contact: {e}")))?;
 
-        if let Some(v) = input["name"].as_str() { contact.name = v.into(); }
-        if !input["first_name"].is_null() { contact.first_name = input["first_name"].as_str().map(String::from); }
-        if !input["last_name"].is_null() { contact.last_name = input["last_name"].as_str().map(String::from); }
+        if let Some(v) = input["name"].as_str() {
+            contact.name = v.into();
+        }
+        if !input["first_name"].is_null() {
+            contact.first_name = input["first_name"].as_str().map(String::from);
+        }
+        if !input["last_name"].is_null() {
+            contact.last_name = input["last_name"].as_str().map(String::from);
+        }
         if let Some(a) = input["emails"].as_array() {
-            contact.emails = a.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+            contact.emails = a
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect();
         }
         if let Some(a) = input["phones"].as_array() {
-            contact.phones = a.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+            contact.phones = a
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect();
         }
-        if !input["company"].is_null() { contact.company = input["company"].as_str().map(String::from); }
-        if !input["title"].is_null() { contact.title = input["title"].as_str().map(String::from); }
-        if !input["notes"].is_null() { contact.notes = input["notes"].as_str().map(String::from); }
+        if !input["company"].is_null() {
+            contact.company = input["company"].as_str().map(String::from);
+        }
+        if !input["title"].is_null() {
+            contact.title = input["title"].as_str().map(String::from);
+        }
+        if !input["notes"].is_null() {
+            contact.notes = input["notes"].as_str().map(String::from);
+        }
 
         save_contact(&self.store, &self.key, &contact)?;
 
@@ -777,7 +807,9 @@ impl Action for DeleteContact {
         let store_key = format!("{CONTACT_PREFIX}{uid}");
         // Verify it exists before deleting
         if self.store.get(&store_key, &self.key)?.is_none() {
-            return Err(aivyx_core::AivyxError::Validation(format!("Contact '{uid}' not found")));
+            return Err(aivyx_core::AivyxError::Validation(format!(
+                "Contact '{uid}' not found"
+            )));
         }
 
         self.store.delete(&store_key)?;
@@ -795,10 +827,8 @@ mod tests {
     use aivyx_crypto::MasterKey;
 
     fn setup() -> (Arc<EncryptedStore>, MasterKey, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join(format!(
-            "aivyx-contacts-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("aivyx-contacts-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = EncryptedStore::open(dir.join("store.db")).unwrap();
         let key = MasterKey::generate();
@@ -864,7 +894,8 @@ mod tests {
         // The fold indicator is stripped; the rest is appended directly.
         // Real vCard generators fold at word boundaries, so the previous line
         // typically ends with a space before the fold.
-        let vcard = "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:A Very Long Name \r\n That Gets Folded\r\nEND:VCARD";
+        let vcard =
+            "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:A Very Long Name \r\n That Gets Folded\r\nEND:VCARD";
         let contact = parse_vcard(vcard).unwrap();
         assert_eq!(contact.name, "A Very Long Name That Gets Folded");
     }
@@ -1005,21 +1036,41 @@ END:VCARD</card:address-data>
         let (store, key, dir) = setup();
         let ck = contacts_key(&key);
 
-        save_contact(&store, &ck, &Contact {
-            uid: "c1".into(), name: "Sarah Jones".into(),
-            first_name: Some("Sarah".into()), last_name: Some("Jones".into()),
-            emails: vec!["sarah@acme.com".into()],
-            phones: vec![], company: None, title: None, notes: None,
-            source: "manual".into(),
-        }).unwrap();
+        save_contact(
+            &store,
+            &ck,
+            &Contact {
+                uid: "c1".into(),
+                name: "Sarah Jones".into(),
+                first_name: Some("Sarah".into()),
+                last_name: Some("Jones".into()),
+                emails: vec!["sarah@acme.com".into()],
+                phones: vec![],
+                company: None,
+                title: None,
+                notes: None,
+                source: "manual".into(),
+            },
+        )
+        .unwrap();
 
-        save_contact(&store, &ck, &Contact {
-            uid: "c2".into(), name: "Bob Smith".into(),
-            first_name: Some("Bob".into()), last_name: Some("Smith".into()),
-            emails: vec!["bob@example.com".into()],
-            phones: vec![], company: None, title: None, notes: None,
-            source: "manual".into(),
-        }).unwrap();
+        save_contact(
+            &store,
+            &ck,
+            &Contact {
+                uid: "c2".into(),
+                name: "Bob Smith".into(),
+                first_name: Some("Bob".into()),
+                last_name: Some("Smith".into()),
+                emails: vec!["bob@example.com".into()],
+                phones: vec![],
+                company: None,
+                title: None,
+                notes: None,
+                source: "manual".into(),
+            },
+        )
+        .unwrap();
 
         let results = resolve_contact(&store, &ck, "sarah").unwrap();
         assert_eq!(results.len(), 1);
@@ -1033,13 +1084,23 @@ END:VCARD</card:address-data>
         let (store, key, dir) = setup();
         let ck = contacts_key(&key);
 
-        save_contact(&store, &ck, &Contact {
-            uid: "c1".into(), name: "Alice".into(),
-            first_name: None, last_name: None,
-            emails: vec!["alice@wonderland.com".into()],
-            phones: vec![], company: None, title: None, notes: None,
-            source: "manual".into(),
-        }).unwrap();
+        save_contact(
+            &store,
+            &ck,
+            &Contact {
+                uid: "c1".into(),
+                name: "Alice".into(),
+                first_name: None,
+                last_name: None,
+                emails: vec!["alice@wonderland.com".into()],
+                phones: vec![],
+                company: None,
+                title: None,
+                notes: None,
+                source: "manual".into(),
+            },
+        )
+        .unwrap();
 
         let results = resolve_contact(&store, &ck, "wonderland").unwrap();
         assert_eq!(results.len(), 1);
@@ -1053,12 +1114,23 @@ END:VCARD</card:address-data>
         let (store, key, dir) = setup();
         let ck = contacts_key(&key);
 
-        save_contact(&store, &ck, &Contact {
-            uid: "c1".into(), name: "Team Lead".into(),
-            first_name: None, last_name: None, emails: vec![],
-            phones: vec![], company: Some("Acme Corp".into()),
-            title: None, notes: None, source: "manual".into(),
-        }).unwrap();
+        save_contact(
+            &store,
+            &ck,
+            &Contact {
+                uid: "c1".into(),
+                name: "Team Lead".into(),
+                first_name: None,
+                last_name: None,
+                emails: vec![],
+                phones: vec![],
+                company: Some("Acme Corp".into()),
+                title: None,
+                notes: None,
+                source: "manual".into(),
+            },
+        )
+        .unwrap();
 
         let results = resolve_contact(&store, &ck, "acme").unwrap();
         assert_eq!(results.len(), 1);
@@ -1071,12 +1143,23 @@ END:VCARD</card:address-data>
         let (store, key, dir) = setup();
         let ck = contacts_key(&key);
 
-        save_contact(&store, &ck, &Contact {
-            uid: "c1".into(), name: "SARAH JONES".into(),
-            first_name: Some("SARAH".into()), last_name: Some("JONES".into()),
-            emails: vec![], phones: vec![], company: None,
-            title: None, notes: None, source: "manual".into(),
-        }).unwrap();
+        save_contact(
+            &store,
+            &ck,
+            &Contact {
+                uid: "c1".into(),
+                name: "SARAH JONES".into(),
+                first_name: Some("SARAH".into()),
+                last_name: Some("JONES".into()),
+                emails: vec![],
+                phones: vec![],
+                company: None,
+                title: None,
+                notes: None,
+                source: "manual".into(),
+            },
+        )
+        .unwrap();
 
         let results = resolve_contact(&store, &ck, "sarah").unwrap();
         assert_eq!(results.len(), 1);
@@ -1113,13 +1196,23 @@ END:VCARD</card:address-data>
         let ck = contacts_key(&key);
 
         // Pre-existing contact with this email
-        save_contact(&store, &ck, &Contact {
-            uid: "existing".into(), name: "Jane D.".into(),
-            first_name: None, last_name: None,
-            emails: vec!["jane@example.com".into()],
-            phones: vec![], company: None, title: None, notes: None,
-            source: "manual".into(),
-        }).unwrap();
+        save_contact(
+            &store,
+            &ck,
+            &Contact {
+                uid: "existing".into(),
+                name: "Jane D.".into(),
+                first_name: None,
+                last_name: None,
+                emails: vec!["jane@example.com".into()],
+                phones: vec![],
+                company: None,
+                title: None,
+                notes: None,
+                source: "manual".into(),
+            },
+        )
+        .unwrap();
 
         let result = enrich_from_email_header(&store, &ck, "Jane Doe <jane@example.com>").unwrap();
         assert!(result.is_none(), "Should not create duplicate contact");
@@ -1195,7 +1288,10 @@ END:VCARD</card:address-data>
     #[test]
     fn add_contact_schema() {
         let (store, key, dir) = setup();
-        let tool = AddContact { store, key: contacts_key(&key) };
+        let tool = AddContact {
+            store,
+            key: contacts_key(&key),
+        };
         assert_eq!(tool.name(), "add_contact");
         let schema = tool.input_schema();
         let required = schema["required"].as_array().unwrap();
@@ -1206,7 +1302,10 @@ END:VCARD</card:address-data>
     #[test]
     fn update_contact_schema() {
         let (store, key, dir) = setup();
-        let tool = UpdateContact { store, key: contacts_key(&key) };
+        let tool = UpdateContact {
+            store,
+            key: contacts_key(&key),
+        };
         assert_eq!(tool.name(), "update_contact");
         let schema = tool.input_schema();
         let required = schema["required"].as_array().unwrap();
@@ -1217,7 +1316,10 @@ END:VCARD</card:address-data>
     #[test]
     fn delete_contact_schema() {
         let (store, key, dir) = setup();
-        let tool = DeleteContact { store, key: contacts_key(&key) };
+        let tool = DeleteContact {
+            store,
+            key: contacts_key(&key),
+        };
         assert_eq!(tool.name(), "delete_contact");
         let schema = tool.input_schema();
         let required = schema["required"].as_array().unwrap();
@@ -1231,11 +1333,17 @@ END:VCARD</card:address-data>
         let ck = contacts_key(&key);
 
         // Add
-        let add = AddContact { store: store.clone(), key: aivyx_crypto::MasterKey::from_bytes(ck.expose_secret().try_into().unwrap()) };
-        let result = add.execute(serde_json::json!({
-            "name": "Test User",
-            "emails": ["test@example.com"],
-        })).await.unwrap();
+        let add = AddContact {
+            store: store.clone(),
+            key: aivyx_crypto::MasterKey::from_bytes(ck.expose_secret().try_into().unwrap()),
+        };
+        let result = add
+            .execute(serde_json::json!({
+                "name": "Test User",
+                "emails": ["test@example.com"],
+            }))
+            .await
+            .unwrap();
         let uid = result["uid"].as_str().unwrap().to_string();
         assert_eq!(result["status"], "created");
 
@@ -1245,12 +1353,18 @@ END:VCARD</card:address-data>
         assert_eq!(all[0].name, "Test User");
 
         // Update
-        let update = UpdateContact { store: store.clone(), key: aivyx_crypto::MasterKey::from_bytes(ck.expose_secret().try_into().unwrap()) };
-        let result = update.execute(serde_json::json!({
-            "uid": uid,
-            "name": "Updated User",
-            "company": "TestCorp",
-        })).await.unwrap();
+        let update = UpdateContact {
+            store: store.clone(),
+            key: aivyx_crypto::MasterKey::from_bytes(ck.expose_secret().try_into().unwrap()),
+        };
+        let result = update
+            .execute(serde_json::json!({
+                "uid": uid,
+                "name": "Updated User",
+                "company": "TestCorp",
+            }))
+            .await
+            .unwrap();
         assert_eq!(result["status"], "updated");
 
         let all = load_all_contacts(&store, &ck).unwrap();
@@ -1258,8 +1372,14 @@ END:VCARD</card:address-data>
         assert_eq!(all[0].company.as_deref(), Some("TestCorp"));
 
         // Delete
-        let delete = DeleteContact { store: store.clone(), key: aivyx_crypto::MasterKey::from_bytes(ck.expose_secret().try_into().unwrap()) };
-        let result = delete.execute(serde_json::json!({ "uid": uid })).await.unwrap();
+        let delete = DeleteContact {
+            store: store.clone(),
+            key: aivyx_crypto::MasterKey::from_bytes(ck.expose_secret().try_into().unwrap()),
+        };
+        let result = delete
+            .execute(serde_json::json!({ "uid": uid }))
+            .await
+            .unwrap();
         assert_eq!(result["status"], "deleted");
 
         let all = load_all_contacts(&store, &ck).unwrap();

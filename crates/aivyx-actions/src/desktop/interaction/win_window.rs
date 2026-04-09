@@ -10,11 +10,9 @@ use aivyx_core::{AivyxError, Result};
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, TRUE};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowTextW,
-    GetWindowThreadProcessId, IsWindowVisible, SetForegroundWindow,
-    SetWindowPos, ShowWindow,
-    HWND_TOP, SWP_NOZORDER, SWP_SHOWWINDOW,
-    SW_MINIMIZE, SW_MAXIMIZE, SW_RESTORE, SW_SHOW,
+    EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
+    HWND_TOP, IsWindowVisible, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW, SWP_NOZORDER,
+    SWP_SHOWWINDOW, SetForegroundWindow, SetWindowPos, ShowWindow,
 };
 #[cfg(target_os = "windows")]
 use windows::core::PCWSTR;
@@ -49,7 +47,9 @@ pub fn get_foreground_window_class() -> Result<String> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        Err(AivyxError::Other("win_window: only available on Windows".into()))
+        Err(AivyxError::Other(
+            "win_window: only available on Windows".into(),
+        ))
     }
 }
 
@@ -73,7 +73,9 @@ pub async fn list_windows() -> Result<Vec<WindowEntry>> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        Err(AivyxError::Other("win_window: only available on Windows".into()))
+        Err(AivyxError::Other(
+            "win_window: only available on Windows".into(),
+        ))
     }
 }
 
@@ -140,7 +142,7 @@ pub async fn manage_window(
                 Ok("restored".into())
             }
             "close" => {
-                use windows::Win32::UI::WindowsAndMessaging::{WM_CLOSE, PostMessageW};
+                use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
                 unsafe { PostMessageW(hwnd, WM_CLOSE, None, None) }
                     .map_err(|e| AivyxError::Other(format!("PostMessage WM_CLOSE: {e}")))?;
                 Ok("closed".into())
@@ -150,12 +152,18 @@ pub async fn manage_window(
                 Ok("focused".into())
             }
             "resize" => {
-                let w = input["width"].as_i64()
-                    .ok_or_else(|| AivyxError::Validation("width is required".into()))? as i32;
-                let h = input["height"].as_i64()
-                    .ok_or_else(|| AivyxError::Validation("height is required".into()))? as i32;
+                let w = input["width"]
+                    .as_i64()
+                    .ok_or_else(|| AivyxError::Validation("width is required".into()))?
+                    as i32;
+                let h = input["height"]
+                    .as_i64()
+                    .ok_or_else(|| AivyxError::Validation("height is required".into()))?
+                    as i32;
                 if w < 1 || h < 1 {
-                    return Err(AivyxError::Validation("width and height must be positive".into()));
+                    return Err(AivyxError::Validation(
+                        "width and height must be positive".into(),
+                    ));
                 }
                 unsafe {
                     SetWindowPos(hwnd, HWND_TOP, 0, 0, w, h, SWP_NOZORDER | SWP_SHOWWINDOW)
@@ -164,10 +172,14 @@ pub async fn manage_window(
                 Ok(format!("resized to {w}x{h}"))
             }
             "move" => {
-                let x = input["x"].as_i64()
-                    .ok_or_else(|| AivyxError::Validation("x is required".into()))? as i32;
-                let y = input["y"].as_i64()
-                    .ok_or_else(|| AivyxError::Validation("y is required".into()))? as i32;
+                let x = input["x"]
+                    .as_i64()
+                    .ok_or_else(|| AivyxError::Validation("x is required".into()))?
+                    as i32;
+                let y = input["y"]
+                    .as_i64()
+                    .ok_or_else(|| AivyxError::Validation("y is required".into()))?
+                    as i32;
                 unsafe {
                     SetWindowPos(hwnd, HWND_TOP, x, y, 0, 0, SWP_NOZORDER | SWP_SHOWWINDOW)
                         .map_err(|e| AivyxError::Other(format!("SetWindowPos: {e}")))?;
@@ -180,7 +192,9 @@ pub async fn manage_window(
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (action, window, input);
-        Err(AivyxError::Other("win_window: only available on Windows".into()))
+        Err(AivyxError::Other(
+            "win_window: only available on Windows".into(),
+        ))
     }
 }
 

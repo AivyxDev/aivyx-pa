@@ -13,26 +13,13 @@ const MAX_READ_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_DIR_ENTRIES: usize = 500;
 
 /// Paths that must never be read or written by the agent.
-const DENIED_PATHS: &[&str] = &[
-    "/etc/shadow",
-    "/etc/gshadow",
-    "/etc/master.passwd",
-];
+const DENIED_PATHS: &[&str] = &["/etc/shadow", "/etc/gshadow", "/etc/master.passwd"];
 
 /// Path prefixes that must never be read or written.
-const DENIED_PREFIXES: &[&str] = &[
-    "/etc/ssl/private",
-    "/proc/",
-    "/sys/",
-];
+const DENIED_PREFIXES: &[&str] = &["/etc/ssl/private", "/proc/", "/sys/"];
 
 /// Home-relative paths that must never be accessed.
-const DENIED_HOME_PATHS: &[&str] = &[
-    ".ssh/",
-    ".gnupg/",
-    ".aws/credentials",
-    ".config/gcloud/",
-];
+const DENIED_HOME_PATHS: &[&str] = &[".ssh/", ".gnupg/", ".aws/credentials", ".config/gcloud/"];
 
 /// Resolve `.` and `..` components without touching the filesystem.
 ///
@@ -44,7 +31,9 @@ fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
     let mut components = Vec::new();
     for component in path.components() {
         match component {
-            Component::ParentDir => { components.pop(); }
+            Component::ParentDir => {
+                components.pop();
+            }
             Component::CurDir => {}
             other => components.push(other),
         }
@@ -77,18 +66,18 @@ pub fn validate_path(path: &str) -> Result<()> {
     // Check absolute denied paths
     for denied in DENIED_PATHS {
         if resolved_str == *denied {
-            return Err(aivyx_core::AivyxError::CapabilityDenied(
-                format!("Access denied: {denied}")
-            ));
+            return Err(aivyx_core::AivyxError::CapabilityDenied(format!(
+                "Access denied: {denied}"
+            )));
         }
     }
 
     // Check denied prefixes
     for prefix in DENIED_PREFIXES {
         if resolved_str.starts_with(prefix) {
-            return Err(aivyx_core::AivyxError::CapabilityDenied(
-                format!("Access denied: path under {prefix}")
-            ));
+            return Err(aivyx_core::AivyxError::CapabilityDenied(format!(
+                "Access denied: path under {prefix}"
+            )));
         }
     }
 
@@ -99,9 +88,9 @@ pub fn validate_path(path: &str) -> Result<()> {
             let relative = &resolved_str[home_str.len()..].trim_start_matches('/');
             for denied in DENIED_HOME_PATHS {
                 if relative.starts_with(denied) {
-                    return Err(aivyx_core::AivyxError::CapabilityDenied(
-                        format!("Access denied: ~/{denied}")
-                    ));
+                    return Err(aivyx_core::AivyxError::CapabilityDenied(format!(
+                        "Access denied: ~/{denied}"
+                    )));
                 }
             }
         }
@@ -114,7 +103,9 @@ pub struct ReadFile;
 
 #[async_trait::async_trait]
 impl Action for ReadFile {
-    fn name(&self) -> &str { "read_file" }
+    fn name(&self) -> &str {
+        "read_file"
+    }
 
     fn description(&self) -> &str {
         "Read the contents of a local file (max 10 MB, sensitive paths blocked)"
@@ -143,13 +134,11 @@ impl Action for ReadFile {
             .map_err(aivyx_core::AivyxError::Io)?;
 
         if metadata.len() > MAX_READ_BYTES {
-            return Err(aivyx_core::AivyxError::Validation(
-                format!(
-                    "File too large ({} bytes, max {} bytes)",
-                    metadata.len(),
-                    MAX_READ_BYTES,
-                ),
-            ));
+            return Err(aivyx_core::AivyxError::Validation(format!(
+                "File too large ({} bytes, max {} bytes)",
+                metadata.len(),
+                MAX_READ_BYTES,
+            )));
         }
 
         let contents = tokio::fs::read_to_string(path)
@@ -164,7 +153,9 @@ pub struct WriteFile;
 
 #[async_trait::async_trait]
 impl Action for WriteFile {
-    fn name(&self) -> &str { "write_file" }
+    fn name(&self) -> &str {
+        "write_file"
+    }
 
     fn description(&self) -> &str {
         "Write content to a local file (creates or overwrites). Sensitive paths are blocked."
@@ -203,7 +194,9 @@ pub struct ListDirectory;
 
 #[async_trait::async_trait]
 impl Action for ListDirectory {
-    fn name(&self) -> &str { "list_directory" }
+    fn name(&self) -> &str {
+        "list_directory"
+    }
 
     fn description(&self) -> &str {
         "List files and directories at a given path (max 500 entries)"
@@ -252,12 +245,13 @@ impl Action for ListDirectory {
     }
 }
 
-
 pub struct ReplaceFileContent;
 
 #[async_trait::async_trait]
 impl Action for ReplaceFileContent {
-    fn name(&self) -> &str { "replace_file_content" }
+    fn name(&self) -> &str {
+        "replace_file_content"
+    }
 
     fn description(&self) -> &str {
         "Edit an existing file by replacing a specific target string with a new string. \
@@ -283,9 +277,9 @@ impl Action for ReplaceFileContent {
         let target = input["target_content"]
             .as_str()
             .ok_or_else(|| aivyx_core::AivyxError::Validation("target_content required".into()))?;
-        let replacement = input["replacement_content"]
-            .as_str()
-            .ok_or_else(|| aivyx_core::AivyxError::Validation("replacement_content required".into()))?;
+        let replacement = input["replacement_content"].as_str().ok_or_else(|| {
+            aivyx_core::AivyxError::Validation("replacement_content required".into())
+        })?;
 
         validate_path(path)?;
 
@@ -294,7 +288,9 @@ impl Action for ReplaceFileContent {
             .map_err(aivyx_core::AivyxError::Io)?;
 
         if !contents.contains(target) {
-            return Err(aivyx_core::AivyxError::Validation("target_content not found in file".into()));
+            return Err(aivyx_core::AivyxError::Validation(
+                "target_content not found in file".into(),
+            ));
         }
 
         // Only replace first occurrence or error if multiple? Let's just replace all.

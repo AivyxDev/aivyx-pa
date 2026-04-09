@@ -10,14 +10,12 @@ use aivyx_core::{AivyxError, Result};
 use windows::Win32::Foundation::HWND;
 #[cfg(target_os = "windows")]
 use windows::Win32::Graphics::Gdi::{
-    BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject,
-    GetDC, GetDIBits, ReleaseDC, SelectObject,
-    BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, SRCCOPY,
+    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC,
+    DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetDIBits, ReleaseDC, SRCCOPY, SelectObject,
 };
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetClientRect, GetForegroundWindow, GetSystemMetrics,
-    SM_CXSCREEN, SM_CYSCREEN,
+    GetClientRect, GetForegroundWindow, GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN,
 };
 
 /// Capture a screenshot of the foreground window. Returns base64-encoded PNG.
@@ -32,7 +30,9 @@ pub async fn capture_window() -> Result<String> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        Err(AivyxError::Other("win_screenshot: only available on Windows".into()))
+        Err(AivyxError::Other(
+            "win_screenshot: only available on Windows".into(),
+        ))
     }
 }
 
@@ -57,7 +57,9 @@ pub async fn capture_window_by_title(title: &str) -> Result<String> {
     #[cfg(not(target_os = "windows"))]
     {
         let _ = title;
-        Err(AivyxError::Other("win_screenshot: only available on Windows".into()))
+        Err(AivyxError::Other(
+            "win_screenshot: only available on Windows".into(),
+        ))
     }
 }
 
@@ -69,13 +71,17 @@ pub async fn capture_screen() -> Result<String> {
         let w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
         let h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
         if w == 0 || h == 0 {
-            return Err(AivyxError::Other("Cannot determine screen dimensions".into()));
+            return Err(AivyxError::Other(
+                "Cannot determine screen dimensions".into(),
+            ));
         }
         capture_region(hwnd, 0, 0, w, h)
     }
     #[cfg(not(target_os = "windows"))]
     {
-        Err(AivyxError::Other("win_screenshot: only available on Windows".into()))
+        Err(AivyxError::Other(
+            "win_screenshot: only available on Windows".into(),
+        ))
     }
 }
 
@@ -181,7 +187,9 @@ fn capture_region(hwnd: HWND, x: i32, y: i32, w: i32, h: i32) -> Result<String> 
         let file_size = 54 + buf_size;
         // BMP file header (14 bytes)
         bmp_data.write_all(b"BM").unwrap();
-        bmp_data.write_all(&(file_size as u32).to_le_bytes()).unwrap();
+        bmp_data
+            .write_all(&(file_size as u32).to_le_bytes())
+            .unwrap();
         bmp_data.write_all(&[0u8; 4]).unwrap(); // reserved
         bmp_data.write_all(&54u32.to_le_bytes()).unwrap(); // pixel offset
 
@@ -197,7 +205,9 @@ fn capture_region(hwnd: HWND, x: i32, y: i32, w: i32, h: i32) -> Result<String> 
         let row_bytes = (w * 4) as usize;
         for y in (0..h as usize).rev() {
             let start = y * row_bytes;
-            bmp_data.write_all(&pixels[start..start + row_bytes]).unwrap();
+            bmp_data
+                .write_all(&pixels[start..start + row_bytes])
+                .unwrap();
         }
 
         // Base64 encode.

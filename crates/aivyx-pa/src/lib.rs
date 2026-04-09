@@ -10,7 +10,7 @@ pub mod init;
 pub mod oauth;
 pub mod persona_defaults;
 pub mod runtime;
-pub mod sessions;
 pub mod schedule_tools;
+pub mod sessions;
 pub mod settings;
 pub mod webhook;

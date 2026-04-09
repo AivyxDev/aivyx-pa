@@ -129,9 +129,11 @@ async fn list_apps_xlsclients() -> Result<serde_json::Value> {
         .args(["-l"])
         .output()
         .await
-        .map_err(|e| AivyxError::Other(format!(
-            "No window lister available. Install wmctrl or use Hyprland. Error: {e}"
-        )))?;
+        .map_err(|e| {
+            AivyxError::Other(format!(
+                "No window lister available. Install wmctrl or use Hyprland. Error: {e}"
+            ))
+        })?;
 
     if !output.status.success() {
         return Err(AivyxError::Other("xlsclients failed".into()));
@@ -147,7 +149,11 @@ async fn list_apps_xlsclients() -> Result<serde_json::Value> {
         if trimmed.starts_with("Window") {
             current_name.clear();
         } else if trimmed.starts_with("Name:") {
-            current_name = trimmed.strip_prefix("Name:").unwrap_or("").trim().to_string();
+            current_name = trimmed
+                .strip_prefix("Name:")
+                .unwrap_or("")
+                .trim()
+                .to_string();
             if !current_name.is_empty() {
                 apps.push(serde_json::json!({
                     "title": current_name,
@@ -283,7 +289,9 @@ async fn workspace_current() -> Result<serde_json::Value> {
         }
     }
 
-    Err(AivyxError::Other("Could not determine active workspace".into()))
+    Err(AivyxError::Other(
+        "Could not determine active workspace".into(),
+    ))
 }
 
 async fn workspace_switch(target: &str) -> Result<serde_json::Value> {
@@ -305,10 +313,7 @@ async fn workspace_switch(target: &str) -> Result<serde_json::Value> {
     }))
 }
 
-async fn workspace_move_window(
-    target: &str,
-    window: Option<&str>,
-) -> Result<serde_json::Value> {
+async fn workspace_move_window(target: &str, window: Option<&str>) -> Result<serde_json::Value> {
     if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
         if let Some(title) = window {
             run_cmd(
@@ -317,11 +322,7 @@ async fn workspace_move_window(
             )
             .await?;
         }
-        run_cmd(
-            "hyprctl",
-            &["dispatch", "movetoworkspace", target],
-        )
-        .await?;
+        run_cmd("hyprctl", &["dispatch", "movetoworkspace", target]).await?;
         return Ok(serde_json::json!({
             "status": "moved",
             "workspace": target,

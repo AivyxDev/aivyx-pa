@@ -18,8 +18,8 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
-use crate::{HeartbeatConfig, LoopContext, Notification, NotificationKind};
 use crate::briefing::sanitize_for_prompt;
+use crate::{HeartbeatConfig, LoopContext, Notification, NotificationKind};
 
 // ── Context gathering ──────────────────────────────────────────
 
@@ -91,25 +91,41 @@ pub async fn gather_context(
     let reminder_store = Arc::clone(&ctx.reminder_store);
     let reminder_key_bytes = ctx.reminder_key.expose_secret().to_vec();
     let finance_key_bytes = ctx.finance.as_ref().map(|f| f.key.expose_secret().to_vec());
-    let contacts_key_bytes = ctx.contacts.as_ref().map(|c| c.key.expose_secret().to_vec());
+    let contacts_key_bytes = ctx
+        .contacts
+        .as_ref()
+        .map(|c| c.key.expose_secret().to_vec());
     let schedule_last_run = ctx.schedule_last_run.clone();
     let check_contacts = ctx.contacts.is_some();
     let has_email = ctx.email_config.is_some();
 
     tokio::task::spawn_blocking(move || {
-        let brain_key = MasterKey::from_bytes(brain_key_bytes.try_into()
-            .expect("brain key must be 32 bytes"));
-        let reminder_key = MasterKey::from_bytes(reminder_key_bytes.try_into()
-            .expect("reminder key must be 32 bytes"));
-        let finance_key = finance_key_bytes.map(|b| MasterKey::from_bytes(
-            b.try_into().expect("finance key must be 32 bytes")));
-        let contacts_key = contacts_key_bytes.map(|b| MasterKey::from_bytes(
-            b.try_into().expect("contacts key must be 32 bytes")));
+        let brain_key = MasterKey::from_bytes(
+            brain_key_bytes
+                .try_into()
+                .expect("brain key must be 32 bytes"),
+        );
+        let reminder_key = MasterKey::from_bytes(
+            reminder_key_bytes
+                .try_into()
+                .expect("reminder key must be 32 bytes"),
+        );
+        let finance_key = finance_key_bytes
+            .map(|b| MasterKey::from_bytes(b.try_into().expect("finance key must be 32 bytes")));
+        let contacts_key = contacts_key_bytes
+            .map(|b| MasterKey::from_bytes(b.try_into().expect("contacts key must be 32 bytes")));
 
         gather_context_sync(
-            &config, &brain_store, &brain_key, &reminder_store, &reminder_key,
-            finance_key.as_ref(), contacts_key.as_ref(), &schedule_last_run,
-            check_contacts, has_email,
+            &config,
+            &brain_store,
+            &brain_key,
+            &reminder_store,
+            &reminder_key,
+            finance_key.as_ref(),
+            contacts_key.as_ref(),
+            &schedule_last_run,
+            check_contacts,
+            has_email,
         )
     })
     .await
@@ -135,14 +151,18 @@ fn gather_context_sync(
     // Active goals with progress
     if config.check_goals
         && let Ok(goals) = brain_store.list_goals(
-            &GoalFilter { status: Some(GoalStatus::Active), ..Default::default() },
+            &GoalFilter {
+                status: Some(GoalStatus::Active),
+                ..Default::default()
+            },
             brain_key,
-        ) {
-            if !goals.is_empty() {
-                hb_ctx.add("Active Goals", format_goals(&goals));
-            }
-            data.goals = goals;
+        )
+    {
+        if !goals.is_empty() {
+            hb_ctx.add("Active Goals", format_goals(&goals));
         }
+        data.goals = goals;
+    }
 
     // Due/pending reminders
     if config.check_reminders {
@@ -151,10 +171,22 @@ fn gather_context_sync(
                 let pending: Vec<_> = reminders.into_iter().filter(|r| !r.completed).collect();
                 if !pending.is_empty() {
                     let now = Utc::now();
-                    let lines: Vec<String> = pending.iter().map(|r| {
-                        let status = if r.due_at <= now { "OVERDUE" } else { "pending" };
-                        format!("- [{}] {} (due {})", status, sanitize_for_prompt(&r.message), r.due_at.format("%b %d %H:%M"))
-                    }).collect();
+                    let lines: Vec<String> = pending
+                        .iter()
+                        .map(|r| {
+                            let status = if r.due_at <= now {
+                                "OVERDUE"
+                            } else {
+                                "pending"
+                            };
+                            format!(
+                                "- [{}] {} (due {})",
+                                status,
+                                sanitize_for_prompt(&r.message),
+                                r.due_at.format("%b %d %H:%M")
+                            )
+                        })
+                        .collect();
                     hb_ctx.add("Reminders", lines.join("\n"));
                 }
                 data.reminders = pending;
@@ -173,12 +205,8 @@ fn gather_context_sync(
         let now = Utc::now();
         let recent: Vec<String> = schedule_last_run
             .iter()
-            .filter(|(_, fired_at)| {
-                now.signed_duration_since(**fired_at).num_minutes() < 60
-            })
-            .map(|(name, fired_at)| {
-                format!("- '{}' ran at {}", name, fired_at.format("%H:%M"))
-            })
+            .filter(|(_, fired_at)| now.signed_duration_since(**fired_at).num_minutes() < 60)
+            .map(|(name, fired_at)| format!("- '{}' ran at {}", name, fired_at.format("%H:%M")))
             .collect();
 
         if !recent.is_empty() {
@@ -188,59 +216,62 @@ fn gather_context_sync(
 
     // Self-model summary
     if config.check_self_model
-        && let Ok(Some(model)) = brain_store.load_self_model(brain_key) {
-            hb_ctx.add("Self-Model", format_self_model(&model));
-        }
+        && let Ok(Some(model)) = brain_store.load_self_model(brain_key)
+    {
+        hb_ctx.add("Self-Model", format_self_model(&model));
+    }
 
     // Upcoming bills and budget alerts
     if config.check_finance
-        && let Some(fkey) = finance_key {
-            if let Ok(bills) = aivyx_actions::finance::upcoming_bills(
-                reminder_store, fkey, 7,
-            ) {
-                if !bills.is_empty() {
-                    let lines: Vec<String> = bills.iter().map(|b| {
+        && let Some(fkey) = finance_key
+    {
+        if let Ok(bills) = aivyx_actions::finance::upcoming_bills(reminder_store, fkey, 7) {
+            if !bills.is_empty() {
+                let lines: Vec<String> = bills
+                    .iter()
+                    .map(|b| {
                         let amount = aivyx_actions::finance::format_dollars(b.amount_cents);
                         let desc = sanitize_for_prompt(&b.description);
                         match &b.due_date {
                             Some(d) => format!("- {} — {} due {}", desc, amount, d.format("%b %d")),
                             None => format!("- {} — {}", desc, amount),
                         }
-                    }).collect();
-                    hb_ctx.add("Upcoming Bills", lines.join("\n"));
-                }
-                data.bills = bills;
+                    })
+                    .collect();
+                hb_ctx.add("Upcoming Bills", lines.join("\n"));
             }
-            if let Ok(cats) = aivyx_actions::finance::over_budget_categories(
-                reminder_store, fkey,
-            ) {
-                if !cats.is_empty() {
-                    let lines: Vec<String> = cats.iter().map(|(cat, spent, limit)| {
+            data.bills = bills;
+        }
+        if let Ok(cats) = aivyx_actions::finance::over_budget_categories(reminder_store, fkey) {
+            if !cats.is_empty() {
+                let lines: Vec<String> = cats
+                    .iter()
+                    .map(|(cat, spent, limit)| {
                         format!(
                             "- {}: {} spent (limit: {})",
                             cat,
                             aivyx_actions::finance::format_dollars(*spent),
                             aivyx_actions::finance::format_dollars(*limit),
                         )
-                    }).collect();
-                    hb_ctx.add("Budget Alerts", lines.join("\n"));
-                }
-                data.over_budget = cats;
+                    })
+                    .collect();
+                hb_ctx.add("Budget Alerts", lines.join("\n"));
             }
+            data.over_budget = cats;
         }
+    }
 
     // Contact count (lightweight — just the count for awareness)
     if check_contacts
         && let Some(ckey) = contacts_key
-            && let Ok(all) = aivyx_actions::contacts::load_all_contacts(
-                reminder_store, ckey,
-            )
-                && !all.is_empty() {
-                    hb_ctx.add(
-                        "Contacts",
-                        format!("{} contacts in address book", all.len()),
-                    );
-                }
+        && let Ok(all) = aivyx_actions::contacts::load_all_contacts(reminder_store, ckey)
+        && !all.is_empty()
+    {
+        hb_ctx.add(
+            "Contacts",
+            format!("{} contacts in address book", all.len()),
+        );
+    }
 
     (hb_ctx, data)
 }
@@ -250,7 +281,11 @@ fn format_goals(goals: &[Goal]) -> String {
     goals
         .iter()
         .map(|g| {
-            let cooldown = if g.is_in_cooldown() { " [COOLDOWN]" } else { "" };
+            let cooldown = if g.is_in_cooldown() {
+                " [COOLDOWN]"
+            } else {
+                ""
+            };
             let failures = if g.consecutive_failures > 0 {
                 format!(" ({}x failed)", g.consecutive_failures)
             } else {
@@ -280,21 +315,26 @@ fn format_self_model(model: &SelfModel) -> String {
         lines.push(format!("Weaknesses: {}", model.weaknesses.join(", ")));
     }
     if !model.domain_confidence.is_empty() {
-        let domains: Vec<String> = model.domain_confidence
+        let domains: Vec<String> = model
+            .domain_confidence
             .iter()
             .map(|(d, c)| format!("{d}: {:.0}%", c * 100.0))
             .collect();
         lines.push(format!("Domain confidence: {}", domains.join(", ")));
     }
     if !model.tool_proficiency.is_empty() {
-        let tools: Vec<String> = model.tool_proficiency
+        let tools: Vec<String> = model
+            .tool_proficiency
             .iter()
             .map(|(t, p)| format!("{t}: {:.0}%", p * 100.0))
             .collect();
         lines.push(format!("Tool proficiency: {}", tools.join(", ")));
     }
 
-    lines.push(format!("Last updated: {}", model.updated_at.format("%Y-%m-%d %H:%M")));
+    lines.push(format!(
+        "Last updated: {}",
+        model.updated_at.format("%Y-%m-%d %H:%M")
+    ));
 
     lines.join("\n")
 }
@@ -384,7 +424,6 @@ pub enum HeartbeatAction {
     #[serde(rename = "backup")]
     Backup,
     // ── Phase 6: Smarter Agent actions ─────────────────────────
-
     /// Organize goals into time horizons and suggest adjustments.
     #[serde(rename = "plan_review")]
     PlanReview {
@@ -476,9 +515,13 @@ pub struct ExtractedTriple {
     pub confidence: f32,
 }
 
-fn default_extraction_confidence() -> f32 { 0.8 }
+fn default_extraction_confidence() -> f32 {
+    0.8
+}
 
-fn default_priority() -> String { "normal".into() }
+fn default_priority() -> String {
+    "normal".into()
+}
 
 /// Parsed response from the LLM's heartbeat reasoning.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -509,20 +552,23 @@ pub fn build_heartbeat_prompt(
          - If a goal has stalled AND there are related calendar events or emails, suggest action.\n\
          - If an email has gone unanswered for days, suggest a follow-up.\n\
          Correlate information from email, calendar, contacts, finance, goals, and reminders \
-         to generate proactive suggestions that the user wouldn't get from any single source alone.\n\n"
+         to generate proactive suggestions that the user wouldn't get from any single source alone.\n\n",
     );
 
     prompt.push_str(&context.format_for_prompt());
 
     if let Some(priorities) = priority_summary
-        && !priorities.is_empty() {
-            prompt.push_str("\n\n## Priority Summary (ranked by urgency)\n");
-            prompt.push_str(priorities);
-            prompt.push('\n');
-        }
+        && !priorities.is_empty()
+    {
+        prompt.push_str("\n\n## Priority Summary (ranked by urgency)\n");
+        prompt.push_str(priorities);
+        prompt.push('\n');
+    }
 
     prompt.push_str("\n\n## Available Actions\n");
-    prompt.push_str("Respond with a JSON object containing `reasoning` (brief) and `actions` (array).\n\n");
+    prompt.push_str(
+        "Respond with a JSON object containing `reasoning` (brief) and `actions` (array).\n\n",
+    );
 
     if config.can_notify {
         prompt.push_str("- `{\"action\": \"notify\", \"title\": \"...\", \"body\": \"...\", \"urgent\": false}` — Store a notification for the user\n");
@@ -535,7 +581,8 @@ pub fn build_heartbeat_prompt(
         prompt.push_str("- `{\"action\": \"reflect\", \"add_strengths\": [...], \"domain_confidence\": {\"domain\": 0.8}}` — Update self-model\n");
     }
     if config.can_consolidate_memory {
-        prompt.push_str("- `{\"action\": \"consolidate_memory\"}` — Trigger memory consolidation\n");
+        prompt
+            .push_str("- `{\"action\": \"consolidate_memory\"}` — Trigger memory consolidation\n");
     }
     if config.can_suggest {
         prompt.push_str("- `{\"action\": \"suggest\", \"title\": \"...\", \"body\": \"...\", \"sources\": [\"email\", \"calendar\"], \"priority\": \"normal\"}` — Proactive suggestion from cross-source correlation\n");
@@ -574,24 +621,38 @@ pub fn build_heartbeat_prompt(
             "- `{\"action\": \"encourage\", \"achievement\": \"Completed 3 goals this week\", \"message\": \"...\", \"streak\": 3}` — Celebrate a completed goal or streak. Calibrate warmth to persona: coach/companion=enthusiastic, ops/analyst=brief metrics, coder/researcher=note and suggest next steps.\n"
         );
     }
-    prompt.push_str("- `{\"action\": \"no_action\", \"reason\": \"...\"}` — Nothing to do right now\n");
+    prompt.push_str(
+        "- `{\"action\": \"no_action\", \"reason\": \"...\"}` — Nothing to do right now\n",
+    );
 
     // Calibrate proactivity based on how many autonomous capabilities are enabled.
     // More `can_*` flags = user wants a more active heartbeat.
     let enabled_caps = [
-        config.can_notify, config.can_manage_goals, config.can_reflect,
-        config.can_consolidate_memory, config.can_suggest, config.can_analyze_failures,
-        config.can_extract_knowledge, config.can_backup, config.can_prune_audit,
-        config.can_plan_review, config.can_strategy_review, config.can_track_mood,
-        config.can_encourage, config.can_track_milestones,
-    ].iter().filter(|&&x| x).count();
+        config.can_notify,
+        config.can_manage_goals,
+        config.can_reflect,
+        config.can_consolidate_memory,
+        config.can_suggest,
+        config.can_analyze_failures,
+        config.can_extract_knowledge,
+        config.can_backup,
+        config.can_prune_audit,
+        config.can_plan_review,
+        config.can_strategy_review,
+        config.can_track_mood,
+        config.can_encourage,
+        config.can_track_milestones,
+    ]
+    .iter()
+    .filter(|&&x| x)
+    .count();
 
     if enabled_caps >= 10 {
         prompt.push_str(
             "\nYou have broad autonomous capabilities enabled. Be PROACTIVE — look for \
              opportunities to act, optimize, suggest, and maintain. Take initiative. \
              The user has given you many capabilities because they want you to use them. \
-             Only use `no_action` when genuinely nothing needs attention.\n"
+             Only use `no_action` when genuinely nothing needs attention.\n",
         );
     } else if enabled_caps >= 5 {
         prompt.push_str(
@@ -602,7 +663,7 @@ pub fn build_heartbeat_prompt(
     } else {
         prompt.push_str(
             "\nBe conservative — only act when there's a clear and important reason. \
-             Prefer observing and noting over taking action. Use `no_action` when in doubt.\n"
+             Prefer observing and noting over taking action. Use `no_action` when in doubt.\n",
         );
     }
 
@@ -618,8 +679,7 @@ pub fn build_heartbeat_prompt(
 pub fn parse_response(text: &str) -> HeartbeatResponse {
     // Use the shared JSON extractor which handles markdown fences, surrounding
     // prose, and balanced braces — more robust than simple trim.
-    let json_str = crate::extract_json_object(text)
-        .unwrap_or_else(|| text.trim());
+    let json_str = crate::extract_json_object(text).unwrap_or_else(|| text.trim());
 
     match serde_json::from_str::<HeartbeatResponse>(json_str) {
         Ok(resp) => resp,
@@ -645,67 +705,94 @@ pub async fn dispatch_actions(
 ) {
     for action in actions {
         match action {
-            HeartbeatAction::Notify { title, body, urgent } if config.can_notify => {
-                let kind = if *urgent { NotificationKind::Urgent } else { NotificationKind::Info };
-                crate::send_notification(tx, Notification {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    kind,
-                    title: title.clone(),
-                    body: body.clone(),
-                    source: "heartbeat".into(),
-                    timestamp: Utc::now(),
-                    requires_approval: false,
-                    goal_id: None,
-                });
+            HeartbeatAction::Notify {
+                title,
+                body,
+                urgent,
+            } if config.can_notify => {
+                let kind = if *urgent {
+                    NotificationKind::Urgent
+                } else {
+                    NotificationKind::Info
+                };
+                crate::send_notification(
+                    tx,
+                    Notification {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        kind,
+                        title: title.clone(),
+                        body: body.clone(),
+                        source: "heartbeat".into(),
+                        timestamp: Utc::now(),
+                        requires_approval: false,
+                        goal_id: None,
+                    },
+                );
                 tracing::info!("Heartbeat: stored notification '{title}'");
 
                 // Forward urgent notifications to messaging channels (fire-and-forget)
-                if *urgent
-                    && let Some(ref msg) = ctx.messaging {
-                        if let Some(ref tc) = msg.telegram {
-                            let tc = tc.clone();
-                            let t = title.clone();
-                            let b = body.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = aivyx_actions::messaging::telegram::forward_notification(&tc, &t, &b).await {
-                                    tracing::warn!("Telegram notification forward failed: {e}");
-                                }
-                            });
-                        }
-                        if let Some(ref mc) = msg.matrix {
-                            let mc = mc.clone();
-                            let t = title.clone();
-                            let b = body.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = aivyx_actions::messaging::matrix::forward_notification(&mc, &t, &b).await {
-                                    tracing::warn!("Matrix notification forward failed: {e}");
-                                }
-                            });
-                        }
-                        if let Some(ref sc) = msg.signal {
-                            let sc = sc.clone();
-                            let t = title.clone();
-                            let b = body.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = aivyx_actions::messaging::signal::forward_notification(&sc, &t, &b).await {
-                                    tracing::warn!("Signal notification forward failed: {e}");
-                                }
-                            });
-                        }
-                        if let Some(ref sc) = msg.sms {
-                            let sc = sc.clone();
-                            let t = title.clone();
-                            let b = body.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = aivyx_actions::messaging::sms::forward_notification(&sc, &t, &b).await {
-                                    tracing::warn!("SMS notification forward failed: {e}");
-                                }
-                            });
-                        }
+                if *urgent && let Some(ref msg) = ctx.messaging {
+                    if let Some(ref tc) = msg.telegram {
+                        let tc = tc.clone();
+                        let t = title.clone();
+                        let b = body.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) =
+                                aivyx_actions::messaging::telegram::forward_notification(
+                                    &tc, &t, &b,
+                                )
+                                .await
+                            {
+                                tracing::warn!("Telegram notification forward failed: {e}");
+                            }
+                        });
                     }
+                    if let Some(ref mc) = msg.matrix {
+                        let mc = mc.clone();
+                        let t = title.clone();
+                        let b = body.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) =
+                                aivyx_actions::messaging::matrix::forward_notification(&mc, &t, &b)
+                                    .await
+                            {
+                                tracing::warn!("Matrix notification forward failed: {e}");
+                            }
+                        });
+                    }
+                    if let Some(ref sc) = msg.signal {
+                        let sc = sc.clone();
+                        let t = title.clone();
+                        let b = body.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) =
+                                aivyx_actions::messaging::signal::forward_notification(&sc, &t, &b)
+                                    .await
+                            {
+                                tracing::warn!("Signal notification forward failed: {e}");
+                            }
+                        });
+                    }
+                    if let Some(ref sc) = msg.sms {
+                        let sc = sc.clone();
+                        let t = title.clone();
+                        let b = body.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) =
+                                aivyx_actions::messaging::sms::forward_notification(&sc, &t, &b)
+                                    .await
+                            {
+                                tracing::warn!("SMS notification forward failed: {e}");
+                            }
+                        });
+                    }
+                }
             }
 
-            HeartbeatAction::SetGoal { description, success_criteria } if config.can_manage_goals => {
+            HeartbeatAction::SetGoal {
+                description,
+                success_criteria,
+            } if config.can_manage_goals => {
                 use aivyx_brain::Priority;
                 let goal = Goal::new(description.clone(), success_criteria.clone())
                     .with_priority(Priority::Medium);
@@ -716,19 +803,28 @@ pub async fn dispatch_actions(
                 }
             }
 
-            HeartbeatAction::UpdateGoal { goal_match, progress, status } if config.can_manage_goals => {
+            HeartbeatAction::UpdateGoal {
+                goal_match,
+                progress,
+                status,
+            } if config.can_manage_goals => {
                 dispatch_update_goal(goal_match, progress, status, ctx);
             }
 
             HeartbeatAction::Reflect {
-                add_strengths, add_weaknesses,
-                remove_strengths, remove_weaknesses,
+                add_strengths,
+                add_weaknesses,
+                remove_strengths,
+                remove_weaknesses,
                 domain_confidence,
             } if config.can_reflect => {
                 dispatch_reflect(
-                    add_strengths, add_weaknesses,
-                    remove_strengths, remove_weaknesses,
-                    domain_confidence, ctx,
+                    add_strengths,
+                    add_weaknesses,
+                    remove_strengths,
+                    remove_weaknesses,
+                    domain_confidence,
+                    ctx,
                 );
             }
 
@@ -745,78 +841,103 @@ pub async fn dispatch_actions(
                     goal_id: None,
                 });
 
-                match crate::await_approval(ctx, &notif_id, std::time::Duration::from_secs(120)).await {
+                match crate::await_approval(ctx, &notif_id, std::time::Duration::from_secs(120))
+                    .await
+                {
                     Some(resp) if resp.approved => {
-                        crate::emit_audit(ctx, aivyx_audit::AuditEvent::ConsolidationTriggered {
-                            source: "heartbeat".into(),
-                            timestamp: Utc::now(),
-                        });
+                        crate::emit_audit(
+                            ctx,
+                            aivyx_audit::AuditEvent::ConsolidationTriggered {
+                                source: "heartbeat".into(),
+                                timestamp: Utc::now(),
+                            },
+                        );
 
                         if let Some(ref mm) = ctx.memory_manager {
-                            let consolidation_config = ctx.consolidation_config.clone()
-                                .unwrap_or_default();
+                            let consolidation_config =
+                                ctx.consolidation_config.clone().unwrap_or_default();
                             // Use try_lock to avoid blocking the heartbeat dispatch loop.
-                    // Consolidation makes LLM calls and can take minutes — holding
-                    // the lock across that would starve all other memory operations.
-                    let guard = mm.try_lock();
-                    match guard {
-                        Ok(mut mgr) => {
-                            match mgr.consolidate(ctx.provider.as_ref(), &consolidation_config).await {
-                                Ok(report) => {
-                                    // Drop the lock before doing non-memory work.
-                                    drop(mgr);
-                                    let summary = format!(
-                                        "Merged {} clusters, pruned {} memories, strengthened {}",
-                                        report.clusters_merged, report.memories_pruned, report.memories_strengthened,
-                                    );
-                                    tracing::info!("Heartbeat: memory consolidation complete — {summary}");
+                            // Consolidation makes LLM calls and can take minutes — holding
+                            // the lock across that would starve all other memory operations.
+                            let guard = mm.try_lock();
+                            match guard {
+                                Ok(mut mgr) => {
+                                    match mgr
+                                        .consolidate(ctx.provider.as_ref(), &consolidation_config)
+                                        .await
+                                    {
+                                        Ok(report) => {
+                                            // Drop the lock before doing non-memory work.
+                                            drop(mgr);
+                                            let summary = format!(
+                                                "Merged {} clusters, pruned {} memories, strengthened {}",
+                                                report.clusters_merged,
+                                                report.memories_pruned,
+                                                report.memories_strengthened,
+                                            );
+                                            tracing::info!(
+                                                "Heartbeat: memory consolidation complete — {summary}"
+                                            );
 
-                                    crate::emit_audit(ctx, aivyx_audit::AuditEvent::ConsolidationCompleted {
-                                        agent_id: aivyx_core::AgentId::new(),
-                                        clusters_merged: report.clusters_merged,
-                                        memories_pruned: report.memories_pruned,
-                                        triples_decayed: 0,
-                                        patterns_mined: 0,
-                                    });
+                                            crate::emit_audit(
+                                                ctx,
+                                                aivyx_audit::AuditEvent::ConsolidationCompleted {
+                                                    agent_id: aivyx_core::AgentId::new(),
+                                                    clusters_merged: report.clusters_merged,
+                                                    memories_pruned: report.memories_pruned,
+                                                    triples_decayed: 0,
+                                                    patterns_mined: 0,
+                                                },
+                                            );
 
-                                    crate::send_notification(tx, Notification {
-                                        id: uuid::Uuid::new_v4().to_string(),
-                                        kind: NotificationKind::ActionTaken,
-                                        title: "Memory consolidated".into(),
-                                        body: summary,
-                                        source: "heartbeat".into(),
-                                        timestamp: Utc::now(),
-                                        requires_approval: false,
-                                        goal_id: None,
-                                    });
+                                            crate::send_notification(
+                                                tx,
+                                                Notification {
+                                                    id: uuid::Uuid::new_v4().to_string(),
+                                                    kind: NotificationKind::ActionTaken,
+                                                    title: "Memory consolidated".into(),
+                                                    body: summary,
+                                                    source: "heartbeat".into(),
+                                                    timestamp: Utc::now(),
+                                                    requires_approval: false,
+                                                    goal_id: None,
+                                                },
+                                            );
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                "Heartbeat: memory consolidation failed: {e}"
+                                            );
+                                        }
+                                    }
                                 }
-                                Err(e) => {
-                                    tracing::warn!("Heartbeat: memory consolidation failed: {e}");
+                                Err(_) => {
+                                    tracing::info!(
+                                        "Heartbeat: memory consolidation skipped — manager lock held by another operation"
+                                    );
                                 }
                             }
-                        }
-                        Err(_) => {
-                            tracing::info!(
-                                "Heartbeat: memory consolidation skipped — manager lock held by another operation"
+                        } else {
+                            tracing::debug!(
+                                "Heartbeat: consolidation requested but no memory manager"
                             );
                         }
                     }
-                } else {
-                    tracing::debug!("Heartbeat: consolidation requested but no memory manager");
-                }
-                    }
                     Some(_resp) => {
                         tracing::info!("Heartbeat: memory consolidation denied by user");
-                        crate::send_notification(tx, crate::Notification {
-                            id: uuid::Uuid::new_v4().to_string(),
-                            kind: crate::NotificationKind::Info,
-                            title: "Consolidation skipped".into(),
-                            body: "Memory consolidation was denied.".into(),
-                            source: "heartbeat(consolidate_memory)".into(),
-                            timestamp: Utc::now(),
-                            requires_approval: false,
-                            goal_id: None,
-                        });
+                        crate::send_notification(
+                            tx,
+                            crate::Notification {
+                                id: uuid::Uuid::new_v4().to_string(),
+                                kind: crate::NotificationKind::Info,
+                                title: "Consolidation skipped".into(),
+                                body: "Memory consolidation was denied.".into(),
+                                source: "heartbeat(consolidate_memory)".into(),
+                                timestamp: Utc::now(),
+                                requires_approval: false,
+                                goal_id: None,
+                            },
+                        );
                     }
                     None => {
                         tracing::warn!("Heartbeat: memory consolidation approval timed out");
@@ -824,7 +945,12 @@ pub async fn dispatch_actions(
                 }
             }
 
-            HeartbeatAction::Suggest { title, body, sources, priority } if config.can_suggest => {
+            HeartbeatAction::Suggest {
+                title,
+                body,
+                sources,
+                priority,
+            } if config.can_suggest => {
                 let kind = match priority.to_ascii_lowercase().as_str() {
                     "urgent" => NotificationKind::Urgent,
                     "high" => NotificationKind::Urgent,
@@ -835,51 +961,74 @@ pub async fn dispatch_actions(
                 } else {
                     format!("heartbeat:{}", sources.join("+"))
                 };
-                crate::send_notification(tx, Notification {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    kind,
-                    title: title.clone(),
-                    body: body.clone(),
-                    source: source_tag,
-                    timestamp: Utc::now(),
-                    requires_approval: false,
-                    goal_id: None,
-                });
-                tracing::info!("Heartbeat: suggestion '{title}' (sources: {})", sources.join(", "));
+                crate::send_notification(
+                    tx,
+                    Notification {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        kind,
+                        title: title.clone(),
+                        body: body.clone(),
+                        source: source_tag,
+                        timestamp: Utc::now(),
+                        requires_approval: false,
+                        goal_id: None,
+                    },
+                );
+                tracing::info!(
+                    "Heartbeat: suggestion '{title}' (sources: {})",
+                    sources.join(", ")
+                );
             }
 
             HeartbeatAction::AnalyzeFailure {
-                subject, root_cause, remediation, domain,
+                subject,
+                root_cause,
+                remediation,
+                domain,
             } if config.can_analyze_failures => {
                 let notif_id = uuid::Uuid::new_v4().to_string();
-                let conf_str = domain.as_ref().map(|d| format!(" (will decrease confidence in '{d}')")).unwrap_or_default();
-                crate::send_notification(tx, crate::Notification {
-                    id: notif_id.clone(),
-                    kind: crate::NotificationKind::ApprovalNeeded,
-                    title: "Action requires approval".into(),
-                    body: format!("The agent wants to record a failure analysis for '{subject}'{conf_str}."),
-                    source: "heartbeat(analyze_failure)".into(),
-                    timestamp: Utc::now(),
-                    requires_approval: true,
-                    goal_id: None,
-                });
+                let conf_str = domain
+                    .as_ref()
+                    .map(|d| format!(" (will decrease confidence in '{d}')"))
+                    .unwrap_or_default();
+                crate::send_notification(
+                    tx,
+                    crate::Notification {
+                        id: notif_id.clone(),
+                        kind: crate::NotificationKind::ApprovalNeeded,
+                        title: "Action requires approval".into(),
+                        body: format!(
+                            "The agent wants to record a failure analysis for '{subject}'{conf_str}."
+                        ),
+                        source: "heartbeat(analyze_failure)".into(),
+                        timestamp: Utc::now(),
+                        requires_approval: true,
+                        goal_id: None,
+                    },
+                );
 
-                match crate::await_approval(ctx, &notif_id, std::time::Duration::from_secs(120)).await {
+                match crate::await_approval(ctx, &notif_id, std::time::Duration::from_secs(120))
+                    .await
+                {
                     Some(resp) if resp.approved => {
-                        dispatch_analyze_failure(subject, root_cause, remediation, domain, ctx, tx).await;
+                        dispatch_analyze_failure(subject, root_cause, remediation, domain, ctx, tx)
+                            .await;
                     }
                     Some(_resp) => {
                         tracing::info!("Heartbeat: failure analysis denied by user");
-                        crate::send_notification(tx, crate::Notification {
-                            id: uuid::Uuid::new_v4().to_string(),
-                            kind: crate::NotificationKind::Info,
-                            title: "Analysis skipped".into(),
-                            body: "Failure analysis was denied.".into(),
-                            source: "heartbeat(analyze_failure)".into(),
-                            timestamp: Utc::now(),
-                            requires_approval: false,
-                            goal_id: None,
-                        });
+                        crate::send_notification(
+                            tx,
+                            crate::Notification {
+                                id: uuid::Uuid::new_v4().to_string(),
+                                kind: crate::NotificationKind::Info,
+                                title: "Analysis skipped".into(),
+                                body: "Failure analysis was denied.".into(),
+                                source: "heartbeat(analyze_failure)".into(),
+                                timestamp: Utc::now(),
+                                requires_approval: false,
+                                goal_id: None,
+                            },
+                        );
                     }
                     None => {
                         tracing::warn!("Heartbeat: failure analysis approval timed out");
@@ -894,42 +1043,51 @@ pub async fn dispatch_actions(
             HeartbeatAction::Backup if config.can_backup => {
                 // Gate: ask the user before writing a potentially large backup archive.
                 let notif_id = uuid::Uuid::new_v4().to_string();
-                crate::send_notification(tx, crate::Notification {
-                    id: notif_id.clone(),
-                    kind: crate::NotificationKind::ApprovalNeeded,
-                    title: "Scheduled data backup — approve?".into(),
-                    body: format!(
-                        "The agent wants to create an encrypted backup of your data directory.\n\
+                crate::send_notification(
+                    tx,
+                    crate::Notification {
+                        id: notif_id.clone(),
+                        kind: crate::NotificationKind::ApprovalNeeded,
+                        title: "Scheduled data backup — approve?".into(),
+                        body: format!(
+                            "The agent wants to create an encrypted backup of your data directory.\n\
                          Destination: {}\n\n\
                          [A] to approve, [D] to deny (2-minute window).",
-                        ctx.backup_destination.as_ref()
-                            .map(|p| p.display().to_string())
-                            .unwrap_or_else(|| "<not configured>".into()),
-                    ),
-                    source: "heartbeat:backup".into(),
-                    timestamp: Utc::now(),
-                    requires_approval: true,
-                    goal_id: None,
-                });
+                            ctx.backup_destination
+                                .as_ref()
+                                .map(|p| p.display().to_string())
+                                .unwrap_or_else(|| "<not configured>".into()),
+                        ),
+                        source: "heartbeat:backup".into(),
+                        timestamp: Utc::now(),
+                        requires_approval: true,
+                        goal_id: None,
+                    },
+                );
                 tracing::info!("Heartbeat: backup approval requested (notif_id={notif_id})");
 
-                match crate::await_approval(ctx, &notif_id, std::time::Duration::from_secs(120)).await {
+                match crate::await_approval(ctx, &notif_id, std::time::Duration::from_secs(120))
+                    .await
+                {
                     Some(resp) if resp.approved => {
                         tracing::info!("Heartbeat: backup approved by user — proceeding");
                         dispatch_backup(ctx, tx).await;
                     }
                     Some(_) => {
                         tracing::info!("Heartbeat: backup denied by user — skipping");
-                        crate::send_notification(tx, crate::Notification {
-                            id: uuid::Uuid::new_v4().to_string(),
-                            kind: crate::NotificationKind::Info,
-                            title: "Backup skipped".into(),
-                            body: "You denied the scheduled backup request.".into(),
-                            source: "heartbeat:backup".into(),
-                            timestamp: Utc::now(),
-                            requires_approval: false,
-                            goal_id: None,
-                        });
+                        crate::send_notification(
+                            tx,
+                            crate::Notification {
+                                id: uuid::Uuid::new_v4().to_string(),
+                                kind: crate::NotificationKind::Info,
+                                title: "Backup skipped".into(),
+                                body: "You denied the scheduled backup request.".into(),
+                                source: "heartbeat:backup".into(),
+                                timestamp: Utc::now(),
+                                requires_approval: false,
+                                goal_id: None,
+                            },
+                        );
                     }
                     None => {
                         tracing::warn!("Heartbeat: backup approval timed out — skipping");
@@ -941,27 +1099,33 @@ pub async fn dispatch_actions(
                 // Gate: ask before permanently removing audit entries.
                 let notif_id = uuid::Uuid::new_v4().to_string();
                 let retain_days = config.audit_retention_days;
-                crate::send_notification(tx, crate::Notification {
-                    id: notif_id.clone(),
-                    kind: crate::NotificationKind::ApprovalNeeded,
-                    title: "Audit log prune — approve?".into(),
-                    body: format!(
-                        "The agent wants to permanently remove audit entries older than {retain_days} days.\n\
+                crate::send_notification(
+                    tx,
+                    crate::Notification {
+                        id: notif_id.clone(),
+                        kind: crate::NotificationKind::ApprovalNeeded,
+                        title: "Audit log prune — approve?".into(),
+                        body: format!(
+                            "The agent wants to permanently remove audit entries older than {retain_days} days.\n\
                          This action cannot be undone.\n\n\
                          [A] to approve, [D] to deny (2-minute window)."
-                    ),
-                    source: "heartbeat:audit".into(),
-                    timestamp: Utc::now(),
-                    requires_approval: true,
-                    goal_id: None,
-                });
+                        ),
+                        source: "heartbeat:audit".into(),
+                        timestamp: Utc::now(),
+                        requires_approval: true,
+                        goal_id: None,
+                    },
+                );
                 tracing::info!("Heartbeat: audit prune approval requested (notif_id={notif_id})");
 
-                match crate::await_approval(ctx, &notif_id, std::time::Duration::from_secs(120)).await {
+                match crate::await_approval(ctx, &notif_id, std::time::Duration::from_secs(120))
+                    .await
+                {
                     Some(resp) if resp.approved => {
                         tracing::info!("Heartbeat: audit prune approved by user — proceeding");
                         if let Some(ref audit_log) = ctx.audit_log {
-                            let keep_after = Utc::now() - chrono::Duration::days(retain_days as i64);
+                            let keep_after =
+                                Utc::now() - chrono::Duration::days(retain_days as i64);
                             match aivyx_audit::prune(audit_log, keep_after) {
                                 Ok(result) => {
                                     tracing::info!(
@@ -988,38 +1152,48 @@ pub async fn dispatch_actions(
             }
 
             // ── Phase 6: Smarter Agent actions ─────────────────────
-
-            HeartbeatAction::PlanReview { horizons, gaps, adjustments }
-                if config.can_plan_review =>
-            {
+            HeartbeatAction::PlanReview {
+                horizons,
+                gaps,
+                adjustments,
+            } if config.can_plan_review => {
                 let notif_id = uuid::Uuid::new_v4().to_string();
-                crate::send_notification(tx, crate::Notification {
-                    id: notif_id.clone(),
-                    kind: crate::NotificationKind::ApprovalNeeded,
-                    title: "Plan Review Approval Needed".into(),
-                    body: "The agent wants to update goal horizons, tags, and deadlines.".into(),
-                    source: "heartbeat(plan_review)".into(),
-                    timestamp: Utc::now(),
-                    requires_approval: true,
-                    goal_id: None,
-                });
+                crate::send_notification(
+                    tx,
+                    crate::Notification {
+                        id: notif_id.clone(),
+                        kind: crate::NotificationKind::ApprovalNeeded,
+                        title: "Plan Review Approval Needed".into(),
+                        body: "The agent wants to update goal horizons, tags, and deadlines."
+                            .into(),
+                        source: "heartbeat(plan_review)".into(),
+                        timestamp: Utc::now(),
+                        requires_approval: true,
+                        goal_id: None,
+                    },
+                );
 
-                match crate::await_approval(ctx, &notif_id, std::time::Duration::from_secs(120)).await {
+                match crate::await_approval(ctx, &notif_id, std::time::Duration::from_secs(120))
+                    .await
+                {
                     Some(resp) if resp.approved => {
                         dispatch_plan_review(horizons, gaps, adjustments, ctx, tx);
                     }
                     Some(_) => {
                         tracing::info!("Heartbeat: plan review denied by user");
-                        crate::send_notification(tx, crate::Notification {
-                            id: uuid::Uuid::new_v4().to_string(),
-                            kind: crate::NotificationKind::Info,
-                            title: "Plan review skipped".into(),
-                            body: "Plan review was denied.".into(),
-                            source: "heartbeat(plan_review)".into(),
-                            timestamp: Utc::now(),
-                            requires_approval: false,
-                            goal_id: None,
-                        });
+                        crate::send_notification(
+                            tx,
+                            crate::Notification {
+                                id: uuid::Uuid::new_v4().to_string(),
+                                kind: crate::NotificationKind::Info,
+                                title: "Plan review skipped".into(),
+                                body: "Plan review was denied.".into(),
+                                source: "heartbeat(plan_review)".into(),
+                                timestamp: Utc::now(),
+                                requires_approval: false,
+                                goal_id: None,
+                            },
+                        );
                     }
                     None => {
                         tracing::warn!("Heartbeat: plan review approval timed out");
@@ -1028,8 +1202,12 @@ pub async fn dispatch_actions(
             }
 
             HeartbeatAction::StrategyReview {
-                period_summary, goals_completed, goals_stalled,
-                patterns, strategic_adjustments, domain_confidence_updates,
+                period_summary,
+                goals_completed,
+                goals_stalled,
+                patterns,
+                strategic_adjustments,
+                domain_confidence_updates,
             } if config.can_strategy_review => {
                 let notif_id = uuid::Uuid::new_v4().to_string();
                 crate::send_notification(tx, crate::Notification {
@@ -1043,25 +1221,37 @@ pub async fn dispatch_actions(
                     goal_id: None,
                 });
 
-                match crate::await_approval(ctx, &notif_id, std::time::Duration::from_secs(120)).await {
+                match crate::await_approval(ctx, &notif_id, std::time::Duration::from_secs(120))
+                    .await
+                {
                     Some(resp) if resp.approved => {
                         dispatch_strategy_review(
-                            period_summary, *goals_completed, goals_stalled, patterns,
-                            strategic_adjustments, domain_confidence_updates, ctx, tx,
-                        ).await;
+                            period_summary,
+                            *goals_completed,
+                            goals_stalled,
+                            patterns,
+                            strategic_adjustments,
+                            domain_confidence_updates,
+                            ctx,
+                            tx,
+                        )
+                        .await;
                     }
                     Some(_) => {
                         tracing::info!("Heartbeat: strategy review denied by user");
-                        crate::send_notification(tx, crate::Notification {
-                            id: uuid::Uuid::new_v4().to_string(),
-                            kind: crate::NotificationKind::Info,
-                            title: "Strategy review skipped".into(),
-                            body: "Strategy review was denied.".into(),
-                            source: "heartbeat(strategy_review)".into(),
-                            timestamp: Utc::now(),
-                            requires_approval: false,
-                            goal_id: None,
-                        });
+                        crate::send_notification(
+                            tx,
+                            crate::Notification {
+                                id: uuid::Uuid::new_v4().to_string(),
+                                kind: crate::NotificationKind::Info,
+                                title: "Strategy review skipped".into(),
+                                body: "Strategy review was denied.".into(),
+                                source: "heartbeat(strategy_review)".into(),
+                                timestamp: Utc::now(),
+                                requires_approval: false,
+                                goal_id: None,
+                            },
+                        );
                     }
                     None => {
                         tracing::warn!("Heartbeat: strategy review approval timed out");
@@ -1069,25 +1259,31 @@ pub async fn dispatch_actions(
                 }
             }
 
-            HeartbeatAction::TrackMood { observed_mood, adjustment }
-                if config.can_track_mood =>
-            {
+            HeartbeatAction::TrackMood {
+                observed_mood,
+                adjustment,
+            } if config.can_track_mood => {
                 tracing::info!("Heartbeat: mood tracked — {observed_mood} → {adjustment}");
-                crate::send_notification(tx, Notification {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    kind: NotificationKind::Info,
-                    title: format!("Mood: {observed_mood}"),
-                    body: adjustment.clone(),
-                    source: "heartbeat:mood".into(),
-                    timestamp: Utc::now(),
-                    requires_approval: false,
-                    goal_id: None,
-                });
+                crate::send_notification(
+                    tx,
+                    Notification {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        kind: NotificationKind::Info,
+                        title: format!("Mood: {observed_mood}"),
+                        body: adjustment.clone(),
+                        source: "heartbeat:mood".into(),
+                        timestamp: Utc::now(),
+                        requires_approval: false,
+                        goal_id: None,
+                    },
+                );
             }
 
-            HeartbeatAction::Encourage { achievement, message, streak }
-                if config.can_encourage =>
-            {
+            HeartbeatAction::Encourage {
+                achievement,
+                message,
+                streak,
+            } if config.can_encourage => {
                 dispatch_encourage(achievement, message, streak, ctx, tx);
             }
 
@@ -1111,7 +1307,10 @@ fn dispatch_update_goal(
     ctx: &LoopContext,
 ) {
     let goals = match ctx.brain_store.list_goals(
-        &GoalFilter { status: Some(GoalStatus::Active), ..Default::default() },
+        &GoalFilter {
+            status: Some(GoalStatus::Active),
+            ..Default::default()
+        },
         &ctx.brain_key,
     ) {
         Ok(g) => g,
@@ -1122,7 +1321,9 @@ fn dispatch_update_goal(
     };
 
     let match_lower = goal_match.to_lowercase();
-    let matched = goals.iter().find(|g| g.description.to_lowercase().contains(&match_lower));
+    let matched = goals
+        .iter()
+        .find(|g| g.description.to_lowercase().contains(&match_lower));
 
     let Some(goal) = matched else {
         tracing::debug!("Heartbeat: no goal matched '{goal_match}'");
@@ -1187,7 +1388,9 @@ fn dispatch_reflect(
     for s in remove_strengths {
         let before = model.strengths.len();
         model.strengths.retain(|x| x != s);
-        if model.strengths.len() < before { changes += 1; }
+        if model.strengths.len() < before {
+            changes += 1;
+        }
     }
     for w in add_weaknesses {
         if !model.weaknesses.contains(w) {
@@ -1198,10 +1401,14 @@ fn dispatch_reflect(
     for w in remove_weaknesses {
         let before = model.weaknesses.len();
         model.weaknesses.retain(|x| x != w);
-        if model.weaknesses.len() < before { changes += 1; }
+        if model.weaknesses.len() < before {
+            changes += 1;
+        }
     }
     for (domain, conf) in domain_confidence {
-        model.domain_confidence.insert(domain.clone(), conf.clamp(0.0, 1.0));
+        model
+            .domain_confidence
+            .insert(domain.clone(), conf.clamp(0.0, 1.0));
         changes += 1;
     }
 
@@ -1236,12 +1443,15 @@ async fn dispatch_analyze_failure(
 
     if let Some(ref mm) = ctx.memory_manager {
         let mut mgr = mm.lock().await;
-        if let Err(e) = mgr.remember(
-            reflection_content,
-            aivyx_memory::MemoryKind::Custom("reflection".into()),
-            None,
-            vec!["failure-analysis".to_string()],
-        ).await {
+        if let Err(e) = mgr
+            .remember(
+                reflection_content,
+                aivyx_memory::MemoryKind::Custom("reflection".into()),
+                None,
+                vec!["failure-analysis".to_string()],
+            )
+            .await
+        {
             tracing::warn!("Heartbeat: failed to store failure analysis memory: {e}");
         }
     }
@@ -1257,9 +1467,15 @@ async fn dispatch_analyze_failure(
             }
         };
 
-        let current = model.domain_confidence.get(domain_name).copied().unwrap_or(0.5);
+        let current = model
+            .domain_confidence
+            .get(domain_name)
+            .copied()
+            .unwrap_or(0.5);
         let new_conf = (current - 0.1).max(0.0); // decrease by 10%
-        model.domain_confidence.insert(domain_name.clone(), new_conf);
+        model
+            .domain_confidence
+            .insert(domain_name.clone(), new_conf);
 
         // Add weakness if not already present
         let weakness = format!("failure in {domain_name}: {subject}");
@@ -1278,16 +1494,19 @@ async fn dispatch_analyze_failure(
     }
 
     // Notify the user
-    crate::send_notification(tx, Notification {
-        id: uuid::Uuid::new_v4().to_string(),
-        kind: NotificationKind::Info,
-        title: format!("Failure analysis: {subject}"),
-        body: format!("Root cause: {root_cause}\nRemediation: {remediation}"),
-        source: "heartbeat:failure-analysis".into(),
-        timestamp: Utc::now(),
-        requires_approval: false,
-        goal_id: None,
-    });
+    crate::send_notification(
+        tx,
+        Notification {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind: NotificationKind::Info,
+            title: format!("Failure analysis: {subject}"),
+            body: format!("Root cause: {root_cause}\nRemediation: {remediation}"),
+            source: "heartbeat:failure-analysis".into(),
+            timestamp: Utc::now(),
+            requires_approval: false,
+            goal_id: None,
+        },
+    );
 
     tracing::info!("Heartbeat: analyzed failure '{subject}'");
 }
@@ -1341,7 +1560,9 @@ async fn dispatch_extract_knowledge(
             Err(e) => {
                 tracing::warn!(
                     "Heartbeat: failed to store triple ({}, {}, {}): {e}",
-                    triple.subject, triple.predicate, triple.object,
+                    triple.subject,
+                    triple.predicate,
+                    triple.object,
                 );
                 errors += 1;
             }
@@ -1354,16 +1575,19 @@ async fn dispatch_extract_knowledge(
             added + reinforced + superseded,
         );
         tracing::info!("Heartbeat: {body}");
-        crate::send_notification(tx, Notification {
-            id: uuid::Uuid::new_v4().to_string(),
-            kind: NotificationKind::Info,
-            title: "Knowledge extracted".into(),
-            body,
-            source: "heartbeat:knowledge".into(),
-            timestamp: Utc::now(),
-            requires_approval: false,
-            goal_id: None,
-        });
+        crate::send_notification(
+            tx,
+            Notification {
+                id: uuid::Uuid::new_v4().to_string(),
+                kind: NotificationKind::Info,
+                title: "Knowledge extracted".into(),
+                body,
+                source: "heartbeat:knowledge".into(),
+                timestamp: Utc::now(),
+                requires_approval: false,
+                goal_id: None,
+            },
+        );
     }
 
     if errors > 0 {
@@ -1372,10 +1596,7 @@ async fn dispatch_extract_knowledge(
 }
 
 /// Create a tar.gz backup of the data directory and prune old archives.
-async fn dispatch_backup(
-    ctx: &LoopContext,
-    tx: &mpsc::Sender<Notification>,
-) {
+async fn dispatch_backup(ctx: &LoopContext, tx: &mpsc::Sender<Notification>) {
     let data_dir = match ctx.data_dir {
         Some(ref d) if d.exists() => d,
         _ => {
@@ -1409,15 +1630,16 @@ async fn dispatch_backup(
     match tar_result {
         Ok(Ok(bytes)) => {
             let size_mb = bytes as f64 / (1024.0 * 1024.0);
-            tracing::info!(
-                "Heartbeat: backup created — {archive_name} ({size_mb:.1} MB)"
-            );
+            tracing::info!("Heartbeat: backup created — {archive_name} ({size_mb:.1} MB)");
 
             // Audit: backup completed
-            crate::emit_audit(ctx, aivyx_audit::AuditEvent::BackupCompleted {
-                size_bytes: bytes,
-                destination: archive_path.display().to_string(),
-            });
+            crate::emit_audit(
+                ctx,
+                aivyx_audit::AuditEvent::BackupCompleted {
+                    size_bytes: bytes,
+                    destination: archive_path.display().to_string(),
+                },
+            );
 
             // Prune old backups beyond retention period
             let pruned = prune_old_backups(&dest, ctx.backup_retention_days);
@@ -1425,41 +1647,51 @@ async fn dispatch_backup(
             let body = format!(
                 "Backup `{archive_name}` created ({size_mb:.1} MB). {pruned} old archive(s) pruned."
             );
-            crate::send_notification(tx, Notification {
-                id: uuid::Uuid::new_v4().to_string(),
-                kind: NotificationKind::Info,
-                title: "Data backup complete".into(),
-                body,
-                source: "heartbeat:backup".into(),
-                timestamp: Utc::now(),
-                requires_approval: false,
-                goal_id: None,
-            });
+            crate::send_notification(
+                tx,
+                Notification {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    kind: NotificationKind::Info,
+                    title: "Data backup complete".into(),
+                    body,
+                    source: "heartbeat:backup".into(),
+                    timestamp: Utc::now(),
+                    requires_approval: false,
+                    goal_id: None,
+                },
+            );
         }
         Ok(Err(e)) => {
             tracing::warn!("Heartbeat: backup failed — {e}");
-            crate::emit_audit(ctx, aivyx_audit::AuditEvent::BackupFailed {
-                reason: e.to_string(),
-            });
+            crate::emit_audit(
+                ctx,
+                aivyx_audit::AuditEvent::BackupFailed {
+                    reason: e.to_string(),
+                },
+            );
         }
         Err(e) => {
             tracing::warn!("Heartbeat: backup task panicked — {e}");
-            crate::emit_audit(ctx, aivyx_audit::AuditEvent::BackupFailed {
-                reason: format!("task panicked: {e}"),
-            });
+            crate::emit_audit(
+                ctx,
+                aivyx_audit::AuditEvent::BackupFailed {
+                    reason: format!("task panicked: {e}"),
+                },
+            );
         }
     }
 }
 
 /// Create a gzipped tar archive of `source_dir` at `dest_path`.
 /// Returns the archive size in bytes on success.
-fn create_tar_gz(source_dir: &std::path::Path, dest_path: &std::path::Path) -> std::io::Result<u64> {
-    let parent = source_dir
-        .parent()
-        .unwrap_or(std::path::Path::new("/"));
-    let dir_name = source_dir
-        .file_name()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "no directory name"))?;
+fn create_tar_gz(
+    source_dir: &std::path::Path,
+    dest_path: &std::path::Path,
+) -> std::io::Result<u64> {
+    let parent = source_dir.parent().unwrap_or(std::path::Path::new("/"));
+    let dir_name = source_dir.file_name().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "no directory name")
+    })?;
 
     let output = std::process::Command::new("tar")
         .arg("czf")
@@ -1471,9 +1703,7 @@ fn create_tar_gz(source_dir: &std::path::Path, dest_path: &std::path::Path) -> s
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(std::io::Error::other(
-            format!("tar failed: {stderr}"),
-        ));
+        return Err(std::io::Error::other(format!("tar failed: {stderr}")));
     }
 
     let meta = std::fs::metadata(dest_path)?;
@@ -1506,17 +1736,15 @@ fn prune_old_backups(backup_dir: &std::path::Path, retention_days: u64) -> usize
         let ts_part = name
             .strip_prefix("pa_backup_")
             .and_then(|s| s.strip_suffix(".tar.gz"));
-        let created = ts_part.and_then(|ts| {
-            chrono::NaiveDateTime::parse_from_str(ts, "%Y%m%d_%H%M%S").ok()
-        });
+        let created =
+            ts_part.and_then(|ts| chrono::NaiveDateTime::parse_from_str(ts, "%Y%m%d_%H%M%S").ok());
 
         if let Some(created) = created {
             let created_utc = created.and_utc();
-            if created_utc < cutoff
-                && std::fs::remove_file(&path).is_ok() {
-                    tracing::debug!("Heartbeat: pruned old backup {name}");
-                    pruned += 1;
-                }
+            if created_utc < cutoff && std::fs::remove_file(&path).is_ok() {
+                tracing::debug!("Heartbeat: pruned old backup {name}");
+                pruned += 1;
+            }
         }
     }
 
@@ -1534,7 +1762,10 @@ fn dispatch_plan_review(
     tx: &mpsc::Sender<Notification>,
 ) {
     let goals = match ctx.brain_store.list_goals(
-        &GoalFilter { status: Some(GoalStatus::Active), ..Default::default() },
+        &GoalFilter {
+            status: Some(GoalStatus::Active),
+            ..Default::default()
+        },
         &ctx.brain_key,
     ) {
         Ok(g) => g,
@@ -1548,10 +1779,15 @@ fn dispatch_plan_review(
 
     for adj in adjustments {
         let match_lower = adj.goal_match.to_lowercase();
-        let matched = goals.iter().find(|g| g.description.to_lowercase().contains(&match_lower));
+        let matched = goals
+            .iter()
+            .find(|g| g.description.to_lowercase().contains(&match_lower));
 
         let Some(goal) = matched else {
-            tracing::debug!("Heartbeat: plan review — no goal matched '{}'", adj.goal_match);
+            tracing::debug!(
+                "Heartbeat: plan review — no goal matched '{}'",
+                adj.goal_match
+            );
             continue;
         };
 
@@ -1604,16 +1840,19 @@ fn dispatch_plan_review(
         format!("\nGaps: {}", gaps.join("; "))
     };
 
-    crate::send_notification(tx, Notification {
-        id: uuid::Uuid::new_v4().to_string(),
-        kind: NotificationKind::Info,
-        title: "Plan review complete".into(),
-        body: format!("{summary}{gap_note}\n{changes} goal(s) updated."),
-        source: "heartbeat:planning".into(),
-        timestamp: Utc::now(),
-        requires_approval: false,
-        goal_id: None,
-    });
+    crate::send_notification(
+        tx,
+        Notification {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind: NotificationKind::Info,
+            title: "Plan review complete".into(),
+            body: format!("{summary}{gap_note}\n{changes} goal(s) updated."),
+            source: "heartbeat:planning".into(),
+            timestamp: Utc::now(),
+            requires_approval: false,
+            goal_id: None,
+        },
+    );
 
     tracing::info!("Heartbeat: plan review — {summary}, {changes} goals updated");
 }
@@ -1637,19 +1876,34 @@ async fn dispatch_strategy_review(
          Stalled: {}\n\
          Patterns: {}\n\
          Adjustments: {}",
-        if goals_stalled.is_empty() { "none".into() } else { goals_stalled.join(", ") },
-        if patterns.is_empty() { "none observed".into() } else { patterns.join("; ") },
-        if strategic_adjustments.is_empty() { "none".into() } else { strategic_adjustments.join("; ") },
+        if goals_stalled.is_empty() {
+            "none".into()
+        } else {
+            goals_stalled.join(", ")
+        },
+        if patterns.is_empty() {
+            "none observed".into()
+        } else {
+            patterns.join("; ")
+        },
+        if strategic_adjustments.is_empty() {
+            "none".into()
+        } else {
+            strategic_adjustments.join("; ")
+        },
     );
 
     if let Some(ref mm) = ctx.memory_manager {
         let mut mgr = mm.lock().await;
-        if let Err(e) = mgr.remember(
-            review_content,
-            aivyx_memory::MemoryKind::Custom("review".into()),
-            None,
-            vec!["strategy-review".to_string()],
-        ).await {
+        if let Err(e) = mgr
+            .remember(
+                review_content,
+                aivyx_memory::MemoryKind::Custom("review".into()),
+                None,
+                vec!["strategy-review".to_string()],
+            )
+            .await
+        {
             tracing::warn!("Heartbeat: failed to store strategy review memory: {e}");
         }
     }
@@ -1666,7 +1920,9 @@ async fn dispatch_strategy_review(
         };
 
         for (domain, conf) in domain_confidence_updates {
-            model.domain_confidence.insert(domain.clone(), conf.clamp(0.0, 1.0));
+            model
+                .domain_confidence
+                .insert(domain.clone(), conf.clamp(0.0, 1.0));
         }
         model.updated_at = Utc::now();
 
@@ -1687,16 +1943,19 @@ async fn dispatch_strategy_review(
         },
     );
 
-    crate::send_notification(tx, Notification {
-        id: uuid::Uuid::new_v4().to_string(),
-        kind: NotificationKind::Info,
-        title: "Weekly strategy review".into(),
-        body,
-        source: "heartbeat:strategy-review".into(),
-        timestamp: Utc::now(),
-        requires_approval: false,
-        goal_id: None,
-    });
+    crate::send_notification(
+        tx,
+        Notification {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind: NotificationKind::Info,
+            title: "Weekly strategy review".into(),
+            body,
+            source: "heartbeat:strategy-review".into(),
+            timestamp: Utc::now(),
+            requires_approval: false,
+            goal_id: None,
+        },
+    );
 
     tracing::info!(
         "Heartbeat: strategy review — {goals_completed} completed, {} stalled",
@@ -1716,16 +1975,19 @@ fn dispatch_encourage(
         .map(|s| format!(" (streak: {s})"))
         .unwrap_or_default();
 
-    crate::send_notification(tx, Notification {
-        id: uuid::Uuid::new_v4().to_string(),
-        kind: NotificationKind::Info,
-        title: format!("{achievement}{streak_note}"),
-        body: message.to_string(),
-        source: "heartbeat:encouragement".into(),
-        timestamp: Utc::now(),
-        requires_approval: false,
-        goal_id: None,
-    });
+    crate::send_notification(
+        tx,
+        Notification {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind: NotificationKind::Info,
+            title: format!("{achievement}{streak_note}"),
+            body: message.to_string(),
+            source: "heartbeat:encouragement".into(),
+            timestamp: Utc::now(),
+            requires_approval: false,
+            goal_id: None,
+        },
+    );
 
     tracing::info!("Heartbeat: encouragement — {achievement}{streak_note}");
 }
@@ -1779,7 +2041,8 @@ pub fn gather_achievements(
 ) -> Option<String> {
     let since = last_heartbeat_at.unwrap_or_else(|| Utc::now() - chrono::Duration::hours(1));
 
-    let recently_completed: Vec<&Goal> = goals.iter()
+    let recently_completed: Vec<&Goal> = goals
+        .iter()
         .filter(|g| g.status == GoalStatus::Completed && g.updated_at >= since)
         .collect();
 
@@ -1789,11 +2052,15 @@ pub fn gather_achievements(
 
     // Count weekly completions
     let week_ago = Utc::now() - chrono::Duration::days(7);
-    let weekly_count = goals.iter()
+    let weekly_count = goals
+        .iter()
         .filter(|g| g.status == GoalStatus::Completed && g.updated_at >= week_ago)
         .count();
 
-    let mut lines = vec![format!("Recently completed ({}):", recently_completed.len())];
+    let mut lines = vec![format!(
+        "Recently completed ({}):",
+        recently_completed.len()
+    )];
     for g in &recently_completed {
         lines.push(format!("- {}", g.description));
     }
@@ -1828,7 +2095,8 @@ fn build_priority_items(data: &GatheredData) -> Vec<crate::priority::ScoredItem>
 
     // Score upcoming bills
     for b in &data.bills {
-        let days = b.due_date
+        let days = b
+            .due_date
             .map(|d: chrono::DateTime<Utc>| d.signed_duration_since(now).num_days())
             .unwrap_or(7);
         let score = priority::score_upcoming_bill(days);
@@ -1863,7 +2131,12 @@ fn build_priority_items(data: &GatheredData) -> Vec<crate::priority::ScoredItem>
         let score = priority::score_stale_goal(days_since, g.progress);
         if score >= 0.3 {
             items.push(ScoredItem {
-                summary: format!("{} ({:.0}% done, updated {}d ago)", g.description, g.progress * 100.0, days_since),
+                summary: format!(
+                    "{} ({:.0}% done, updated {}d ago)",
+                    g.description,
+                    g.progress * 100.0,
+                    days_since
+                ),
                 source: "goal".into(),
                 score,
                 priority: Priority::from_score(score),
@@ -1922,9 +2195,7 @@ pub async fn run_heartbeat_tick(
     if config.check_email && ctx.email_config.is_some() {
         let subjects = super::fetch_email_subjects(ctx).await;
         if !subjects.is_empty() {
-            let sanitized: Vec<String> = subjects.iter()
-                .map(|s| sanitize_for_prompt(s))
-                .collect();
+            let sanitized: Vec<String> = subjects.iter().map(|s| sanitize_for_prompt(s)).collect();
             hb_ctx.add("Recent Emails", sanitized.join("\n"));
         }
     }
@@ -1934,23 +2205,31 @@ pub async fn run_heartbeat_tick(
     if config.check_calendar && ctx.calendar_config.is_some() {
         let (events, conflicts) = super::fetch_calendar_for_briefing(ctx).await;
         if !events.is_empty() {
-            let lines: Vec<String> = events.iter().map(|e| {
-                let summary = sanitize_for_prompt(&e.summary);
-                if let Some(ref loc) = e.location {
-                    format!("- {} {} ({})", e.time, summary, sanitize_for_prompt(loc))
-                } else {
-                    format!("- {} {}", e.time, summary)
-                }
-            }).collect();
+            let lines: Vec<String> = events
+                .iter()
+                .map(|e| {
+                    let summary = sanitize_for_prompt(&e.summary);
+                    if let Some(ref loc) = e.location {
+                        format!("- {} {} ({})", e.time, summary, sanitize_for_prompt(loc))
+                    } else {
+                        format!("- {} {}", e.time, summary)
+                    }
+                })
+                .collect();
             hb_ctx.add("Today's Calendar", lines.join("\n"));
         }
         if !conflicts.is_empty() {
-            let lines: Vec<String> = conflicts.iter().map(|c| {
-                format!("- CONFLICT: \"{}\" and \"{}\" overlap ({})",
-                    sanitize_for_prompt(&c.event_a),
-                    sanitize_for_prompt(&c.event_b),
-                    c.overlap)
-            }).collect();
+            let lines: Vec<String> = conflicts
+                .iter()
+                .map(|c| {
+                    format!(
+                        "- CONFLICT: \"{}\" and \"{}\" overlap ({})",
+                        sanitize_for_prompt(&c.event_a),
+                        sanitize_for_prompt(&c.event_b),
+                        c.overlap
+                    )
+                })
+                .collect();
             hb_ctx.add("Scheduling Conflicts", lines.join("\n"));
         }
     }
@@ -1985,10 +2264,10 @@ pub async fn run_heartbeat_tick(
     // Achievement tracking: recently completed goals
     if config.can_encourage {
         // Load all goals (including completed) for achievement tracking
-        let all_goals = ctx.brain_store.list_goals(
-            &GoalFilter::default(),
-            &ctx.brain_key,
-        ).unwrap_or_default();
+        let all_goals = ctx
+            .brain_store
+            .list_goals(&GoalFilter::default(), &ctx.brain_key)
+            .unwrap_or_default();
 
         if let Some(text) = gather_achievements(&all_goals, ctx.last_heartbeat_at) {
             hb_ctx.add("Achievements", text);
@@ -1997,31 +2276,40 @@ pub async fn run_heartbeat_tick(
 
     // Strategy review: extended context when cron trigger has fired
     if config.can_strategy_review && ctx.strategy_review_pending {
-        let all_goals = ctx.brain_store.list_goals(
-            &GoalFilter::default(),
-            &ctx.brain_key,
-        ).unwrap_or_default();
+        let all_goals = ctx
+            .brain_store
+            .list_goals(&GoalFilter::default(), &ctx.brain_key)
+            .unwrap_or_default();
 
         let week_ago = Utc::now() - chrono::Duration::days(7);
-        let completed_this_week: Vec<&Goal> = all_goals.iter()
+        let completed_this_week: Vec<&Goal> = all_goals
+            .iter()
             .filter(|g| g.status == GoalStatus::Completed && g.updated_at >= week_ago)
             .collect();
-        let abandoned_this_week: Vec<&Goal> = all_goals.iter()
+        let abandoned_this_week: Vec<&Goal> = all_goals
+            .iter()
             .filter(|g| g.status == GoalStatus::Abandoned && g.updated_at >= week_ago)
             .collect();
 
         let mut review_lines = vec!["--- STRATEGY REVIEW CONTEXT ---".to_string()];
-        review_lines.push(format!("Goals completed this week: {}", completed_this_week.len()));
+        review_lines.push(format!(
+            "Goals completed this week: {}",
+            completed_this_week.len()
+        ));
         for g in &completed_this_week {
             review_lines.push(format!("  ✓ {}", g.description));
         }
         if !abandoned_this_week.is_empty() {
-            review_lines.push(format!("Goals abandoned this week: {}", abandoned_this_week.len()));
+            review_lines.push(format!(
+                "Goals abandoned this week: {}",
+                abandoned_this_week.len()
+            ));
             for g in &abandoned_this_week {
                 review_lines.push(format!("  ✗ {}", g.description));
             }
         }
-        let stalled: Vec<&Goal> = all_goals.iter()
+        let stalled: Vec<&Goal> = all_goals
+            .iter()
             .filter(|g| {
                 g.status == GoalStatus::Active
                     && g.progress < 0.5
@@ -2031,7 +2319,11 @@ pub async fn run_heartbeat_tick(
         if !stalled.is_empty() {
             review_lines.push(format!("Stalled goals (>3 days, <50%): {}", stalled.len()));
             for g in &stalled {
-                review_lines.push(format!("  ⚠ {} ({:.0}%)", g.description, g.progress * 100.0));
+                review_lines.push(format!(
+                    "  ⚠ {} ({:.0}%)",
+                    g.description,
+                    g.progress * 100.0
+                ));
             }
         }
         review_lines.push("Use `strategy_review` to summarize findings.".into());
@@ -2043,9 +2335,12 @@ pub async fn run_heartbeat_tick(
     // Context-aware skip: if nothing to review, skip the LLM call entirely.
     if hb_ctx.is_empty() {
         tracing::debug!("Heartbeat: no context to review, skipping LLM call");
-        crate::emit_audit(ctx, aivyx_audit::AuditEvent::HeartbeatSkipped {
-            reason: "no context to review".into(),
-        });
+        crate::emit_audit(
+            ctx,
+            aivyx_audit::AuditEvent::HeartbeatSkipped {
+                reason: "no context to review".into(),
+            },
+        );
         ctx.last_heartbeat_at = Some(now);
         return false;
     }
@@ -2054,20 +2349,24 @@ pub async fn run_heartbeat_tick(
     tracing::info!("Heartbeat: {} context sections, calling LLM", section_count);
 
     // Audit: heartbeat fired
-    crate::emit_audit(ctx, aivyx_audit::AuditEvent::HeartbeatFired {
-        agent_name: "pa".into(),
-        context_sections: section_count,
-        timestamp: now,
-    });
+    crate::emit_audit(
+        ctx,
+        aivyx_audit::AuditEvent::HeartbeatFired {
+            agent_name: "pa".into(),
+            context_sections: section_count,
+            timestamp: now,
+        },
+    );
 
     // MCP health check — quick ping of connected servers.
     if let Some(ref pool) = ctx.mcp_pool {
         for name in pool.server_names().await {
             if let Some(client) = pool.get(&name).await
-                && client.list_tools().await.is_err() {
-                    tracing::warn!(server = %name, "MCP server health check failed");
-                    hb_ctx.add("MCP Status", format!("Server '{name}' is unreachable"));
-                }
+                && client.list_tools().await.is_err()
+            {
+                tracing::warn!(server = %name, "MCP server health check failed");
+                hb_ctx.add("MCP Status", format!("Server '{name}' is unreachable"));
+            }
         }
     }
 
@@ -2075,7 +2374,11 @@ pub async fn run_heartbeat_tick(
     let mut scored_items = build_priority_items(&gathered_data);
     crate::priority::rank(&mut scored_items);
     let priority_text = crate::priority::format_priority_summary(&scored_items, 10, 0.3);
-    let priority_ref = if priority_text.is_empty() { None } else { Some(priority_text.as_str()) };
+    let priority_ref = if priority_text.is_empty() {
+        None
+    } else {
+        Some(priority_text.as_str())
+    };
 
     // Build prompt and call LLM.
     let user_prompt = build_heartbeat_prompt(config, &hb_ctx, priority_ref);
@@ -2093,11 +2396,14 @@ pub async fn run_heartbeat_tick(
             tokio::time::timeout(
                 std::time::Duration::from_secs(120),
                 ctx.provider.chat(&request),
-            ).await
+            )
+            .await
             .map_err(|_| aivyx_core::AivyxError::LlmProvider("timeout after 120s".into()))?
         },
         aivyx_actions::retry::is_transient,
-    ).await {
+    )
+    .await
+    {
         Ok(response) => {
             // Reset failure counter on success
             if ctx.heartbeat_consecutive_failures > 0 {
@@ -2119,9 +2425,15 @@ pub async fn run_heartbeat_tick(
                 failures = ctx.heartbeat_consecutive_failures,
                 "Heartbeat: LLM call failed after retries: {e}",
             );
-            crate::emit_audit(ctx, aivyx_audit::AuditEvent::HeartbeatSkipped {
-                reason: format!("LLM call failed ({} consecutive): {e}", ctx.heartbeat_consecutive_failures),
-            });
+            crate::emit_audit(
+                ctx,
+                aivyx_audit::AuditEvent::HeartbeatSkipped {
+                    reason: format!(
+                        "LLM call failed ({} consecutive): {e}",
+                        ctx.heartbeat_consecutive_failures
+                    ),
+                },
+            );
             ctx.last_heartbeat_at = Some(now);
             return false;
         }
@@ -2139,13 +2451,16 @@ pub async fn run_heartbeat_tick(
     dispatch_actions(&parsed.actions, config, ctx, tx).await;
 
     // Audit: heartbeat completed
-    crate::emit_audit(ctx, aivyx_audit::AuditEvent::HeartbeatCompleted {
-        agent_name: "pa".into(),
-        acted: !parsed.actions.is_empty(),
-        actions_dispatched: parsed.actions.len(),
-        actions_completed: parsed.actions.len(), // all dispatched synchronously
-        summary: crate::truncate(&parsed.reasoning, 200).to_string(),
-    });
+    crate::emit_audit(
+        ctx,
+        aivyx_audit::AuditEvent::HeartbeatCompleted {
+            agent_name: "pa".into(),
+            acted: !parsed.actions.is_empty(),
+            actions_dispatched: parsed.actions.len(),
+            actions_completed: parsed.actions.len(), // all dispatched synchronously
+            summary: crate::truncate(&parsed.reasoning, 200).to_string(),
+        },
+    );
 
     ctx.last_heartbeat_at = Some(now);
     true
@@ -2234,7 +2549,10 @@ mod tests {
         assert_eq!(resp.actions.len(), 4);
         assert!(matches!(resp.actions[0], HeartbeatAction::Notify { .. }));
         assert!(matches!(resp.actions[1], HeartbeatAction::SetGoal { .. }));
-        assert!(matches!(resp.actions[2], HeartbeatAction::UpdateGoal { .. }));
+        assert!(matches!(
+            resp.actions[2],
+            HeartbeatAction::UpdateGoal { .. }
+        ));
         assert!(matches!(resp.actions[3], HeartbeatAction::Reflect { .. }));
     }
 
@@ -2266,7 +2584,12 @@ mod tests {
         let resp = parse_response(json);
         assert_eq!(resp.actions.len(), 1);
         match &resp.actions[0] {
-            HeartbeatAction::Suggest { title, sources, priority, .. } => {
+            HeartbeatAction::Suggest {
+                title,
+                sources,
+                priority,
+                ..
+            } => {
                 assert_eq!(title, "Prepare for Sarah meeting");
                 assert_eq!(sources, &["email", "calendar"]);
                 assert_eq!(priority, "high");
@@ -2281,7 +2604,11 @@ mod tests {
         let mut ctx = HeartbeatContext::default();
         ctx.add("Goals", "- Test goal");
 
-        let prompt = build_heartbeat_prompt(&config, &ctx, Some("- [URGENT] (email) Old email needs reply"));
+        let prompt = build_heartbeat_prompt(
+            &config,
+            &ctx,
+            Some("- [URGENT] (email) Old email needs reply"),
+        );
         assert!(prompt.contains("Priority Summary"));
         assert!(prompt.contains("URGENT"));
     }
@@ -2405,7 +2732,11 @@ mod tests {
         let resp = parse_response(json);
         assert_eq!(resp.actions.len(), 1);
         match &resp.actions[0] {
-            HeartbeatAction::PlanReview { horizons, gaps, adjustments } => {
+            HeartbeatAction::PlanReview {
+                horizons,
+                gaps,
+                adjustments,
+            } => {
                 assert_eq!(horizons.get("today").map(|v| v.len()), Some(1));
                 assert_eq!(gaps.len(), 1);
                 assert_eq!(adjustments.len(), 1);
@@ -2433,7 +2764,10 @@ mod tests {
         assert_eq!(resp.actions.len(), 1);
         match &resp.actions[0] {
             HeartbeatAction::StrategyReview {
-                goals_completed, goals_stalled, domain_confidence_updates, ..
+                goals_completed,
+                goals_stalled,
+                domain_confidence_updates,
+                ..
             } => {
                 assert_eq!(*goals_completed, 3);
                 assert_eq!(goals_stalled.len(), 1);
@@ -2457,7 +2791,11 @@ mod tests {
         let resp = parse_response(json);
         assert_eq!(resp.actions.len(), 1);
         match &resp.actions[0] {
-            HeartbeatAction::Encourage { achievement, streak, .. } => {
+            HeartbeatAction::Encourage {
+                achievement,
+                streak,
+                ..
+            } => {
                 assert!(achievement.contains("3 goals"));
                 assert_eq!(*streak, Some(3));
             }

@@ -14,8 +14,8 @@ pub mod desktop;
 pub mod devtools;
 pub mod documents;
 pub mod email;
-pub mod finance;
 pub mod files;
+pub mod finance;
 pub mod knowledge;
 pub mod messaging;
 pub mod monitor;
@@ -53,11 +53,16 @@ pub fn resolve_url(base: &str, href: &str) -> String {
         return href.to_string();
     }
     if let Some(pos) = base.find("://")
-        && let Some(slash) = base[pos + 3..].find('/') {
-            let origin = &base[..pos + 3 + slash];
-            return format!("{origin}{href}");
-        }
-    format!("{}/{}", base.trim_end_matches('/'), href.trim_start_matches('/'))
+        && let Some(slash) = base[pos + 3..].find('/')
+    {
+        let origin = &base[..pos + 3 + slash];
+        return format!("{origin}{href}");
+    }
+    format!(
+        "{}/{}",
+        base.trim_end_matches('/'),
+        href.trim_start_matches('/')
+    )
 }
 
 /// Describes an action the assistant can take in the real world.
@@ -97,13 +102,16 @@ impl ActionRegistry {
     }
 
     pub fn find(&self, name: &str) -> Option<&dyn Action> {
-        self.actions.iter().find(|a| a.name() == name).map(|a| a.as_ref())
+        self.actions
+            .iter()
+            .find(|a| a.name() == name)
+            .map(|a| a.as_ref())
     }
 
     pub async fn execute(&self, name: &str, input: serde_json::Value) -> Result<serde_json::Value> {
-        let action = self.find(name).ok_or_else(|| {
-            AivyxError::Other(format!("action '{name}' not found"))
-        })?;
+        let action = self
+            .find(name)
+            .ok_or_else(|| AivyxError::Other(format!("action '{name}' not found")))?;
         action.execute(input).await
     }
 }

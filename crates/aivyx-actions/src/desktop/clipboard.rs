@@ -3,7 +3,7 @@
 use crate::Action;
 use aivyx_core::Result;
 
-use super::{run_desktop_command, detect_display_server, DisplayServer, DEFAULT_TIMEOUT_SECS};
+use super::{DEFAULT_TIMEOUT_SECS, DisplayServer, detect_display_server, run_desktop_command};
 
 /// Maximum clipboard write size (1 MB).
 const MAX_WRITE_BYTES: usize = 1_024 * 1_024;
@@ -87,9 +87,11 @@ impl Action for ClipboardWrite {
             .ok_or_else(|| aivyx_core::AivyxError::Validation("text is required".into()))?;
 
         if text.len() > MAX_WRITE_BYTES {
-            return Err(aivyx_core::AivyxError::Validation(
-                format!("Clipboard write too large ({} bytes, max {})", text.len(), MAX_WRITE_BYTES),
-            ));
+            return Err(aivyx_core::AivyxError::Validation(format!(
+                "Clipboard write too large ({} bytes, max {})",
+                text.len(),
+                MAX_WRITE_BYTES
+            )));
         }
 
         let ds = detect_display_server();
@@ -114,23 +116,24 @@ impl Action for ClipboardWrite {
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::piped())
                     .spawn()
-                    .map_err(|e| aivyx_core::AivyxError::Other(
-                        format!("Failed to run {program}: {e}"),
-                    ))?;
+                    .map_err(|e| {
+                        aivyx_core::AivyxError::Other(format!("Failed to run {program}: {e}"))
+                    })?;
 
                 if let Some(mut stdin) = child.stdin.take() {
                     use tokio::io::AsyncWriteExt;
-                    stdin.write_all(text.as_bytes()).await
-                        .map_err(|e| aivyx_core::AivyxError::Other(
-                            format!("Failed to write to {program} stdin: {e}"),
-                        ))?;
+                    stdin.write_all(text.as_bytes()).await.map_err(|e| {
+                        aivyx_core::AivyxError::Other(format!(
+                            "Failed to write to {program} stdin: {e}"
+                        ))
+                    })?;
                     // Drop stdin to close the pipe and let the process finish
                 }
 
-                child.wait().await
-                    .map_err(|e| aivyx_core::AivyxError::Other(
-                        format!("{program} failed: {e}"),
-                    ))
+                child
+                    .wait()
+                    .await
+                    .map_err(|e| aivyx_core::AivyxError::Other(format!("{program} failed: {e}")))
             },
         )
         .await;
@@ -140,13 +143,14 @@ impl Action for ClipboardWrite {
                 "status": "written",
                 "bytes": text.len(),
             })),
-            Ok(Ok(status)) => Err(aivyx_core::AivyxError::Other(
-                format!("{program} exited with status {}", status.code().unwrap_or(-1)),
-            )),
+            Ok(Ok(status)) => Err(aivyx_core::AivyxError::Other(format!(
+                "{program} exited with status {}",
+                status.code().unwrap_or(-1)
+            ))),
             Ok(Err(e)) => Err(e),
-            Err(_) => Err(aivyx_core::AivyxError::Other(
-                format!("{program} timed out after {DEFAULT_TIMEOUT_SECS}s"),
-            )),
+            Err(_) => Err(aivyx_core::AivyxError::Other(format!(
+                "{program} timed out after {DEFAULT_TIMEOUT_SECS}s"
+            ))),
         }
     }
 }
@@ -159,9 +163,7 @@ mod tests {
     async fn rejects_oversized_write() {
         let action = ClipboardWrite;
         let huge = "x".repeat(MAX_WRITE_BYTES + 1);
-        let result = action
-            .execute(serde_json::json!({ "text": huge }))
-            .await;
+        let result = action.execute(serde_json::json!({ "text": huge })).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("too large"), "error: {err}");

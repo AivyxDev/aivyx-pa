@@ -14,30 +14,28 @@
 
 use aivyx_core::{AivyxError, Result};
 
-use super::{ElementQuery, ScrollDirection, UiBackend, UiElement, UiTreeNode, WindowRef};
 use super::win_input::WinInputBackend;
+use super::{ElementQuery, ScrollDirection, UiBackend, UiElement, UiTreeNode, WindowRef};
 
+#[cfg(target_os = "windows")]
+use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationCondition, IUIAutomationElement,
-    IUIAutomationElementArray, IUIAutomationInvokePattern, IUIAutomationValuePattern,
-    IUIAutomationScrollPattern,
-    TreeScope_Children, TreeScope_Subtree, TreeScope_Element,
-    UIA_InvokePatternId, UIA_ValuePatternId, UIA_ScrollPatternId,
+    IUIAutomationElementArray, IUIAutomationInvokePattern, IUIAutomationScrollPattern,
+    IUIAutomationValuePattern, TreeScope_Children, TreeScope_Element, TreeScope_Subtree,
     UIA_ButtonControlTypeId, UIA_CheckBoxControlTypeId, UIA_ComboBoxControlTypeId,
-    UIA_EditControlTypeId, UIA_HyperlinkControlTypeId, UIA_ListItemControlTypeId,
-    UIA_MenuItemControlTypeId, UIA_RadioButtonControlTypeId, UIA_TabItemControlTypeId,
-    UIA_TextControlTypeId, UIA_TreeItemControlTypeId, UIA_WindowControlTypeId,
-    UIA_DocumentControlTypeId, UIA_GroupControlTypeId, UIA_HeaderControlTypeId,
-    UIA_ImageControlTypeId, UIA_ListControlTypeId, UIA_MenuBarControlTypeId,
-    UIA_MenuControlTypeId, UIA_PaneControlTypeId, UIA_ProgressBarControlTypeId,
-    UIA_ScrollBarControlTypeId, UIA_SliderControlTypeId, UIA_SpinnerControlTypeId,
-    UIA_SplitButtonControlTypeId, UIA_StatusBarControlTypeId, UIA_TabControlTypeId,
-    UIA_TableControlTypeId, UIA_ToolBarControlTypeId, UIA_ToolTipControlTypeId,
-    UIA_TreeControlTypeId,
+    UIA_DocumentControlTypeId, UIA_EditControlTypeId, UIA_GroupControlTypeId,
+    UIA_HeaderControlTypeId, UIA_HyperlinkControlTypeId, UIA_ImageControlTypeId,
+    UIA_InvokePatternId, UIA_ListControlTypeId, UIA_ListItemControlTypeId,
+    UIA_MenuBarControlTypeId, UIA_MenuControlTypeId, UIA_MenuItemControlTypeId,
+    UIA_PaneControlTypeId, UIA_ProgressBarControlTypeId, UIA_RadioButtonControlTypeId,
+    UIA_ScrollBarControlTypeId, UIA_ScrollPatternId, UIA_SliderControlTypeId,
+    UIA_SpinnerControlTypeId, UIA_SplitButtonControlTypeId, UIA_StatusBarControlTypeId,
+    UIA_TabControlTypeId, UIA_TabItemControlTypeId, UIA_TableControlTypeId, UIA_TextControlTypeId,
+    UIA_ToolBarControlTypeId, UIA_ToolTipControlTypeId, UIA_TreeControlTypeId,
+    UIA_TreeItemControlTypeId, UIA_ValuePatternId, UIA_WindowControlTypeId,
 };
-#[cfg(target_os = "windows")]
-use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_ALL};
 #[cfg(target_os = "windows")]
 use windows::core::Interface;
 
@@ -100,18 +98,18 @@ impl UiaBackend {
                         .map_err(|e| AivyxError::Other(format!("UIA FindFirst: {e}")))
                 }
             }
-            WindowRef::Id(_) => {
-                Err(AivyxError::Other("UIA: window lookup by ID not supported".into()))
-            }
+            WindowRef::Id(_) => Err(AivyxError::Other(
+                "UIA: window lookup by ID not supported".into(),
+            )),
         }
     }
 
     /// Create a property condition for Name matching.
     #[cfg(target_os = "windows")]
     fn name_condition(&self, name: &str) -> Result<IUIAutomationCondition> {
+        use windows::Win32::System::Variant::VARIANT;
         use windows::Win32::UI::Accessibility::UIA_NamePropertyId;
         use windows::core::BSTR;
-        use windows::Win32::System::Variant::VARIANT;
 
         let bstr = BSTR::from(name);
         let variant = VARIANT::from(bstr);
@@ -142,9 +140,9 @@ impl UiaBackend {
         let control_type = unsafe { element.CurrentControlType() }.unwrap_or(0);
         let role = control_type_to_role(control_type);
 
-        let bounds = unsafe { element.CurrentBoundingRectangle() }.ok().map(|r| {
-            [r.left, r.top, r.right - r.left, r.bottom - r.top]
-        });
+        let bounds = unsafe { element.CurrentBoundingRectangle() }
+            .ok()
+            .map(|r| [r.left, r.top, r.right - r.left, r.bottom - r.top]);
 
         let is_enabled = unsafe { element.CurrentIsEnabled() }.unwrap_or(true.into());
         let has_focus = unsafe { element.CurrentHasKeyboardFocus() }.unwrap_or(false.into());
@@ -300,11 +298,9 @@ impl UiaBackend {
                     .map_err(|e| AivyxError::Other(format!("UIA FindAll: {e}")))?
             };
             current = unsafe {
-                children
-                    .GetElement(idx)
-                    .map_err(|e| AivyxError::Other(format!(
-                        "UIA: child at index {idx} not found: {e}"
-                    )))?
+                children.GetElement(idx).map_err(|e| {
+                    AivyxError::Other(format!("UIA: child at index {idx} not found: {e}"))
+                })?
             };
         }
 
@@ -331,7 +327,12 @@ impl UiaBackend {
                 .CurrentBoundingRectangle()
                 .map_err(|e| AivyxError::Other(format!("UIA CurrentBoundingRectangle: {e}")))?
         };
-        Ok([rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top])
+        Ok([
+            rect.left,
+            rect.top,
+            rect.right - rect.left,
+            rect.bottom - rect.top,
+        ])
     }
 
     /// Invoke the Invoke pattern on an element (click).
@@ -392,11 +393,7 @@ impl UiBackend for UiaBackend {
         "uia"
     }
 
-    async fn inspect(
-        &self,
-        window: &WindowRef,
-        max_depth: u32,
-    ) -> Result<Vec<UiTreeNode>> {
+    async fn inspect(&self, window: &WindowRef, max_depth: u32) -> Result<Vec<UiTreeNode>> {
         #[cfg(target_os = "windows")]
         {
             let win = self.find_window(window)?;

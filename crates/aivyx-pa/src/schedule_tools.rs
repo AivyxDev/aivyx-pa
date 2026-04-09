@@ -26,14 +26,21 @@ pub struct ScheduleCreateTool {
 
 impl ScheduleCreateTool {
     pub fn new(config_path: Arc<PathBuf>) -> Self {
-        Self { id: ToolId::new(), config_path }
+        Self {
+            id: ToolId::new(),
+            config_path,
+        }
     }
 }
 
 #[async_trait]
 impl Tool for ScheduleCreateTool {
-    fn id(&self) -> ToolId { self.id }
-    fn name(&self) -> &str { "schedule_create" }
+    fn id(&self) -> ToolId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "schedule_create"
+    }
 
     fn description(&self) -> &str {
         "Create a new recurring scheduled task. The schedule fires an agent turn \
@@ -73,21 +80,29 @@ impl Tool for ScheduleCreateTool {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let name = input["name"].as_str()
+        let name = input["name"]
+            .as_str()
             .ok_or_else(|| AivyxError::Validation("schedule_create: missing 'name'".into()))?;
-        let cron = input["cron"].as_str()
+        let cron = input["cron"]
+            .as_str()
             .ok_or_else(|| AivyxError::Validation("schedule_create: missing 'cron'".into()))?;
-        let prompt = input["prompt"].as_str()
+        let prompt = input["prompt"]
+            .as_str()
             .ok_or_else(|| AivyxError::Validation("schedule_create: missing 'prompt'".into()))?;
         let notify = input["notify"].as_bool().unwrap_or(true);
 
         // Validate name is slug-like
         if name.is_empty() || name.len() > 64 {
-            return Err(AivyxError::Validation("schedule name must be 1-64 characters".into()));
-        }
-        if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
             return Err(AivyxError::Validation(
-                "schedule name must be slug-style (alphanumeric, hyphens, underscores)".into()
+                "schedule name must be 1-64 characters".into(),
+            ));
+        }
+        if !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
+            return Err(AivyxError::Validation(
+                "schedule name must be slug-style (alphanumeric, hyphens, underscores)".into(),
             ));
         }
 
@@ -96,14 +111,16 @@ impl Tool for ScheduleCreateTool {
 
         // Validate prompt is non-empty
         if prompt.trim().is_empty() {
-            return Err(AivyxError::Validation("schedule prompt must not be empty".into()));
+            return Err(AivyxError::Validation(
+                "schedule prompt must not be empty".into(),
+            ));
         }
 
         // Check for duplicate name
         if settings::schedule_exists(&self.config_path, name) {
-            return Err(AivyxError::Validation(
-                format!("schedule '{name}' already exists — use schedule_edit to modify it")
-            ));
+            return Err(AivyxError::Validation(format!(
+                "schedule '{name}' already exists — use schedule_edit to modify it"
+            )));
         }
 
         settings::append_schedule(&self.config_path, name, cron, prompt, notify)
@@ -131,14 +148,21 @@ pub struct ScheduleEditTool {
 
 impl ScheduleEditTool {
     pub fn new(config_path: Arc<PathBuf>) -> Self {
-        Self { id: ToolId::new(), config_path }
+        Self {
+            id: ToolId::new(),
+            config_path,
+        }
     }
 }
 
 #[async_trait]
 impl Tool for ScheduleEditTool {
-    fn id(&self) -> ToolId { self.id }
-    fn name(&self) -> &str { "schedule_edit" }
+    fn id(&self) -> ToolId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "schedule_edit"
+    }
 
     fn description(&self) -> &str {
         "Edit an existing scheduled task. You can change the cron expression, prompt, \
@@ -180,13 +204,14 @@ impl Tool for ScheduleEditTool {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let name = input["name"].as_str()
+        let name = input["name"]
+            .as_str()
             .ok_or_else(|| AivyxError::Validation("schedule_edit: missing 'name'".into()))?;
 
         if !settings::schedule_exists(&self.config_path, name) {
-            return Err(AivyxError::Validation(
-                format!("schedule '{name}' not found — use schedule_create to add it")
-            ));
+            return Err(AivyxError::Validation(format!(
+                "schedule '{name}' not found — use schedule_create to add it"
+            )));
         }
 
         let mut changed = Vec::new();
@@ -203,8 +228,13 @@ impl Tool for ScheduleEditTool {
                 return Err(AivyxError::Validation("prompt must not be empty".into()));
             }
             let escaped = prompt.replace('\\', "\\\\").replace('"', "\\\"");
-            settings::edit_schedule_field(&self.config_path, name, "prompt", &format!("\"{escaped}\""))
-                .map_err(|e| AivyxError::Other(format!("failed to update prompt: {e}")))?;
+            settings::edit_schedule_field(
+                &self.config_path,
+                name,
+                "prompt",
+                &format!("\"{escaped}\""),
+            )
+            .map_err(|e| AivyxError::Other(format!("failed to update prompt: {e}")))?;
             changed.push("prompt updated".into());
         }
 
@@ -248,14 +278,21 @@ pub struct ScheduleDeleteTool {
 
 impl ScheduleDeleteTool {
     pub fn new(config_path: Arc<PathBuf>) -> Self {
-        Self { id: ToolId::new(), config_path }
+        Self {
+            id: ToolId::new(),
+            config_path,
+        }
     }
 }
 
 #[async_trait]
 impl Tool for ScheduleDeleteTool {
-    fn id(&self) -> ToolId { self.id }
-    fn name(&self) -> &str { "schedule_delete" }
+    fn id(&self) -> ToolId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "schedule_delete"
+    }
 
     fn description(&self) -> &str {
         "Delete a scheduled task permanently. The schedule will stop firing \
@@ -281,13 +318,14 @@ impl Tool for ScheduleDeleteTool {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let name = input["name"].as_str()
+        let name = input["name"]
+            .as_str()
             .ok_or_else(|| AivyxError::Validation("schedule_delete: missing 'name'".into()))?;
 
         if !settings::schedule_exists(&self.config_path, name) {
-            return Err(AivyxError::Validation(
-                format!("schedule '{name}' not found")
-            ));
+            return Err(AivyxError::Validation(format!(
+                "schedule '{name}' not found"
+            )));
         }
 
         settings::remove_schedule(&self.config_path, name)

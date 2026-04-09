@@ -51,7 +51,8 @@ pub struct EmailFull {
 
 // ── IMAP helpers ────────────────────────────────────────────────
 
-type ImapReader = BufReader<tokio::io::ReadHalf<tokio_native_tls::TlsStream<tokio::net::TcpStream>>>;
+type ImapReader =
+    BufReader<tokio::io::ReadHalf<tokio_native_tls::TlsStream<tokio::net::TcpStream>>>;
 type ImapWriter = tokio::io::WriteHalf<tokio_native_tls::TlsStream<tokio::net::TcpStream>>;
 
 fn escape_imap(s: &str) -> String {
@@ -193,14 +194,11 @@ impl ImapPool {
     }
 
     /// Fetch recent messages from IMAP inbox using a pooled connection.
-    pub async fn fetch_inbox(
-        &self,
-        limit: usize,
-        unread_only: bool,
-    ) -> Result<Vec<EmailSummary>> {
+    pub async fn fetch_inbox(&self, limit: usize, unread_only: bool) -> Result<Vec<EmailSummary>> {
         let (mut reader, mut writer, mut tag_num) = self.checkout().await?;
 
-        let result = fetch_inbox_with_conn(&mut reader, &mut writer, &mut tag_num, limit, unread_only).await;
+        let result =
+            fetch_inbox_with_conn(&mut reader, &mut writer, &mut tag_num, limit, unread_only).await;
 
         match &result {
             Ok(_) => self.checkin(reader, writer, tag_num).await,
@@ -214,7 +212,8 @@ impl ImapPool {
     pub async fn store_flags(&self, seq: u32, flags: &str) -> Result<()> {
         let (mut reader, mut writer, mut tag_num) = self.checkout().await?;
 
-        let result = store_flags_with_conn(&mut reader, &mut writer, &mut tag_num, seq, flags).await;
+        let result =
+            store_flags_with_conn(&mut reader, &mut writer, &mut tag_num, seq, flags).await;
 
         match &result {
             Ok(_) => self.checkin(reader, writer, tag_num).await,
@@ -228,9 +227,8 @@ impl ImapPool {
     pub async fn copy_and_delete(&self, seq: u32, folder: &str) -> Result<()> {
         let (mut reader, mut writer, mut tag_num) = self.checkout().await?;
 
-        let result = copy_and_delete_with_conn(
-            &mut reader, &mut writer, &mut tag_num, seq, folder,
-        ).await;
+        let result =
+            copy_and_delete_with_conn(&mut reader, &mut writer, &mut tag_num, seq, folder).await;
 
         match &result {
             Ok(_) => self.checkin(reader, writer, tag_num).await,
@@ -269,46 +267,49 @@ impl ImapPool {
     }
 }
 
-async fn wait_for_tag(
-    reader: &mut ImapReader,
-    tag: &str,
-) -> Result<String> {
+async fn wait_for_tag(reader: &mut ImapReader, tag: &str) -> Result<String> {
     tokio::time::timeout(IMAP_TAG_TIMEOUT, wait_for_tag_inner(reader, tag))
         .await
-        .map_err(|_| aivyx_core::AivyxError::Channel(
-            format!("IMAP timeout waiting for tag '{tag}' ({}s)", IMAP_TAG_TIMEOUT.as_secs()),
-        ))?
+        .map_err(|_| {
+            aivyx_core::AivyxError::Channel(format!(
+                "IMAP timeout waiting for tag '{tag}' ({}s)",
+                IMAP_TAG_TIMEOUT.as_secs()
+            ))
+        })?
 }
 
 /// Maximum IMAP response size (5 MB). Prevents memory exhaustion from
 /// a malicious or misconfigured server sending unbounded data.
 const MAX_IMAP_RESPONSE_BYTES: usize = 5 * 1024 * 1024;
 
-async fn wait_for_tag_inner(
-    reader: &mut ImapReader,
-    tag: &str,
-) -> Result<String> {
+async fn wait_for_tag_inner(reader: &mut ImapReader, tag: &str) -> Result<String> {
     let mut collected = String::new();
     let mut line = String::new();
     loop {
         line.clear();
-        let n = reader.read_line(&mut line).await.map_err(|e| {
-            aivyx_core::AivyxError::Channel(format!("IMAP read error: {e}"))
-        })?;
+        let n = reader
+            .read_line(&mut line)
+            .await
+            .map_err(|e| aivyx_core::AivyxError::Channel(format!("IMAP read error: {e}")))?;
         if n == 0 {
-            return Err(aivyx_core::AivyxError::Channel("IMAP connection closed".into()));
+            return Err(aivyx_core::AivyxError::Channel(
+                "IMAP connection closed".into(),
+            ));
         }
         collected.push_str(&line);
         if collected.len() > MAX_IMAP_RESPONSE_BYTES {
             return Err(aivyx_core::AivyxError::Channel(format!(
-                "IMAP response exceeded {} MB limit", MAX_IMAP_RESPONSE_BYTES / (1024 * 1024)
+                "IMAP response exceeded {} MB limit",
+                MAX_IMAP_RESPONSE_BYTES / (1024 * 1024)
             )));
         }
         if line.starts_with(tag) {
             if line.contains("OK") {
                 return Ok(collected);
             }
-            return Err(aivyx_core::AivyxError::Channel(format!("IMAP error: {line}")));
+            return Err(aivyx_core::AivyxError::Channel(format!(
+                "IMAP error: {line}"
+            )));
         }
     }
 }
@@ -320,18 +321,18 @@ async fn wait_for_tag_inner(
 /// going through `ImapPool`.
 pub async fn imap_connect(config: &EmailConfig) -> Result<(ImapReader, ImapWriter)> {
     let tls = tokio_native_tls::TlsConnector::from(
-        native_tls::TlsConnector::new().map_err(|e| {
-            aivyx_core::AivyxError::Channel(format!("TLS error: {e}"))
-        })?,
+        native_tls::TlsConnector::new()
+            .map_err(|e| aivyx_core::AivyxError::Channel(format!("TLS error: {e}")))?,
     );
 
     let tcp = tokio::net::TcpStream::connect((&*config.imap_host, config.imap_port))
         .await
         .map_err(|e| aivyx_core::AivyxError::Channel(format!("IMAP connect error: {e}")))?;
 
-    let stream = tls.connect(&config.imap_host, tcp).await.map_err(|e| {
-        aivyx_core::AivyxError::Channel(format!("TLS handshake error: {e}"))
-    })?;
+    let stream = tls
+        .connect(&config.imap_host, tcp)
+        .await
+        .map_err(|e| aivyx_core::AivyxError::Channel(format!("TLS handshake error: {e}")))?;
 
     let (read_half, mut write_half) = tokio::io::split(stream);
     let mut reader = BufReader::new(read_half);
@@ -345,15 +346,17 @@ pub async fn imap_connect(config: &EmailConfig) -> Result<(ImapReader, ImapWrite
         escape_imap(&config.username),
         escape_imap(&config.password)
     );
-    write_half.write_all(login.as_bytes()).await.map_err(|e| {
-        aivyx_core::AivyxError::Channel(format!("IMAP write error: {e}"))
-    })?;
+    write_half
+        .write_all(login.as_bytes())
+        .await
+        .map_err(|e| aivyx_core::AivyxError::Channel(format!("IMAP write error: {e}")))?;
     wait_for_tag(&mut reader, "A001").await?;
 
     // SELECT INBOX
-    write_half.write_all(b"A002 SELECT INBOX\r\n").await.map_err(|e| {
-        aivyx_core::AivyxError::Channel(format!("IMAP write error: {e}"))
-    })?;
+    write_half
+        .write_all(b"A002 SELECT INBOX\r\n")
+        .await
+        .map_err(|e| aivyx_core::AivyxError::Channel(format!("IMAP write error: {e}")))?;
     wait_for_tag(&mut reader, "A002").await?;
 
     Ok((reader, write_half))
@@ -385,9 +388,17 @@ fn parse_fetch_headers(response: &str) -> (String, String, String, Option<String
     for line in response.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("From:") {
-            from = trimmed.strip_prefix("From:").unwrap_or("").trim().to_string();
+            from = trimmed
+                .strip_prefix("From:")
+                .unwrap_or("")
+                .trim()
+                .to_string();
         } else if trimmed.starts_with("Subject:") {
-            subject = trimmed.strip_prefix("Subject:").unwrap_or("").trim().to_string();
+            subject = trimmed
+                .strip_prefix("Subject:")
+                .unwrap_or("")
+                .trim()
+                .to_string();
         } else if trimmed.starts_with("Message-ID:") || trimmed.starts_with("Message-Id:") {
             let raw = trimmed.split_once(':').map(|(_, v)| v.trim().to_string());
             message_id = raw;
@@ -396,13 +407,12 @@ fn parse_fetch_headers(response: &str) -> (String, String, String, Option<String
         } else if in_body {
             if trimmed == ")" || trimmed.starts_with("A0") || trimmed.starts_with("F0") {
                 in_body = false;
-            } else if !trimmed.starts_with('{')
-                && body.len() < 200 {
-                    if !body.is_empty() {
-                        body.push(' ');
-                    }
-                    body.push_str(trimmed);
+            } else if !trimmed.starts_with('{') && body.len() < 200 {
+                if !body.is_empty() {
+                    body.push(' ');
                 }
+                body.push_str(trimmed);
+            }
         }
     }
 
@@ -423,13 +433,25 @@ fn parse_full_email(response: &str) -> EmailFull {
     for line in response.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("From:") {
-            from = trimmed.strip_prefix("From:").unwrap_or("").trim().to_string();
+            from = trimmed
+                .strip_prefix("From:")
+                .unwrap_or("")
+                .trim()
+                .to_string();
         } else if trimmed.starts_with("To:") {
             to = trimmed.strip_prefix("To:").unwrap_or("").trim().to_string();
         } else if trimmed.starts_with("Subject:") {
-            subject = trimmed.strip_prefix("Subject:").unwrap_or("").trim().to_string();
+            subject = trimmed
+                .strip_prefix("Subject:")
+                .unwrap_or("")
+                .trim()
+                .to_string();
         } else if trimmed.starts_with("Date:") {
-            date = trimmed.strip_prefix("Date:").unwrap_or("").trim().to_string();
+            date = trimmed
+                .strip_prefix("Date:")
+                .unwrap_or("")
+                .trim()
+                .to_string();
         } else if trimmed.starts_with("Message-ID:") || trimmed.starts_with("Message-Id:") {
             let raw = trimmed.split_once(':').map(|(_, v)| v.trim().to_string());
             message_id = raw;
@@ -438,17 +460,24 @@ fn parse_full_email(response: &str) -> EmailFull {
         } else if in_body {
             if trimmed == ")" || trimmed.starts_with("A0") || trimmed.starts_with("F0") {
                 in_body = false;
-            } else if !trimmed.starts_with('{')
-                && body.len() < 32_000 {
-                    if !body.is_empty() {
-                        body.push('\n');
-                    }
-                    body.push_str(trimmed);
+            } else if !trimmed.starts_with('{') && body.len() < 32_000 {
+                if !body.is_empty() {
+                    body.push('\n');
                 }
+                body.push_str(trimmed);
+            }
         }
     }
 
-    EmailFull { from, to, subject, date, message_id, body, seq: 0 }
+    EmailFull {
+        from,
+        to,
+        subject,
+        date,
+        message_id,
+        body,
+        seq: 0,
+    }
 }
 
 // ── Connection-reusing fetch internals ────────────────────────
@@ -470,9 +499,10 @@ async fn fetch_inbox_with_conn(
     } else {
         format!("{search_tag} SEARCH ALL\r\n")
     };
-    writer.write_all(search_cmd.as_bytes()).await.map_err(|e| {
-        aivyx_core::AivyxError::Channel(format!("IMAP write error: {e}"))
-    })?;
+    writer
+        .write_all(search_cmd.as_bytes())
+        .await
+        .map_err(|e| aivyx_core::AivyxError::Channel(format!("IMAP write error: {e}")))?;
     let search_result = wait_for_tag(reader, &search_tag).await?;
     let seq_numbers = parse_search_response(&search_result);
 
@@ -486,9 +516,10 @@ async fn fetch_inbox_with_conn(
         let fetch_cmd = format!(
             "{tag} FETCH {seq} (BODY[HEADER.FIELDS (FROM SUBJECT MESSAGE-ID)] BODY[TEXT])\r\n"
         );
-        writer.write_all(fetch_cmd.as_bytes()).await.map_err(|e| {
-            aivyx_core::AivyxError::Channel(format!("IMAP write error: {e}"))
-        })?;
+        writer
+            .write_all(fetch_cmd.as_bytes())
+            .await
+            .map_err(|e| aivyx_core::AivyxError::Channel(format!("IMAP write error: {e}")))?;
         let fetch_result = wait_for_tag(reader, &tag).await?;
         let (from, subject, preview, message_id) = parse_fetch_headers(&fetch_result);
 
@@ -516,9 +547,10 @@ async fn fetch_single_with_conn(
     let fetch_cmd = format!(
         "{tag} FETCH {seq} (BODY[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID)] BODY[TEXT])\r\n"
     );
-    writer.write_all(fetch_cmd.as_bytes()).await.map_err(|e| {
-        aivyx_core::AivyxError::Channel(format!("IMAP write error: {e}"))
-    })?;
+    writer
+        .write_all(fetch_cmd.as_bytes())
+        .await
+        .map_err(|e| aivyx_core::AivyxError::Channel(format!("IMAP write error: {e}")))?;
     let fetch_result = wait_for_tag(reader, &tag).await?;
 
     let mut email = parse_full_email(&fetch_result);
@@ -540,14 +572,15 @@ async fn store_flags_with_conn(
     let tag = format!("A{:03}", *tag_num);
     *tag_num += 1;
     let cmd = format!("{tag} STORE {seq} {flags}\r\n");
-    writer.write_all(cmd.as_bytes()).await.map_err(|e| {
-        aivyx_core::AivyxError::Channel(format!("IMAP write error: {e}"))
-    })?;
+    writer
+        .write_all(cmd.as_bytes())
+        .await
+        .map_err(|e| aivyx_core::AivyxError::Channel(format!("IMAP write error: {e}")))?;
     let response = wait_for_tag(reader, &tag).await?;
     if response.contains("NO") || response.contains("BAD") {
-        return Err(aivyx_core::AivyxError::Channel(
-            format!("IMAP STORE failed: {response}"),
-        ));
+        return Err(aivyx_core::AivyxError::Channel(format!(
+            "IMAP STORE failed: {response}"
+        )));
     }
     Ok(())
 }
@@ -564,14 +597,15 @@ async fn copy_and_delete_with_conn(
     let copy_tag = format!("A{:03}", *tag_num);
     *tag_num += 1;
     let copy_cmd = format!("{copy_tag} COPY {seq} \"{}\"\r\n", escape_imap(folder));
-    writer.write_all(copy_cmd.as_bytes()).await.map_err(|e| {
-        aivyx_core::AivyxError::Channel(format!("IMAP write error: {e}"))
-    })?;
+    writer
+        .write_all(copy_cmd.as_bytes())
+        .await
+        .map_err(|e| aivyx_core::AivyxError::Channel(format!("IMAP write error: {e}")))?;
     let copy_resp = wait_for_tag(reader, &copy_tag).await?;
     if copy_resp.contains("NO") || copy_resp.contains("BAD") {
-        return Err(aivyx_core::AivyxError::Channel(
-            format!("IMAP COPY to '{folder}' failed: {copy_resp}"),
-        ));
+        return Err(aivyx_core::AivyxError::Channel(format!(
+            "IMAP COPY to '{folder}' failed: {copy_resp}"
+        )));
     }
 
     // STORE \Deleted + EXPUNGE
@@ -592,14 +626,15 @@ async fn delete_message_with_conn(
     let exp_tag = format!("A{:03}", *tag_num);
     *tag_num += 1;
     let exp_cmd = format!("{exp_tag} EXPUNGE\r\n");
-    writer.write_all(exp_cmd.as_bytes()).await.map_err(|e| {
-        aivyx_core::AivyxError::Channel(format!("IMAP write error: {e}"))
-    })?;
+    writer
+        .write_all(exp_cmd.as_bytes())
+        .await
+        .map_err(|e| aivyx_core::AivyxError::Channel(format!("IMAP write error: {e}")))?;
     let exp_resp = wait_for_tag(reader, &exp_tag).await?;
     if exp_resp.contains("NO") || exp_resp.contains("BAD") {
-        return Err(aivyx_core::AivyxError::Channel(
-            format!("IMAP EXPUNGE failed: {exp_resp}"),
-        ));
+        return Err(aivyx_core::AivyxError::Channel(format!(
+            "IMAP EXPUNGE failed: {exp_resp}"
+        )));
     }
     Ok(())
 }
@@ -618,7 +653,8 @@ pub async fn fetch_inbox_internal(
     let (mut reader, mut writer) = imap_connect(config).await?;
     let mut tag_num: u32 = 3; // A001=LOGIN, A002=SELECT already used
 
-    let result = fetch_inbox_with_conn(&mut reader, &mut writer, &mut tag_num, limit, unread_only).await;
+    let result =
+        fetch_inbox_with_conn(&mut reader, &mut writer, &mut tag_num, limit, unread_only).await;
 
     // LOGOUT (best-effort)
     let _ = writer.write_all(b"A099 LOGOUT\r\n").await;
@@ -654,12 +690,13 @@ async fn send_smtp(
     use lettre::transport::smtp::authentication::Credentials;
     use lettre::{AsyncSmtpTransport, AsyncTransport, Tokio1Executor};
 
-    let from_addr: lettre::Address = config.address.parse().map_err(|e| {
-        aivyx_core::AivyxError::Validation(format!("invalid from address: {e}"))
-    })?;
-    let to_addr: lettre::Address = to.parse().map_err(|e| {
-        aivyx_core::AivyxError::Validation(format!("invalid to address: {e}"))
-    })?;
+    let from_addr: lettre::Address = config
+        .address
+        .parse()
+        .map_err(|e| aivyx_core::AivyxError::Validation(format!("invalid from address: {e}")))?;
+    let to_addr: lettre::Address = to
+        .parse()
+        .map_err(|e| aivyx_core::AivyxError::Validation(format!("invalid to address: {e}")))?;
 
     let mut builder = lettre::Message::builder()
         .from(Mailbox::new(Some("Aivyx Assistant".into()), from_addr))
@@ -683,9 +720,10 @@ async fn send_smtp(
         .credentials(creds)
         .build();
 
-    transport.send(email).await.map_err(|e| {
-        aivyx_core::AivyxError::Channel(format!("SMTP send error: {e}"))
-    })?;
+    transport
+        .send(email)
+        .await
+        .map_err(|e| aivyx_core::AivyxError::Channel(format!("SMTP send error: {e}")))?;
 
     Ok(())
 }
@@ -710,7 +748,9 @@ pub struct ReadInbox {
 
 #[async_trait::async_trait]
 impl Action for ReadInbox {
-    fn name(&self) -> &str { "read_email" }
+    fn name(&self) -> &str {
+        "read_email"
+    }
 
     fn description(&self) -> &str {
         "Check email inbox and return a summary of recent messages"
@@ -728,20 +768,25 @@ impl Action for ReadInbox {
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         let limit = input.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
-        let unread_only = input.get("unread_only").and_then(|v| v.as_bool()).unwrap_or(true);
+        let unread_only = input
+            .get("unread_only")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
         let summaries = if let Some(ref pool) = self.pool {
             crate::retry::retry(
                 &crate::retry::RetryConfig::network(),
                 || pool.fetch_inbox(limit, unread_only),
                 crate::retry::is_transient,
-            ).await?
+            )
+            .await?
         } else {
             let config = self.config.clone();
             crate::retry::retry(
                 &crate::retry::RetryConfig::network(),
                 || fetch_inbox_internal(&config, limit, unread_only),
                 crate::retry::is_transient,
-            ).await?
+            )
+            .await?
         };
         Ok(serde_json::to_value(summaries)?)
     }
@@ -754,7 +799,9 @@ pub struct FetchEmail {
 
 #[async_trait::async_trait]
 impl Action for FetchEmail {
-    fn name(&self) -> &str { "fetch_email" }
+    fn name(&self) -> &str {
+        "fetch_email"
+    }
 
     fn description(&self) -> &str {
         "Fetch the full content of a specific email by its IMAP sequence number. \
@@ -775,22 +822,25 @@ impl Action for FetchEmail {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let seq = input["seq"].as_u64().ok_or_else(|| {
-            aivyx_core::AivyxError::Validation("'seq' must be an integer".into())
-        })? as u32;
+        let seq = input["seq"]
+            .as_u64()
+            .ok_or_else(|| aivyx_core::AivyxError::Validation("'seq' must be an integer".into()))?
+            as u32;
         let email = if let Some(ref pool) = self.pool {
             crate::retry::retry(
                 &crate::retry::RetryConfig::network(),
                 || pool.fetch_single(seq),
                 crate::retry::is_transient,
-            ).await?
+            )
+            .await?
         } else {
             let config = self.config.clone();
             crate::retry::retry(
                 &crate::retry::RetryConfig::network(),
                 || fetch_single(&config, seq),
                 crate::retry::is_transient,
-            ).await?
+            )
+            .await?
         };
         Ok(serde_json::to_value(email)?)
     }
@@ -802,7 +852,9 @@ pub struct SendEmail {
 
 #[async_trait::async_trait]
 impl Action for SendEmail {
-    fn name(&self) -> &str { "send_email" }
+    fn name(&self) -> &str {
+        "send_email"
+    }
 
     fn description(&self) -> &str {
         "Send an email message. Include in_reply_to with the original Message-ID when replying."
@@ -825,14 +877,19 @@ impl Action for SendEmail {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let to = input["to"].as_str()
+        let to = input["to"]
+            .as_str()
             .ok_or_else(|| aivyx_core::AivyxError::Validation("'to' is required".into()))?;
-        let subject = input["subject"].as_str()
+        let subject = input["subject"]
+            .as_str()
             .ok_or_else(|| aivyx_core::AivyxError::Validation("'subject' is required".into()))?;
-        let body = input["body"].as_str()
+        let body = input["body"]
+            .as_str()
             .ok_or_else(|| aivyx_core::AivyxError::Validation("'body' is required".into()))?;
         if to.is_empty() {
-            return Err(aivyx_core::AivyxError::Validation("'to' must not be empty".into()));
+            return Err(aivyx_core::AivyxError::Validation(
+                "'to' must not be empty".into(),
+            ));
         }
         let in_reply_to = input["in_reply_to"].as_str();
         send_smtp(&self.config, to, subject, body, in_reply_to).await?;
@@ -850,7 +907,9 @@ pub struct MarkEmailRead {
 
 #[async_trait::async_trait]
 impl Action for MarkEmailRead {
-    fn name(&self) -> &str { "mark_email_read" }
+    fn name(&self) -> &str {
+        "mark_email_read"
+    }
 
     fn description(&self) -> &str {
         "Mark an email as read by setting the \\Seen flag."
@@ -867,16 +926,24 @@ impl Action for MarkEmailRead {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let seq = input["seq"].as_u64().ok_or_else(|| {
-            aivyx_core::AivyxError::Validation("'seq' must be an integer".into())
-        })? as u32;
+        let seq = input["seq"]
+            .as_u64()
+            .ok_or_else(|| aivyx_core::AivyxError::Validation("'seq' must be an integer".into()))?
+            as u32;
 
         if let Some(ref pool) = self.pool {
             pool.store_flags(seq, "+FLAGS (\\Seen)").await?;
         } else {
             let (mut reader, mut writer) = imap_connect(&self.config).await?;
             let mut tag_num: u32 = 3;
-            store_flags_with_conn(&mut reader, &mut writer, &mut tag_num, seq, "+FLAGS (\\Seen)").await?;
+            store_flags_with_conn(
+                &mut reader,
+                &mut writer,
+                &mut tag_num,
+                seq,
+                "+FLAGS (\\Seen)",
+            )
+            .await?;
             let _ = writer.write_all(b"A099 LOGOUT\r\n").await;
         }
 
@@ -892,7 +959,9 @@ pub struct ArchiveEmail {
 
 #[async_trait::async_trait]
 impl Action for ArchiveEmail {
-    fn name(&self) -> &str { "archive_email" }
+    fn name(&self) -> &str {
+        "archive_email"
+    }
 
     fn description(&self) -> &str {
         "Archive an email by moving it to the archive folder. \
@@ -911,9 +980,10 @@ impl Action for ArchiveEmail {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let seq = input["seq"].as_u64().ok_or_else(|| {
-            aivyx_core::AivyxError::Validation("'seq' must be an integer".into())
-        })? as u32;
+        let seq = input["seq"]
+            .as_u64()
+            .ok_or_else(|| aivyx_core::AivyxError::Validation("'seq' must be an integer".into()))?
+            as u32;
         let folder = input["folder"].as_str().unwrap_or("Archive");
 
         if let Some(ref pool) = self.pool {
@@ -937,7 +1007,9 @@ pub struct DeleteEmail {
 
 #[async_trait::async_trait]
 impl Action for DeleteEmail {
-    fn name(&self) -> &str { "delete_email" }
+    fn name(&self) -> &str {
+        "delete_email"
+    }
 
     fn description(&self) -> &str {
         "Permanently delete an email by marking it \\Deleted and expunging."
@@ -954,9 +1026,10 @@ impl Action for DeleteEmail {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let seq = input["seq"].as_u64().ok_or_else(|| {
-            aivyx_core::AivyxError::Validation("'seq' must be an integer".into())
-        })? as u32;
+        let seq = input["seq"]
+            .as_u64()
+            .ok_or_else(|| aivyx_core::AivyxError::Validation("'seq' must be an integer".into()))?
+            as u32;
 
         if let Some(ref pool) = self.pool {
             pool.delete_message(seq).await?;
@@ -1153,7 +1226,10 @@ A003 OK FETCH completed\r\n"
 
     #[test]
     fn mark_email_read_schema() {
-        let tool = MarkEmailRead { config: test_email_config(), pool: None };
+        let tool = MarkEmailRead {
+            config: test_email_config(),
+            pool: None,
+        };
         assert_eq!(tool.name(), "mark_email_read");
         let schema = tool.input_schema();
         let required = schema["required"].as_array().unwrap();
@@ -1163,7 +1239,10 @@ A003 OK FETCH completed\r\n"
 
     #[test]
     fn archive_email_schema() {
-        let tool = ArchiveEmail { config: test_email_config(), pool: None };
+        let tool = ArchiveEmail {
+            config: test_email_config(),
+            pool: None,
+        };
         assert_eq!(tool.name(), "archive_email");
         let schema = tool.input_schema();
         let required = schema["required"].as_array().unwrap();
@@ -1175,7 +1254,10 @@ A003 OK FETCH completed\r\n"
 
     #[test]
     fn delete_email_schema() {
-        let tool = DeleteEmail { config: test_email_config(), pool: None };
+        let tool = DeleteEmail {
+            config: test_email_config(),
+            pool: None,
+        };
         assert_eq!(tool.name(), "delete_email");
         let schema = tool.input_schema();
         let required = schema["required"].as_array().unwrap();

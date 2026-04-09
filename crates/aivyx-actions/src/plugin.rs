@@ -33,28 +33,24 @@ pub struct PluginState {
 
 impl PluginState {
     /// Create plugin state from the config's plugin list.
-    pub fn new(
-        config: &AivyxConfig,
-        store: Arc<EncryptedStore>,
-        key: MasterKey,
-    ) -> Self {
-        let key_bytes: [u8; 32] = key.expose_secret().try_into()
+    pub fn new(config: &AivyxConfig, store: Arc<EncryptedStore>, key: MasterKey) -> Self {
+        let key_bytes: [u8; 32] = key
+            .expose_secret()
+            .try_into()
             .expect("master key must be 32 bytes");
 
         // Load persisted plugins, falling back to config file entries.
         let plugins = match store.get(PLUGINS_KEY, &key) {
-            Ok(Some(bytes)) => {
-                match serde_json::from_slice::<Vec<PluginEntry>>(&bytes) {
-                    Ok(entries) => {
-                        tracing::info!("Restored {} plugins from encrypted store", entries.len());
-                        entries
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to deserialize persisted plugins: {e}");
-                        config.plugins.clone()
-                    }
+            Ok(Some(bytes)) => match serde_json::from_slice::<Vec<PluginEntry>>(&bytes) {
+                Ok(entries) => {
+                    tracing::info!("Restored {} plugins from encrypted store", entries.len());
+                    entries
                 }
-            }
+                Err(e) => {
+                    tracing::warn!("Failed to deserialize persisted plugins: {e}");
+                    config.plugins.clone()
+                }
+            },
             _ => config.plugins.clone(),
         };
 
@@ -75,13 +71,20 @@ impl PluginState {
         let bytes = serde_json::to_vec(plugins)
             .map_err(|e| AivyxError::Other(format!("Failed to serialize plugins: {e}")))?;
         let key = self.key();
-        self.store.put(PLUGINS_KEY, &bytes, &key)
+        self.store
+            .put(PLUGINS_KEY, &bytes, &key)
             .map_err(|e| AivyxError::Other(format!("Failed to persist plugins: {e}")))
     }
 
     /// Get enabled plugins (for MCP connection on startup).
     pub async fn enabled_plugins(&self) -> Vec<PluginEntry> {
-        self.plugins.read().await.iter().filter(|p| p.enabled).cloned().collect()
+        self.plugins
+            .read()
+            .await
+            .iter()
+            .filter(|p| p.enabled)
+            .cloned()
+            .collect()
     }
 }
 
@@ -115,24 +118,28 @@ impl Action for ListPlugins {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let enabled_only = input.get("enabled_only")
+        let enabled_only = input
+            .get("enabled_only")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
         let plugins = self.state.plugins.read().await;
-        let entries: Vec<_> = plugins.iter()
+        let entries: Vec<_> = plugins
+            .iter()
             .filter(|p| !enabled_only || p.enabled)
-            .map(|p| serde_json::json!({
-                "name": p.name,
-                "version": p.version,
-                "description": p.description,
-                "enabled": p.enabled,
-                "verified": p.verified,
-                "source": match &p.source {
-                    PluginSource::Local { path } => format!("local: {path}"),
-                    PluginSource::Registry { url } => format!("registry: {url}"),
-                },
-            }))
+            .map(|p| {
+                serde_json::json!({
+                    "name": p.name,
+                    "version": p.version,
+                    "description": p.description,
+                    "enabled": p.enabled,
+                    "verified": p.verified,
+                    "source": match &p.source {
+                        PluginSource::Local { path } => format!("local: {path}"),
+                        PluginSource::Registry { url } => format!("registry: {url}"),
+                    },
+                })
+            })
             .collect();
 
         Ok(serde_json::json!({
@@ -154,7 +161,11 @@ pub struct TogglePlugin {
 #[async_trait::async_trait]
 impl Action for TogglePlugin {
     fn name(&self) -> &str {
-        if self.enable { "enable_plugin" } else { "disable_plugin" }
+        if self.enable {
+            "enable_plugin"
+        } else {
+            "disable_plugin"
+        }
     }
 
     fn description(&self) -> &str {
@@ -179,12 +190,15 @@ impl Action for TogglePlugin {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let name = input.get("name")
+        let name = input
+            .get("name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AivyxError::Other("'name' is required".into()))?;
 
         let mut plugins = self.state.plugins.write().await;
-        let plugin = plugins.iter_mut().find(|p| p.name == name)
+        let plugin = plugins
+            .iter_mut()
+            .find(|p| p.name == name)
             .ok_or_else(|| AivyxError::Other(format!("Plugin '{name}' not found")))?;
 
         if plugin.enabled == self.enable {
@@ -270,7 +284,8 @@ impl Action for InstallPlugin {
         // Must provide either registry name or local command.
         let entry = match (&parsed.name, &parsed.command) {
             (Some(registry_name), None) => {
-                self.install_from_registry(registry_name, parsed.display_name.as_deref()).await?
+                self.install_from_registry(registry_name, parsed.display_name.as_deref())
+                    .await?
             }
             (None, Some(command)) => {
                 self.install_local(command, &parsed.args, parsed.display_name.as_deref())?
@@ -337,7 +352,9 @@ impl InstallPlugin {
             description: server.description.clone(),
             author: server.repository.as_ref().map(|r| r.url.clone()),
             source: PluginSource::Registry {
-                url: format!("https://registry.modelcontextprotocol.io/v0.1/servers/{registry_name}"),
+                url: format!(
+                    "https://registry.modelcontextprotocol.io/v0.1/servers/{registry_name}"
+                ),
             },
             mcp_config,
             installed_at: chrono::Utc::now(),
@@ -429,12 +446,15 @@ impl Action for UninstallPlugin {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let name = input.get("name")
+        let name = input
+            .get("name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AivyxError::Other("'name' is required".into()))?;
 
         let mut plugins = self.state.plugins.write().await;
-        let idx = plugins.iter().position(|p| p.name == name)
+        let idx = plugins
+            .iter()
+            .position(|p| p.name == name)
             .ok_or_else(|| AivyxError::Other(format!("Plugin '{name}' not found")))?;
 
         let removed = plugins.remove(idx);
@@ -481,25 +501,27 @@ impl Action for SearchPluginRegistry {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let query = input.get("query")
+        let query = input
+            .get("query")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AivyxError::Other("'query' is required".into()))?;
-        let limit = input.get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(10) as u32;
+        let limit = input.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as u32;
 
         let client = aivyx_mcp::registry::McpRegistryClient::new();
         let results = client.search(query, limit).await?;
 
-        let entries: Vec<_> = results.iter().map(|s| {
-            serde_json::json!({
-                "name": s.name,
-                "description": s.description,
-                "version": s.version,
-                "has_packages": !s.packages.is_empty(),
-                "has_remotes": !s.remotes.is_empty(),
+        let entries: Vec<_> = results
+            .iter()
+            .map(|s| {
+                serde_json::json!({
+                    "name": s.name,
+                    "description": s.description,
+                    "version": s.version,
+                    "has_packages": !s.packages.is_empty(),
+                    "has_remotes": !s.remotes.is_empty(),
+                })
             })
-        }).collect();
+            .collect();
 
         Ok(serde_json::json!({
             "results": entries,
@@ -521,7 +543,9 @@ mod tests {
             version: "1.0.0".into(),
             description: "A test plugin".into(),
             author: None,
-            source: PluginSource::Local { path: "/usr/bin/test-mcp".into() },
+            source: PluginSource::Local {
+                path: "/usr/bin/test-mcp".into(),
+            },
             mcp_config: McpServerConfig {
                 name: "test-plugin".into(),
                 transport: McpTransport::Stdio {
@@ -576,9 +600,15 @@ mod tests {
         let config = mock_config_with_plugins();
         let (store, key) = temp_store();
         let state = PluginState::new(&config, store, key);
-        let action = TogglePlugin { state: state.clone(), enable: false };
+        let action = TogglePlugin {
+            state: state.clone(),
+            enable: false,
+        };
 
-        let result = action.execute(serde_json::json!({"name": "test-plugin"})).await.unwrap();
+        let result = action
+            .execute(serde_json::json!({"name": "test-plugin"}))
+            .await
+            .unwrap();
         assert_eq!(result["status"], "ok");
 
         // Verify it's disabled.
@@ -591,9 +621,14 @@ mod tests {
         let config = AivyxConfig::default();
         let (store, key) = temp_store();
         let state = PluginState::new(&config, store, key);
-        let action = TogglePlugin { state, enable: true };
+        let action = TogglePlugin {
+            state,
+            enable: true,
+        };
 
-        let result = action.execute(serde_json::json!({"name": "nonexistent"})).await;
+        let result = action
+            .execute(serde_json::json!({"name": "nonexistent"}))
+            .await;
         assert!(result.is_err());
     }
 
@@ -602,13 +637,18 @@ mod tests {
         let config = AivyxConfig::default();
         let (store, key) = temp_store();
         let state = PluginState::new(&config, store, key);
-        let action = InstallPlugin { state: state.clone() };
+        let action = InstallPlugin {
+            state: state.clone(),
+        };
 
-        let result = action.execute(serde_json::json!({
-            "command": "my-mcp-server",
-            "args": ["--port", "3000"],
-            "display_name": "my-server"
-        })).await.unwrap();
+        let result = action
+            .execute(serde_json::json!({
+                "command": "my-mcp-server",
+                "args": ["--port", "3000"],
+                "display_name": "my-server"
+            }))
+            .await
+            .unwrap();
 
         assert_eq!(result["status"], "installed");
         assert_eq!(result["plugin"]["name"], "my-server");
@@ -625,10 +665,12 @@ mod tests {
         let state = PluginState::new(&config, store, key);
         let action = InstallPlugin { state };
 
-        let result = action.execute(serde_json::json!({
-            "command": "test-mcp",
-            "display_name": "test-plugin"
-        })).await;
+        let result = action
+            .execute(serde_json::json!({
+                "command": "test-mcp",
+                "display_name": "test-plugin"
+            }))
+            .await;
         assert!(result.is_err());
     }
 
@@ -637,9 +679,14 @@ mod tests {
         let config = mock_config_with_plugins();
         let (store, key) = temp_store();
         let state = PluginState::new(&config, store, key);
-        let action = UninstallPlugin { state: state.clone() };
+        let action = UninstallPlugin {
+            state: state.clone(),
+        };
 
-        let result = action.execute(serde_json::json!({"name": "test-plugin"})).await.unwrap();
+        let result = action
+            .execute(serde_json::json!({"name": "test-plugin"}))
+            .await
+            .unwrap();
         assert_eq!(result["status"], "uninstalled");
 
         let plugins = state.plugins.read().await;
@@ -655,7 +702,9 @@ mod tests {
             version: "2.0.0".into(),
             description: "Active".into(),
             author: None,
-            source: PluginSource::Local { path: "/usr/bin/active-mcp".into() },
+            source: PluginSource::Local {
+                path: "/usr/bin/active-mcp".into(),
+            },
             mcp_config: config.plugins[0].mcp_config.clone(),
             installed_at: chrono::Utc::now(),
             enabled: true,

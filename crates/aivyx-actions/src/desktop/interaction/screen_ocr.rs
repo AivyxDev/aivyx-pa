@@ -16,10 +16,7 @@ const MAX_OCR_PIXELS: u64 = 4_000_000;
 ///
 /// `region` is in grim geometry format: `"x,y widthxheight"` (e.g., `"100,200 800x600"`).
 /// If `language` is provided, it's passed to tesseract's `-l` flag (e.g., `"eng"`, `"deu"`).
-pub async fn ocr_region(
-    region: &str,
-    language: Option<&str>,
-) -> Result<String> {
+pub async fn ocr_region(region: &str, language: Option<&str>) -> Result<String> {
     // Validate region format.
     validate_region(region)?;
 
@@ -33,10 +30,7 @@ pub async fn ocr_region(
 }
 
 /// OCR from existing screenshot data (base64-decoded PNG/JPEG bytes).
-pub async fn ocr_image_data(
-    data: &[u8],
-    language: Option<&str>,
-) -> Result<String> {
+pub async fn ocr_image_data(data: &[u8], language: Option<&str>) -> Result<String> {
     run_tesseract(data, language).await
 }
 
@@ -54,29 +48,31 @@ fn validate_region(region: &str) -> Result<()> {
     let origin: Vec<&str> = parts[0].split(',').collect();
     if origin.len() != 2 {
         return Err(AivyxError::Validation(format!(
-            "Region origin must be 'x,y'. Got: '{}'", parts[0]
+            "Region origin must be 'x,y'. Got: '{}'",
+            parts[0]
         )));
     }
     for coord in &origin {
-        coord.parse::<i32>().map_err(|_| {
-            AivyxError::Validation(format!("Invalid coordinate: '{coord}'"))
-        })?;
+        coord
+            .parse::<i32>()
+            .map_err(|_| AivyxError::Validation(format!("Invalid coordinate: '{coord}'")))?;
     }
 
     // Parse dimensions.
     let dims: Vec<&str> = parts[1].split('x').collect();
     if dims.len() != 2 {
         return Err(AivyxError::Validation(format!(
-            "Region dimensions must be 'widthxheight'. Got: '{}'", parts[1]
+            "Region dimensions must be 'widthxheight'. Got: '{}'",
+            parts[1]
         )));
     }
 
-    let width: u64 = dims[0].parse().map_err(|_| {
-        AivyxError::Validation(format!("Invalid width: '{}'", dims[0]))
-    })?;
-    let height: u64 = dims[1].parse().map_err(|_| {
-        AivyxError::Validation(format!("Invalid height: '{}'", dims[1]))
-    })?;
+    let width: u64 = dims[0]
+        .parse()
+        .map_err(|_| AivyxError::Validation(format!("Invalid width: '{}'", dims[0])))?;
+    let height: u64 = dims[1]
+        .parse()
+        .map_err(|_| AivyxError::Validation(format!("Invalid height: '{}'", dims[1])))?;
 
     if width == 0 || height == 0 {
         return Err(AivyxError::Validation(
@@ -118,10 +114,12 @@ async fn capture_region(region: &str) -> Result<Vec<u8>> {
         .args(["-window", "root", "-crop", &im_geom, "png:-"])
         .output()
         .await
-        .map_err(|e| AivyxError::Other(format!(
-            "Neither grim nor import available for screenshots: {e}. \
+        .map_err(|e| {
+            AivyxError::Other(format!(
+                "Neither grim nor import available for screenshots: {e}. \
              Install grim (Wayland) or imagemagick (X11)."
-        )))?;
+            ))
+        })?;
 
     if !output.status.success() {
         return Err(AivyxError::Other(format!(
@@ -148,15 +146,12 @@ fn parse_region_coords(region: &str) -> Result<(i32, i32, u32, u32)> {
 }
 
 /// Run tesseract on image data, returning recognized text.
-async fn run_tesseract(
-    image_data: &[u8],
-    language: Option<&str>,
-) -> Result<String> {
+async fn run_tesseract(image_data: &[u8], language: Option<&str>) -> Result<String> {
     use tokio::io::AsyncWriteExt;
 
     let mut args = vec![
-        "stdin".to_string(),    // read from stdin
-        "stdout".to_string(),   // write to stdout
+        "stdin".to_string(),  // read from stdin
+        "stdout".to_string(), // write to stdout
     ];
 
     if let Some(lang) = language {
@@ -188,19 +183,17 @@ async fn run_tesseract(
 
     // Write image data to stdin.
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(image_data).await.map_err(|e| {
-            AivyxError::Other(format!("Failed to write to tesseract stdin: {e}"))
-        })?;
+        stdin
+            .write_all(image_data)
+            .await
+            .map_err(|e| AivyxError::Other(format!("Failed to write to tesseract stdin: {e}")))?;
         // Drop stdin to close the pipe and signal EOF.
     }
 
-    let output = tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        child.wait_with_output(),
-    )
-    .await
-    .map_err(|_| AivyxError::Other("tesseract timed out (30s)".into()))?
-    .map_err(|e| AivyxError::Other(format!("tesseract failed: {e}")))?;
+    let output = tokio::time::timeout(std::time::Duration::from_secs(30), child.wait_with_output())
+        .await
+        .map_err(|_| AivyxError::Other("tesseract timed out (30s)".into()))?
+        .map_err(|e| AivyxError::Other(format!("tesseract failed: {e}")))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

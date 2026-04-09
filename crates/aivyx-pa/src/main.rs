@@ -8,16 +8,15 @@
 //!   aivyx config       View/edit configuration
 //!   aivyx serve        Start HTTP API server (alias for default)
 
+use aivyx_pa::agent;
 use aivyx_pa::config;
 use aivyx_pa::init;
-use aivyx_pa::agent;
 
 use aivyx_config::{AivyxConfig, AivyxDirs};
 use aivyx_crypto::{EncryptedStore, MasterKey, MasterKeyEnvelope};
 use aivyx_llm::{
-    create_provider, create_embedding_provider,
-    CircuitBreakerConfig, CachingProvider, ComplexityLevel, LlmProvider,
-    ResilientProvider, RoutingProvider, ProviderEvent,
+    CachingProvider, CircuitBreakerConfig, ComplexityLevel, LlmProvider, ProviderEvent,
+    ResilientProvider, RoutingProvider, create_embedding_provider, create_provider,
 };
 use clap::{Parser, Subcommand};
 use std::io::{self, BufRead, Write};
@@ -68,7 +67,10 @@ enum Command {
 ///
 /// Returns a guard that must be held for the lifetime of the program
 /// (dropping it flushes the file writer).
-fn init_logging(dirs: &AivyxDirs, to_file: bool) -> anyhow::Result<Option<tracing_appender::non_blocking::WorkerGuard>> {
+fn init_logging(
+    dirs: &AivyxDirs,
+    to_file: bool,
+) -> anyhow::Result<Option<tracing_appender::non_blocking::WorkerGuard>> {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
 
@@ -87,9 +89,7 @@ fn init_logging(dirs: &AivyxDirs, to_file: bool) -> anyhow::Result<Option<tracin
             .init();
         Ok(Some(guard))
     } else {
-        tracing_subscriber::fmt()
-            .with_env_filter(filter)
-            .init();
+        tracing_subscriber::fmt().with_env_filter(filter).init();
         Ok(None)
     }
 }
@@ -178,7 +178,9 @@ async fn main() -> anyhow::Result<()> {
             let store = EncryptedStore::open(dirs.store_path())?;
 
             // Lint config for common issues — surface warnings early.
-            for warning in config::PaConfig::lint(&dirs.config_path(), Some(&store), Some(&master_key)) {
+            for warning in
+                config::PaConfig::lint(&dirs.config_path(), Some(&store), Some(&master_key))
+            {
                 tracing::warn!("Config lint: {warning}");
                 eprintln!("  \u{26a0} {warning}");
             }
@@ -187,17 +189,37 @@ async fn main() -> anyhow::Result<()> {
             let mut loop_provider = create_provider(&config.provider, &store, &master_key)?;
 
             if let Some(ref resilience) = pa_config.resilience {
-                provider = wrap_provider_resilient(provider, &config, resilience, &store, &master_key)?;
-                loop_provider = wrap_provider_resilient(loop_provider, &config, resilience, &store, &master_key)?;
+                provider =
+                    wrap_provider_resilient(provider, &config, resilience, &store, &master_key)?;
+                loop_provider = wrap_provider_resilient(
+                    loop_provider,
+                    &config,
+                    resilience,
+                    &store,
+                    &master_key,
+                )?;
             }
             if let Some(ref routing) = pa_config.routing
-                && routing.enabled {
-                    provider = wrap_provider_routed(provider, &config, routing, &store, &master_key)?;
-                    loop_provider = wrap_provider_routed(loop_provider, &config, routing, &store, &master_key)?;
-                }
+                && routing.enabled
+            {
+                provider = wrap_provider_routed(provider, &config, routing, &store, &master_key)?;
+                loop_provider =
+                    wrap_provider_routed(loop_provider, &config, routing, &store, &master_key)?;
+            }
 
             let services = resolve_services(&pa_config, &store, &master_key);
-            serve_api(&dirs, config, pa_config, services, store, master_key, provider, loop_provider, 3100).await?;
+            serve_api(
+                &dirs,
+                config,
+                pa_config,
+                services,
+                store,
+                master_key,
+                provider,
+                loop_provider,
+                3100,
+            )
+            .await?;
         }
 
         Some(Command::Chat { message }) => {
@@ -211,15 +233,20 @@ async fn main() -> anyhow::Result<()> {
             let store = EncryptedStore::open(dirs.store_path())?;
             let mut provider = create_provider(&config.provider, &store, &master_key)?;
             if let Some(ref resilience) = pa_config.resilience {
-                provider = wrap_provider_resilient(provider, &config, resilience, &store, &master_key)?;
+                provider =
+                    wrap_provider_resilient(provider, &config, resilience, &store, &master_key)?;
             }
             if let Some(ref routing) = pa_config.routing
-                && routing.enabled {
-                    provider = wrap_provider_routed(provider, &config, routing, &store, &master_key)?;
-                }
+                && routing.enabled
+            {
+                provider = wrap_provider_routed(provider, &config, routing, &store, &master_key)?;
+            }
             let services = resolve_services(&pa_config, &store, &master_key);
 
-            chat_oneshot(&dirs, config, &pa_config, services, store, master_key, provider, &message).await?;
+            chat_oneshot(
+                &dirs, config, &pa_config, services, store, master_key, provider, &message,
+            )
+            .await?;
         }
 
         Some(Command::Status) => {
@@ -251,17 +278,37 @@ async fn main() -> anyhow::Result<()> {
             let mut loop_provider = create_provider(&config.provider, &store, &master_key)?;
 
             if let Some(ref resilience) = pa_config.resilience {
-                provider = wrap_provider_resilient(provider, &config, resilience, &store, &master_key)?;
-                loop_provider = wrap_provider_resilient(loop_provider, &config, resilience, &store, &master_key)?;
+                provider =
+                    wrap_provider_resilient(provider, &config, resilience, &store, &master_key)?;
+                loop_provider = wrap_provider_resilient(
+                    loop_provider,
+                    &config,
+                    resilience,
+                    &store,
+                    &master_key,
+                )?;
             }
             if let Some(ref routing) = pa_config.routing
-                && routing.enabled {
-                    provider = wrap_provider_routed(provider, &config, routing, &store, &master_key)?;
-                    loop_provider = wrap_provider_routed(loop_provider, &config, routing, &store, &master_key)?;
-                }
+                && routing.enabled
+            {
+                provider = wrap_provider_routed(provider, &config, routing, &store, &master_key)?;
+                loop_provider =
+                    wrap_provider_routed(loop_provider, &config, routing, &store, &master_key)?;
+            }
 
             let services = resolve_services(&pa_config, &store, &master_key);
-            serve_api(&dirs, config, pa_config, services, store, master_key, provider, loop_provider, port).await?;
+            serve_api(
+                &dirs,
+                config,
+                pa_config,
+                services,
+                store,
+                master_key,
+                provider,
+                loop_provider,
+                port,
+            )
+            .await?;
         }
 
         Some(Command::RotateKey) => {
@@ -324,26 +371,38 @@ fn wrap_provider_resilient(
                 match create_provider(fb_config, store, master_key) {
                     Ok(fb_provider) => {
                         tracing::info!(provider = fb_name, "Fallback provider registered");
-                        resilient = resilient.with_fallback(fb_provider, fb_name.clone(), cb_config.clone());
+                        resilient = resilient.with_fallback(
+                            fb_provider,
+                            fb_name.clone(),
+                            cb_config.clone(),
+                        );
                     }
-                    Err(e) => tracing::warn!(provider = fb_name, error = %e, "Failed to create fallback provider"),
+                    Err(e) => {
+                        tracing::warn!(provider = fb_name, error = %e, "Failed to create fallback provider")
+                    }
                 }
             } else {
-                tracing::warn!(provider = fb_name, "Fallback provider not found in [providers] table");
+                tracing::warn!(
+                    provider = fb_name,
+                    "Fallback provider not found in [providers] table"
+                );
             }
         }
 
         // Attach observer for circuit state changes
-        resilient = resilient.with_observer(Arc::new(|event: ProviderEvent| {
-            match event {
-                ProviderEvent::CircuitOpened { ref provider, failures } =>
-                    tracing::warn!(provider, failures, "Circuit breaker opened"),
-                ProviderEvent::CircuitClosed { ref provider } =>
-                    tracing::info!(provider, "Circuit breaker closed — provider recovered"),
-                ProviderEvent::FailoverActivated { ref from, ref to } =>
-                    tracing::warn!(from, to, "Provider failover activated"),
-                ProviderEvent::AllProvidersDown =>
-                    tracing::error!("All LLM providers down — requests will fail"),
+        resilient = resilient.with_observer(Arc::new(|event: ProviderEvent| match event {
+            ProviderEvent::CircuitOpened {
+                ref provider,
+                failures,
+            } => tracing::warn!(provider, failures, "Circuit breaker opened"),
+            ProviderEvent::CircuitClosed { ref provider } => {
+                tracing::info!(provider, "Circuit breaker closed — provider recovered")
+            }
+            ProviderEvent::FailoverActivated { ref from, ref to } => {
+                tracing::warn!(from, to, "Provider failover activated")
+            }
+            ProviderEvent::AllProvidersDown => {
+                tracing::error!("All LLM providers down — requests will fail")
             }
         }));
 
@@ -357,15 +416,16 @@ fn wrap_provider_resilient(
 
         // Attach semantic caching if embedding provider is available
         if cache_config.semantic_enabled
-            && let Some(ref emb_config) = config.embedding {
-                match create_embedding_provider(emb_config, store, master_key) {
-                    Ok(emb) => {
-                        tracing::info!("Semantic response cache enabled");
-                        caching = caching.with_semantic(Arc::from(emb));
-                    }
-                    Err(e) => tracing::warn!(error = %e, "Semantic cache requires embedding provider"),
+            && let Some(ref emb_config) = config.embedding
+        {
+            match create_embedding_provider(emb_config, store, master_key) {
+                Ok(emb) => {
+                    tracing::info!("Semantic response cache enabled");
+                    caching = caching.with_semantic(Arc::from(emb));
                 }
+                Err(e) => tracing::warn!(error = %e, "Semantic cache requires embedding provider"),
             }
+        }
 
         tracing::info!(
             ttl_secs = cache_config.ttl_secs,
@@ -423,13 +483,15 @@ fn wrap_provider_routed(
         return Ok(provider);
     }
 
-    let routed = RoutingProvider::new(provider, tier_providers)
-        .with_observer(Arc::new(|event| {
-            match event {
-                aivyx_llm::RoutingEvent::Routed { complexity, provider } =>
-                    tracing::info!(?complexity, provider, "Request routed by complexity"),
-            }
-        }));
+    let routed =
+        RoutingProvider::new(provider, tier_providers).with_observer(Arc::new(
+            |event| match event {
+                aivyx_llm::RoutingEvent::Routed {
+                    complexity,
+                    provider,
+                } => tracing::info!(?complexity, provider, "Request routed by complexity"),
+            },
+        ));
 
     tracing::info!("Complexity-based model routing enabled");
     Ok(Box::new(routed))
@@ -449,7 +511,17 @@ async fn chat_oneshot(
     let audit_key = aivyx_crypto::derive_audit_key(&master_key);
     let audit_log = aivyx_audit::AuditLog::new(dirs.audit_path(), &audit_key);
     let store = std::sync::Arc::new(store);
-    let built = crate::agent::build_agent(dirs, &config, pa_config, services, store, master_key, provider, Some(audit_log)).await?;
+    let built = crate::agent::build_agent(
+        dirs,
+        &config,
+        pa_config,
+        services,
+        store,
+        master_key,
+        provider,
+        Some(audit_log),
+    )
+    .await?;
     let mut agent = built.agent;
     let response = agent.turn(message, None).await?;
     println!("{response}");
@@ -471,8 +543,8 @@ async fn serve_api(
     loop_provider: Box<dyn aivyx_llm::LlmProvider>,
     port: u16,
 ) -> anyhow::Result<()> {
-    use aivyx_pa::api;
     use aivyx_loop::AgentLoop;
+    use aivyx_pa::api;
     use tokio::sync::broadcast;
 
     // Copy master key bytes before build_agent consumes it (MasterKey is not Clone)
@@ -481,7 +553,8 @@ async fn serve_api(
     // Derive all keys and resolve loop inputs before master_key is consumed
     use aivyx_pa::runtime;
     let mut keys = runtime::derive_all_keys(
-        &master_key, &pa_config,
+        &master_key,
+        &pa_config,
         services.vault.is_some(),
         services.contacts.is_some(),
     );
@@ -493,9 +566,16 @@ async fn serve_api(
     let api_audit_log = aivyx_audit::AuditLog::new(dirs.audit_path(), &keys.ui_audit_key);
 
     let mut built = crate::agent::build_agent(
-        dirs, &config, &pa_config, services,
-        std::sync::Arc::clone(&store), master_key, provider, Some(agent_audit_log),
-    ).await?;
+        dirs,
+        &config,
+        &pa_config,
+        services,
+        std::sync::Arc::clone(&store),
+        master_key,
+        provider,
+        Some(agent_audit_log),
+    )
+    .await?;
 
     // Clone brain store for API handlers before build_loop_context takes it
     let brain_store_for_api = built.brain_store.as_ref().map(std::sync::Arc::clone);
@@ -503,15 +583,23 @@ async fn serve_api(
     // Build schedule tools, loop context, and loop config via shared runtime
     let schedule_tools = runtime::build_schedule_tools(&loop_inputs, built.imap_pool.clone());
     let loop_context = runtime::build_loop_context(
-        &mut built, &mut keys, loop_inputs,
-        loop_provider, schedule_tools, std::sync::Arc::clone(&store), dirs, &pa_config,
+        &mut built,
+        &mut keys,
+        loop_inputs,
+        loop_provider,
+        schedule_tools,
+        std::sync::Arc::clone(&store),
+        dirs,
+        &pa_config,
     );
     let loop_config = runtime::build_loop_config(&pa_config);
 
     // Clone memory manager and mission context for API before built is consumed
     let mission_ctx_for_api = built.mission_ctx.clone();
     let memory_manager_for_api = built.memory_manager.as_ref().map(std::sync::Arc::clone);
-    let agent_name = pa_config.agent.as_ref()
+    let agent_name = pa_config
+        .agent
+        .as_ref()
         .map(|a| a.name.clone())
         .unwrap_or_else(|| "assistant".into());
 
@@ -561,7 +649,9 @@ async fn serve_api(
             // Route approval-requiring notifications to the queue
             if notif.requires_approval {
                 bridge_approvals.lock().await.push(api::ApprovalItem {
-                    expires_at: Some(notif.timestamp + chrono::TimeDelta::try_seconds(120).unwrap()),
+                    expires_at: Some(
+                        notif.timestamp + chrono::TimeDelta::try_seconds(120).unwrap(),
+                    ),
                     notification: notif.clone(),
                     status: api::ApprovalStatus::Pending,
                     resolved_at: None,
@@ -586,7 +676,6 @@ async fn serve_api(
         }
     });
 
-
     // Start webhook HTTP server if [webhook] is configured and enabled.
     // The server receives POST /webhooks/{name} requests from external services
     // (GitHub, Stripe, smart home hubs, IFTTT, etc.) and queues them as
@@ -605,7 +694,9 @@ async fn serve_api(
                     let _ = wh_broadcast_tx.send(n);
                 }
             });
-            match aivyx_pa::webhook::spawn_webhook_server(webhook_cfg, wh_store, &wh_key, wh_tx).await {
+            match aivyx_pa::webhook::spawn_webhook_server(webhook_cfg, wh_store, &wh_key, wh_tx)
+                .await
+            {
                 Ok(_handle) => {
                     eprintln!("  Webhook server on http://127.0.0.1:{}", webhook_cfg.port);
                 }
@@ -662,8 +753,15 @@ fn print_status(dirs: &AivyxDirs, master_key: &MasterKey) -> anyhow::Result<()> 
     println!("Aivyx Personal Assistant — Status");
     println!("──────────────────────────────────");
     println!("Agent:    {} ({})", agent_cfg.name, agent_cfg.persona);
-    println!("Briefing: {:02}:00 ({})", loop_cfg.briefing_hour,
-        if loop_cfg.morning_briefing { "enabled" } else { "disabled" });
+    println!(
+        "Briefing: {:02}:00 ({})",
+        loop_cfg.briefing_hour,
+        if loop_cfg.morning_briefing {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
     println!("Interval: {} min", loop_cfg.check_interval_minutes);
     println!();
 
@@ -727,10 +825,14 @@ fn print_status(dirs: &AivyxDirs, master_key: &MasterKey) -> anyhow::Result<()> 
             if metrics.llm_requests > 0 || metrics.tool_executions > 0 {
                 println!("Metrics (last 24h)");
                 println!("──────────────────────────────────");
-                println!("  LLM calls: {}  Tokens: {}in / {}out",
-                    metrics.llm_requests, metrics.total_input_tokens, metrics.total_output_tokens);
-                println!("  Tool executions: {}  Denied: {}  Agent turns: {}",
-                    metrics.tool_executions, metrics.tool_denials, metrics.agent_turns);
+                println!(
+                    "  LLM calls: {}  Tokens: {}in / {}out",
+                    metrics.llm_requests, metrics.total_input_tokens, metrics.total_output_tokens
+                );
+                println!(
+                    "  Tool executions: {}  Denied: {}  Agent turns: {}",
+                    metrics.tool_executions, metrics.tool_denials, metrics.agent_turns
+                );
                 println!();
             }
 
@@ -738,7 +840,11 @@ fn print_status(dirs: &AivyxDirs, master_key: &MasterKey) -> anyhow::Result<()> 
             println!("──────────────────────────────────");
             for entry in &entries {
                 let event_desc = format_audit_event(&entry.event);
-                println!("  {} {}", entry.timestamp.get(..19).unwrap_or(&entry.timestamp), event_desc);
+                println!(
+                    "  {} {}",
+                    entry.timestamp.get(..19).unwrap_or(&entry.timestamp),
+                    event_desc
+                );
             }
             println!();
         }
@@ -792,7 +898,8 @@ fn rotate_key(dirs: &AivyxDirs) -> anyhow::Result<()> {
 
     print!("  Re-encrypting...");
     let _ = io::stdout().flush();
-    let result = store.re_encrypt_all(&old_master_key, &new_master_key)
+    let result = store
+        .re_encrypt_all(&old_master_key, &new_master_key)
         .map_err(|e| anyhow::anyhow!("Re-encryption failed: {e}"))?;
 
     if !result.errors.is_empty() {
@@ -802,7 +909,8 @@ fn rotate_key(dirs: &AivyxDirs) -> anyhow::Result<()> {
         }
         anyhow::bail!(
             "{} keys migrated, {} errors. Old passphrase still works.",
-            result.keys_migrated, result.errors.len()
+            result.keys_migrated,
+            result.errors.len()
         );
     }
 
@@ -825,21 +933,39 @@ fn format_audit_event(event: &aivyx_audit::AuditEvent) -> String {
     match event {
         AuditEvent::SystemInit { .. } => "System initialized".into(),
         AuditEvent::ToolExecuted { action, .. } => format!("Tool executed: {action}"),
-        AuditEvent::ToolDenied { action, reason, .. } => format!("Tool denied: {action} ({reason})"),
-        AuditEvent::ToolExecutionFailed { action, error, .. } => format!("Tool failed: {action} ({error})"),
+        AuditEvent::ToolDenied { action, reason, .. } => {
+            format!("Tool denied: {action} ({reason})")
+        }
+        AuditEvent::ToolExecutionFailed { action, error, .. } => {
+            format!("Tool failed: {action} ({error})")
+        }
         AuditEvent::AgentTurnStarted { .. } => "Agent turn started".into(),
         AuditEvent::AgentTurnCompleted { .. } => "Agent turn completed".into(),
-        AuditEvent::ScheduleFired { schedule_name, .. } => format!("Schedule fired: {schedule_name}"),
-        AuditEvent::ScheduleCompleted { schedule_name, .. } => format!("Schedule done: {schedule_name}"),
+        AuditEvent::ScheduleFired { schedule_name, .. } => {
+            format!("Schedule fired: {schedule_name}")
+        }
+        AuditEvent::ScheduleCompleted { schedule_name, .. } => {
+            format!("Schedule done: {schedule_name}")
+        }
         AuditEvent::MemoryStored { .. } => "Memory stored".into(),
-        AuditEvent::CapabilityGranted { scope_summary, .. } => format!("Capability granted: {scope_summary}"),
+        AuditEvent::CapabilityGranted { scope_summary, .. } => {
+            format!("Capability granted: {scope_summary}")
+        }
         AuditEvent::CapabilityRevoked { .. } => "Capability revoked".into(),
         AuditEvent::ConfigChanged { key, .. } => format!("Config changed: {key}"),
-        AuditEvent::HeartbeatFired { context_sections, .. } => format!("Heartbeat fired ({context_sections} sections)"),
-        AuditEvent::HeartbeatCompleted { actions_dispatched, .. } => format!("Heartbeat done ({actions_dispatched} actions)"),
+        AuditEvent::HeartbeatFired {
+            context_sections, ..
+        } => format!("Heartbeat fired ({context_sections} sections)"),
+        AuditEvent::HeartbeatCompleted {
+            actions_dispatched, ..
+        } => format!("Heartbeat done ({actions_dispatched} actions)"),
         AuditEvent::HeartbeatSkipped { reason } => format!("Heartbeat skipped: {reason}"),
-        AuditEvent::BriefingGenerated { item_count, .. } => format!("Briefing generated ({item_count} items)"),
-        AuditEvent::TriageCompleted { processed, .. } => format!("Triage done ({processed} emails)"),
+        AuditEvent::BriefingGenerated { item_count, .. } => {
+            format!("Briefing generated ({item_count} items)")
+        }
+        AuditEvent::TriageCompleted { processed, .. } => {
+            format!("Triage done ({processed} emails)")
+        }
         AuditEvent::BackupCompleted { .. } => "Backup completed".into(),
         AuditEvent::BackupFailed { reason } => format!("Backup failed: {reason}"),
         // Catch-all for the 80+ other event types — use Debug for now

@@ -8,12 +8,12 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, BorderType, Widget},
+    widgets::{Block, BorderType, Borders, Widget},
 };
 
-use aivyx_task_engine::{TaskMetadata, TaskStatus, StepStatus};
 use crate::app::App;
 use crate::theme;
+use aivyx_task_engine::{StepStatus, TaskMetadata, TaskStatus};
 
 const FILTERS: [&str; 4] = ["All", "Active", "Completed", "Failed"];
 
@@ -23,13 +23,17 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         Constraint::Length(1),
         Constraint::Min(5),
         Constraint::Length(1),
-    ]).areas(area);
+    ])
+    .areas(area);
 
     // Title
     let total = app.missions.len();
     let title = Line::from(vec![
         Span::styled("Missions", theme::text_bold()),
-        Span::styled(format!("  {total} missions tracked by your assistant."), theme::dim()),
+        Span::styled(
+            format!("  {total} missions tracked by your assistant."),
+            theme::dim(),
+        ),
     ]);
     buf.set_line(header.x, header.y, &title, header.width);
 
@@ -37,7 +41,9 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     let mut filter_spans = Vec::new();
     for (i, f) in FILTERS.iter().enumerate() {
         let style = if i == app.mission_filter {
-            Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(theme::PRIMARY)
+                .add_modifier(Modifier::BOLD)
         } else {
             theme::dim()
         };
@@ -46,13 +52,16 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             filter_spans.push(Span::styled("│", theme::dim()));
         }
     }
-    buf.set_line(filter_row.x, filter_row.y, &Line::from(filter_spans), filter_row.width);
+    buf.set_line(
+        filter_row.x,
+        filter_row.y,
+        &Line::from(filter_spans),
+        filter_row.width,
+    );
 
     // Split: mission list + detail panel
-    let [list_area, detail_area] = Layout::horizontal([
-        Constraint::Percentage(55),
-        Constraint::Percentage(45),
-    ]).areas(body);
+    let [list_area, detail_area] =
+        Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)]).areas(body);
 
     // ── Mission list ──────────────────────────────────────────
     let missions = app.filtered_missions();
@@ -72,12 +81,20 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         let empty = vec![
             Line::from(Span::styled("  No missions yet.", theme::dim())),
             Line::from(Span::styled("", theme::dim())),
-            Line::from(Span::styled("  Ask your assistant to start one in Chat,", theme::muted())),
-            Line::from(Span::styled("  or it will create them autonomously.", theme::muted())),
+            Line::from(Span::styled(
+                "  Ask your assistant to start one in Chat,",
+                theme::muted(),
+            )),
+            Line::from(Span::styled(
+                "  or it will create them autonomously.",
+                theme::muted(),
+            )),
         ];
         for (i, line) in empty.iter().enumerate() {
             let y = list_inner.y + 1 + i as u16;
-            if y >= list_inner.y + list_inner.height { break; }
+            if y >= list_inner.y + list_inner.height {
+                break;
+            }
             buf.set_line(list_inner.x + 1, y, line, list_inner.width - 2);
         }
     } else {
@@ -91,13 +108,19 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
         let mut y = list_inner.y;
         for (i, meta) in missions.iter().enumerate().skip(scroll_offset) {
-            if y + card_height > list_inner.y + list_inner.height { break; }
+            if y + card_height > list_inner.y + list_inner.height {
+                break;
+            }
 
             let is_selected = i == app.mission_selected;
             let block = Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .border_style(if is_selected { theme::border_active() } else { theme::border() });
+                .border_style(if is_selected {
+                    theme::border_active()
+                } else {
+                    theme::border()
+                });
             let card = Rect::new(list_inner.x, y, list_inner.width, card_height);
             let inner = block.inner(card);
             block.render(card, buf);
@@ -106,9 +129,20 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             let marker = if is_selected { "▸ " } else { "  " };
             let max_goal_len = inner.width.saturating_sub(4) as usize;
             let goal = truncate(&meta.goal, max_goal_len);
-            let goal_style = if is_selected { theme::text_bold() } else { theme::text() };
+            let goal_style = if is_selected {
+                theme::text_bold()
+            } else {
+                theme::text()
+            };
             let goal_line = Line::from(vec![
-                Span::styled(marker, if is_selected { theme::primary() } else { theme::dim() }),
+                Span::styled(
+                    marker,
+                    if is_selected {
+                        theme::primary()
+                    } else {
+                        theme::dim()
+                    },
+                ),
                 Span::styled(goal, goal_style),
             ]);
             buf.set_line(inner.x, inner.y, &goal_line, inner.width);
@@ -145,7 +179,8 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             if inner.height > 2 {
                 let dots = format!("  {}", format_progress(meta));
                 buf.set_line(
-                    inner.x, inner.y + 2,
+                    inner.x,
+                    inner.y + 2,
                     &Line::from(Span::styled(dots, theme::dim())),
                     inner.width,
                 );
@@ -167,8 +202,16 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     if let Some(ref mission) = app.mission_detail {
         render_detail(mission, detail_inner, buf);
     } else if !missions.is_empty() {
-        let hint = Line::from(Span::styled("  Select a mission to view details.", theme::dim()));
-        buf.set_line(detail_inner.x + 1, detail_inner.y + 1, &hint, detail_inner.width - 2);
+        let hint = Line::from(Span::styled(
+            "  Select a mission to view details.",
+            theme::dim(),
+        ));
+        buf.set_line(
+            detail_inner.x + 1,
+            detail_inner.y + 1,
+            &hint,
+            detail_inner.width - 2,
+        );
     }
 
     // ── Help bar ──────────────────────────────────────────────
@@ -199,7 +242,10 @@ fn render_detail(mission: &aivyx_task_engine::Mission, area: Rect, buf: &mut Buf
     // Goal
     let goal_label = Line::from(vec![
         Span::styled("Goal: ", theme::text_bold()),
-        Span::styled(truncate(&mission.goal, max_w.saturating_sub(6)), theme::text()),
+        Span::styled(
+            truncate(&mission.goal, max_w.saturating_sub(6)),
+            theme::text(),
+        ),
     ]);
     buf.set_line(area.x + 1, y, &goal_label, area.width - 2);
     y += 1;
@@ -258,7 +304,9 @@ fn render_detail(mission: &aivyx_task_engine::Mission, area: Rect, buf: &mut Buf
 
     // Step list
     for step in &mission.steps {
-        if y >= area.y + area.height { break; }
+        if y >= area.y + area.height {
+            break;
+        }
 
         let (icon, icon_style) = match &step.status {
             StepStatus::Completed => ("✓", Style::default().fg(theme::SAGE)),
@@ -356,11 +404,15 @@ fn format_elapsed(meta: &TaskMetadata) -> String {
 /// Format a TaskStatus as a styled span.
 fn format_status(status: &TaskStatus) -> Span<'static> {
     match status {
-        TaskStatus::Planning => Span::styled("Planning...", Style::default().fg(theme::ACCENT_GLOW)),
+        TaskStatus::Planning => {
+            Span::styled("Planning...", Style::default().fg(theme::ACCENT_GLOW))
+        }
         TaskStatus::Planned => Span::styled("Planned", Style::default().fg(theme::ACCENT_GLOW)),
         TaskStatus::Executing => Span::styled("Executing", Style::default().fg(theme::PRIMARY)),
         TaskStatus::Verifying => Span::styled("Verifying", Style::default().fg(theme::PRIMARY)),
-        TaskStatus::AwaitingApproval { .. } => Span::styled("⊕ Approval", Style::default().fg(theme::ACCENT_GLOW)),
+        TaskStatus::AwaitingApproval { .. } => {
+            Span::styled("⊕ Approval", Style::default().fg(theme::ACCENT_GLOW))
+        }
         TaskStatus::Completed => Span::styled("✓ Completed", Style::default().fg(theme::SAGE)),
         TaskStatus::Failed { .. } => Span::styled("✗ Failed", Style::default().fg(theme::ERROR)),
         TaskStatus::Cancelled => Span::styled("Cancelled", theme::dim()),
@@ -436,9 +488,14 @@ mod tests {
             TaskStatus::Planned,
             TaskStatus::Executing,
             TaskStatus::Verifying,
-            TaskStatus::AwaitingApproval { step_index: 0, context: "test".into() },
+            TaskStatus::AwaitingApproval {
+                step_index: 0,
+                context: "test".into(),
+            },
             TaskStatus::Completed,
-            TaskStatus::Failed { reason: "oom".into() },
+            TaskStatus::Failed {
+                reason: "oom".into(),
+            },
             TaskStatus::Cancelled,
         ];
         for s in &statuses {

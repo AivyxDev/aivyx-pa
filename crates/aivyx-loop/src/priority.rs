@@ -24,7 +24,9 @@ pub struct ScoredItem {
 }
 
 /// Priority levels derived from urgency scores.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Priority {
     Low,
     Normal,
@@ -69,12 +71,12 @@ pub fn score_calendar_event(event_time: DateTime<Utc>, now: DateTime<Utc>) -> f3
     let minutes_until = event_time.signed_duration_since(now).num_minutes();
 
     match minutes_until {
-        m if m < 0 => 0.1,          // already past
-        0..=15 => 0.95,             // imminent
-        16..=30 => 0.8,             // very soon
-        31..=60 => 0.6,             // within the hour
-        61..=120 => 0.4,            // next couple hours
-        _ => 0.2,                   // later today
+        m if m < 0 => 0.1, // already past
+        0..=15 => 0.95,    // imminent
+        16..=30 => 0.8,    // very soon
+        31..=60 => 0.6,    // within the hour
+        61..=120 => 0.4,   // next couple hours
+        _ => 0.2,          // later today
     }
 }
 
@@ -88,12 +90,12 @@ pub fn score_calendar_conflict() -> f32 {
 /// `age_hours` is how old the email is.
 pub fn score_email_age(age_hours: i64) -> f32 {
     match age_hours {
-        0..=2 => 0.3,       // just arrived
-        3..=12 => 0.4,      // same day
-        13..=24 => 0.5,     // yesterday
-        25..=72 => 0.65,    // 1-3 days old
-        73..=168 => 0.75,   // 3-7 days old
-        _ => 0.85,          // over a week — needs attention
+        0..=2 => 0.3,     // just arrived
+        3..=12 => 0.4,    // same day
+        13..=24 => 0.5,   // yesterday
+        25..=72 => 0.65,  // 1-3 days old
+        73..=168 => 0.75, // 3-7 days old
+        _ => 0.85,        // over a week — needs attention
     }
 }
 
@@ -102,10 +104,10 @@ pub fn score_reminder(due_at: DateTime<Utc>, now: DateTime<Utc>) -> f32 {
     let minutes_overdue = now.signed_duration_since(due_at).num_minutes();
 
     match minutes_overdue {
-        m if m < -60 => 0.2,    // not due for over an hour
-        -60..=0 => 0.6,         // due within the hour
-        1..=30 => 0.8,          // just overdue
-        _ => 0.95,              // significantly overdue
+        m if m < -60 => 0.2, // not due for over an hour
+        -60..=0 => 0.6,      // due within the hour
+        1..=30 => 0.8,       // just overdue
+        _ => 0.95,           // significantly overdue
     }
 }
 
@@ -117,11 +119,11 @@ pub fn score_over_budget() -> f32 {
 /// Score an upcoming bill by days until due.
 pub fn score_upcoming_bill(days_until_due: i64) -> f32 {
     match days_until_due {
-        d if d < 0 => 0.9,      // overdue!
-        0 => 0.85,               // due today
-        1 => 0.7,                // due tomorrow
-        2..=3 => 0.5,            // due soon
-        _ => 0.3,                // due later this week
+        d if d < 0 => 0.9, // overdue!
+        0 => 0.85,         // due today
+        1 => 0.7,          // due tomorrow
+        2..=3 => 0.5,      // due soon
+        _ => 0.3,          // due later this week
     }
 }
 
@@ -147,7 +149,11 @@ pub fn score_stale_goal(days_since_update: i64, progress: f32) -> f32 {
 
 /// Sort scored items by score descending (most urgent first).
 pub fn rank(items: &mut [ScoredItem]) {
-    items.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    items.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 }
 
 /// Format scored items into a prioritized summary for the heartbeat prompt.
@@ -253,9 +259,24 @@ mod tests {
     #[test]
     fn rank_sorts_descending() {
         let mut items = vec![
-            ScoredItem { summary: "low".into(), source: "test".into(), score: 0.2, priority: Priority::Low },
-            ScoredItem { summary: "high".into(), source: "test".into(), score: 0.9, priority: Priority::Urgent },
-            ScoredItem { summary: "mid".into(), source: "test".into(), score: 0.5, priority: Priority::Normal },
+            ScoredItem {
+                summary: "low".into(),
+                source: "test".into(),
+                score: 0.2,
+                priority: Priority::Low,
+            },
+            ScoredItem {
+                summary: "high".into(),
+                source: "test".into(),
+                score: 0.9,
+                priority: Priority::Urgent,
+            },
+            ScoredItem {
+                summary: "mid".into(),
+                source: "test".into(),
+                score: 0.5,
+                priority: Priority::Normal,
+            },
         ];
         rank(&mut items);
         assert_eq!(items[0].summary, "high");
@@ -266,8 +287,18 @@ mod tests {
     #[test]
     fn format_priority_summary_filters_by_score() {
         let items = vec![
-            ScoredItem { summary: "urgent thing".into(), source: "email".into(), score: 0.9, priority: Priority::Urgent },
-            ScoredItem { summary: "low thing".into(), source: "goal".into(), score: 0.1, priority: Priority::Low },
+            ScoredItem {
+                summary: "urgent thing".into(),
+                source: "email".into(),
+                score: 0.9,
+                priority: Priority::Urgent,
+            },
+            ScoredItem {
+                summary: "low thing".into(),
+                source: "goal".into(),
+                score: 0.1,
+                priority: Priority::Low,
+            },
         ];
         let formatted = format_priority_summary(&items, 10, 0.3);
         assert!(formatted.contains("urgent thing"));
@@ -276,9 +307,12 @@ mod tests {
 
     #[test]
     fn format_empty_when_no_items_above_threshold() {
-        let items = vec![
-            ScoredItem { summary: "low".into(), source: "test".into(), score: 0.1, priority: Priority::Low },
-        ];
+        let items = vec![ScoredItem {
+            summary: "low".into(),
+            source: "test".into(),
+            score: 0.1,
+            priority: Priority::Low,
+        }];
         assert!(format_priority_summary(&items, 10, 0.5).is_empty());
     }
 }

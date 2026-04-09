@@ -3,7 +3,7 @@
 use crate::Action;
 use aivyx_core::Result;
 
-use super::{run_desktop_command, DEFAULT_TIMEOUT_SECS};
+use super::{DEFAULT_TIMEOUT_SECS, run_desktop_command};
 
 const VALID_URGENCIES: &[&str] = &["low", "normal", "critical"];
 
@@ -71,9 +71,10 @@ impl Action for SendNotification {
             .unwrap_or("normal");
 
         if !VALID_URGENCIES.contains(&urgency) {
-            return Err(aivyx_core::AivyxError::Validation(
-                format!("urgency must be one of: {}", VALID_URGENCIES.join(", ")),
-            ));
+            return Err(aivyx_core::AivyxError::Validation(format!(
+                "urgency must be one of: {}",
+                VALID_URGENCIES.join(", ")
+            )));
         }
 
         let mut args: Vec<String> = vec!["--urgency".into(), urgency.into()];
@@ -95,9 +96,11 @@ impl Action for SendNotification {
         let output = run_desktop_command("notify-send", &arg_refs, DEFAULT_TIMEOUT_SECS).await?;
 
         if output.exit_code != 0 {
-            return Err(aivyx_core::AivyxError::Other(
-                format!("notify-send failed (exit {}): {}", output.exit_code, output.stderr.trim()),
-            ));
+            return Err(aivyx_core::AivyxError::Other(format!(
+                "notify-send failed (exit {}): {}",
+                output.exit_code,
+                output.stderr.trim()
+            )));
         }
 
         Ok(serde_json::json!({
@@ -142,9 +145,7 @@ mod tests {
     #[tokio::test]
     async fn rejects_missing_body() {
         let action = SendNotification;
-        let result = action
-            .execute(serde_json::json!({ "title": "Test" }))
-            .await;
+        let result = action.execute(serde_json::json!({ "title": "Test" })).await;
         assert!(result.is_err());
     }
 }

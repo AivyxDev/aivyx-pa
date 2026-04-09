@@ -20,11 +20,9 @@ pub struct DesktopInfo {
 pub async fn desktop_info() -> Result<DesktopInfo> {
     #[cfg(target_os = "windows")]
     {
-        use windows::Win32::UI::WindowsAndMessaging::{
-            GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN,
-        };
-        use windows::Win32::Graphics::Gdi::{GetDC, GetDeviceCaps, ReleaseDC, LOGPIXELSX};
         use windows::Win32::Foundation::HWND;
+        use windows::Win32::Graphics::Gdi::{GetDC, GetDeviceCaps, LOGPIXELSX, ReleaseDC};
+        use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
 
         let screen_width = unsafe { GetSystemMetrics(SM_CXSCREEN) } as u32;
         let screen_height = unsafe { GetSystemMetrics(SM_CYSCREEN) } as u32;
@@ -52,7 +50,9 @@ pub async fn desktop_info() -> Result<DesktopInfo> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        Err(AivyxError::Other("win_desktop_info: only available on Windows".into()))
+        Err(AivyxError::Other(
+            "win_desktop_info: only available on Windows".into(),
+        ))
     }
 }
 
@@ -60,7 +60,7 @@ pub async fn desktop_info() -> Result<DesktopInfo> {
 #[cfg(target_os = "windows")]
 fn detect_theme() -> Result<String> {
     use windows::Win32::System::Registry::{
-        RegOpenKeyExW, RegQueryValueExW, HKEY_CURRENT_USER, KEY_READ, REG_DWORD,
+        HKEY_CURRENT_USER, KEY_READ, REG_DWORD, RegOpenKeyExW, RegQueryValueExW,
     };
     use windows::core::PCWSTR;
 
@@ -75,8 +75,14 @@ fn detect_theme() -> Result<String> {
 
     unsafe {
         let mut hkey = Default::default();
-        RegOpenKeyExW(HKEY_CURRENT_USER, PCWSTR(subkey.as_ptr()), 0, KEY_READ, &mut hkey)
-            .map_err(|e| AivyxError::Other(format!("RegOpenKeyExW: {e}")))?;
+        RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            PCWSTR(subkey.as_ptr()),
+            0,
+            KEY_READ,
+            &mut hkey,
+        )
+        .map_err(|e| AivyxError::Other(format!("RegOpenKeyExW: {e}")))?;
 
         let mut data = [0u8; 4];
         let mut data_size = 4u32;
@@ -89,7 +95,8 @@ fn detect_theme() -> Result<String> {
             Some(&mut data_type),
             Some(data.as_mut_ptr()),
             Some(&mut data_size),
-        ).map_err(|e| AivyxError::Other(format!("RegQueryValueExW: {e}")))?;
+        )
+        .map_err(|e| AivyxError::Other(format!("RegQueryValueExW: {e}")))?;
 
         let value = u32::from_le_bytes(data);
         Ok(if value == 0 { "dark" } else { "light" }.into())
@@ -106,7 +113,11 @@ fn detect_theme() -> Result<String> {
 fn get_os_version() -> Result<String> {
     // Use powershell for a simple, reliable version string.
     let output = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-Command", "[System.Environment]::OSVersion.VersionString"])
+        .args([
+            "-NoProfile",
+            "-Command",
+            "[System.Environment]::OSVersion.VersionString",
+        ])
         .output()
         .map_err(|e| AivyxError::Other(format!("powershell: {e}")))?;
 
@@ -139,7 +150,9 @@ pub async fn list_running_apps() -> Result<serde_json::Value> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        Err(AivyxError::Other("win_desktop_info: only available on Windows".into()))
+        Err(AivyxError::Other(
+            "win_desktop_info: only available on Windows".into(),
+        ))
     }
 }
 
@@ -150,8 +163,8 @@ pub async fn list_running_apps() -> Result<serde_json::Value> {
 pub async fn open_app(path: &str) -> Result<()> {
     #[cfg(target_os = "windows")]
     {
-        use windows::Win32::UI::Shell::ShellExecuteW;
         use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::Shell::ShellExecuteW;
         use windows::core::PCWSTR;
 
         let operation: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
@@ -173,14 +186,17 @@ pub async fn open_app(path: &str) -> Result<()> {
             Ok(())
         } else {
             Err(AivyxError::Other(format!(
-                "ShellExecuteW failed for '{path}' (code: {:?})", result.0
+                "ShellExecuteW failed for '{path}' (code: {:?})",
+                result.0
             )))
         }
     }
     #[cfg(not(target_os = "windows"))]
     {
         let _ = path;
-        Err(AivyxError::Other("win_desktop_info: only available on Windows".into()))
+        Err(AivyxError::Other(
+            "win_desktop_info: only available on Windows".into(),
+        ))
     }
 }
 

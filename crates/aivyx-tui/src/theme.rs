@@ -3,7 +3,6 @@
 //! These colors are the ratatui equivalents of the CSS tokens defined in
 //! `layout.css` for the SvelteKit GUI. Both UIs share the same visual identity.
 
-
 use ratatui::style::{Color, Modifier, Style};
 
 // ── Primary Palette ────────────────────────────────────────────

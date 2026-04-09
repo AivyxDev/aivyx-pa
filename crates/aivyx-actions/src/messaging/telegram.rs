@@ -13,7 +13,11 @@ const BASE_URL: &str = "https://api.telegram.org/bot";
 // ── API Client ─────────────────────────────────────────────────
 
 /// Send a message via Telegram Bot API.
-async fn send_message(config: &TelegramConfig, chat_id: &str, text: &str) -> Result<serde_json::Value> {
+async fn send_message(
+    config: &TelegramConfig,
+    chat_id: &str,
+    text: &str,
+) -> Result<serde_json::Value> {
     let url = format!("{}{}/sendMessage", BASE_URL, config.bot_token);
     let client = crate::http_client();
     let resp = client
@@ -44,7 +48,11 @@ async fn send_message(config: &TelegramConfig, chat_id: &str, text: &str) -> Res
 }
 
 /// Fetch recent messages via getUpdates, filtered to a specific chat.
-async fn get_messages(config: &TelegramConfig, chat_id: &str, limit: usize) -> Result<Vec<Message>> {
+async fn get_messages(
+    config: &TelegramConfig,
+    chat_id: &str,
+    limit: usize,
+) -> Result<Vec<Message>> {
     let url = format!("{}{}/getUpdates", BASE_URL, config.bot_token);
     let client = crate::http_client();
     let resp = client
@@ -199,10 +207,7 @@ impl Action for ReadTelegram {
         let chat_id = input["chat_id"]
             .as_str()
             .ok_or_else(|| AivyxError::Other("chat_id is required".into()))?;
-        let limit = input
-            .get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(10) as usize;
+        let limit = input.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
 
         let messages = crate::retry::retry(
             &crate::retry::RetryConfig::network(),
@@ -225,11 +230,7 @@ impl Action for ReadTelegram {
 /// Returns `Ok(())` silently if no `default_chat_id` is configured.
 /// Errors are logged but not propagated — notification forwarding
 /// should never block the agent loop.
-pub async fn forward_notification(
-    config: &TelegramConfig,
-    title: &str,
-    body: &str,
-) -> Result<()> {
+pub async fn forward_notification(config: &TelegramConfig, title: &str, body: &str) -> Result<()> {
     if let Some(ref chat_id) = config.default_chat_id {
         let text = format!("*{}*\n{}", title, body);
         send_message(config, chat_id, &text).await?;
@@ -333,7 +334,9 @@ mod tests {
 
     #[test]
     fn send_telegram_schema_valid() {
-        let action = SendTelegram { config: test_config() };
+        let action = SendTelegram {
+            config: test_config(),
+        };
         let schema = action.input_schema();
         let required = schema["required"].as_array().unwrap();
         assert!(required.iter().any(|v| v == "chat_id"));
@@ -342,7 +345,9 @@ mod tests {
 
     #[test]
     fn read_telegram_schema_valid() {
-        let action = ReadTelegram { config: test_config() };
+        let action = ReadTelegram {
+            config: test_config(),
+        };
         let schema = action.input_schema();
         let required = schema["required"].as_array().unwrap();
         assert!(required.iter().any(|v| v == "chat_id"));

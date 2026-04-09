@@ -5,7 +5,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, BorderType, Paragraph, Widget},
+    widgets::{Block, BorderType, Borders, Paragraph, Widget},
 };
 
 use crate::app::App;
@@ -19,12 +19,16 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         Constraint::Length(1),
         Constraint::Min(5),
         Constraint::Length(1),
-    ]).areas(area);
+    ])
+    .areas(area);
 
     let count = app.notifications.len();
     let title = Paragraph::new(Line::from(vec![
         Span::styled("Activity", theme::text_bold()),
-        Span::styled(format!("  {count} events from your assistant."), theme::dim()),
+        Span::styled(
+            format!("  {count} events from your assistant."),
+            theme::dim(),
+        ),
     ]));
     title.render(header, buf);
 
@@ -32,7 +36,9 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     let mut filter_spans = Vec::new();
     for (i, f) in FILTERS.iter().enumerate() {
         let style = if i == app.activity_filter {
-            Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(theme::PRIMARY)
+                .add_modifier(Modifier::BOLD)
         } else {
             theme::dim()
         };
@@ -41,12 +47,15 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             filter_spans.push(Span::styled("│", theme::dim()));
         }
     }
-    buf.set_line(filter_row.x, filter_row.y, &Line::from(filter_spans), filter_row.width);
+    buf.set_line(
+        filter_row.x,
+        filter_row.y,
+        &Line::from(filter_spans),
+        filter_row.width,
+    );
 
-    let [list_area, detail_area] = Layout::horizontal([
-        Constraint::Percentage(60),
-        Constraint::Percentage(40),
-    ]).areas(body);
+    let [list_area, detail_area] =
+        Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)]).areas(body);
 
     // ── Notification list ─────────────────────────────────────
     let filtered = app.filtered_notifications();
@@ -82,19 +91,30 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             let is_selected = i == app.activity_selected;
             let icon_style = match notif.source.as_str() {
                 s if s.contains("heartbeat") => theme::sage(),
-                "schedule" | "briefing"       => theme::secondary(),
-                "triage" | "email"            => theme::warning(),
-                "goal"                        => theme::primary(),
-                "mission"                     => theme::primary(),
-                _ if notif.requires_approval  => theme::warning(),
-                _                             => theme::muted(),
+                "schedule" | "briefing" => theme::secondary(),
+                "triage" | "email" => theme::warning(),
+                "goal" => theme::primary(),
+                "mission" => theme::primary(),
+                _ if notif.requires_approval => theme::warning(),
+                _ => theme::muted(),
             };
 
             let marker = if is_selected { "[■]" } else { "[ ]" };
-            let title_style = if is_selected { theme::primary_bold() } else { theme::text_bold() };
+            let title_style = if is_selected {
+                theme::primary_bold()
+            } else {
+                theme::text_bold()
+            };
             let time = notif.timestamp.format("%H:%M:%S").to_string();
             let timeline = Line::from(vec![
-                Span::styled(marker, if is_selected { theme::primary() } else { icon_style }),
+                Span::styled(
+                    marker,
+                    if is_selected {
+                        theme::primary()
+                    } else {
+                        icon_style
+                    },
+                ),
                 Span::styled("  ", Style::default()),
                 Span::styled(&time, theme::dim()),
                 Span::styled("  ", Style::default()),
@@ -104,9 +124,16 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             y += 1;
 
             if y < inner.y + inner.height && !notif.body.is_empty() {
-                let body_preview: String = notif.body.lines().next().unwrap_or("").chars().take((inner.width - 15) as usize).collect();
+                let body_preview: String = notif
+                    .body
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .chars()
+                    .take((inner.width - 15) as usize)
+                    .collect();
                 let detail = Line::from(vec![
-                    Span::styled("│  ", icon_style),  // connector adopts source color
+                    Span::styled("│  ", icon_style), // connector adopts source color
                     Span::styled("         ", Style::default()),
                     Span::styled(body_preview, theme::muted()),
                 ]);
@@ -121,7 +148,10 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         .borders(Borders::ALL)
         .border_type(BorderType::Plain)
         .border_style(theme::border())
-        .title(Line::from(Span::styled("[ DETAIL ]", theme::primary_bold())));
+        .title(Line::from(Span::styled(
+            "[ DETAIL ]",
+            theme::primary_bold(),
+        )));
     let detail_inner = detail_block.inner(detail_area);
     detail_block.render(detail_area, buf);
 
@@ -140,7 +170,10 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         // Time
         let time_line = Line::from(vec![
             Span::styled("Time:    ", theme::muted()),
-            Span::styled(notif.timestamp.format("%Y-%m-%d %H:%M:%S").to_string(), theme::dim()),
+            Span::styled(
+                notif.timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
+                theme::dim(),
+            ),
         ]);
         buf.set_line(detail_inner.x + 1, y, &time_line, detail_inner.width - 2);
         y += 1;
@@ -159,15 +192,27 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         // Full body (word-wrapped)
         let max_w = (detail_inner.width - 4) as usize;
         for line in notif.body.lines() {
-            if y >= detail_inner.y + detail_inner.height { break; }
+            if y >= detail_inner.y + detail_inner.height {
+                break;
+            }
             if line.len() <= max_w {
-                buf.set_line(detail_inner.x + 1, y, &Line::from(Span::styled(line, theme::text())), detail_inner.width - 2);
+                buf.set_line(
+                    detail_inner.x + 1,
+                    y,
+                    &Line::from(Span::styled(line, theme::text())),
+                    detail_inner.width - 2,
+                );
                 y += 1;
             } else {
                 let mut pos = 0;
                 while pos < line.len() && y < detail_inner.y + detail_inner.height {
                     let end = (pos + max_w).min(line.len());
-                    buf.set_line(detail_inner.x + 1, y, &Line::from(Span::styled(&line[pos..end], theme::text())), detail_inner.width - 2);
+                    buf.set_line(
+                        detail_inner.x + 1,
+                        y,
+                        &Line::from(Span::styled(&line[pos..end], theme::text())),
+                        detail_inner.width - 2,
+                    );
                     y += 1;
                     pos = end;
                 }
@@ -175,7 +220,12 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         }
     } else {
         let empty = Line::from(Span::styled("  No event selected.", theme::dim()));
-        buf.set_line(detail_inner.x + 1, detail_inner.y, &empty, detail_inner.width - 2);
+        buf.set_line(
+            detail_inner.x + 1,
+            detail_inner.y,
+            &empty,
+            detail_inner.width - 2,
+        );
     }
 
     // ── Help bar ─────────────────────────────────────────────

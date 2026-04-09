@@ -4,7 +4,7 @@
 //! that work with GitHub and Gitea pull request APIs. Requires forge
 //! configuration in `[devtools]`.
 
-use super::{forge_get, forge_get_text, forge_post, forge_repo, DevToolsConfig, ForgeKind};
+use super::{DevToolsConfig, ForgeKind, forge_get, forge_get_text, forge_post, forge_repo};
 use crate::Action;
 use aivyx_core::{AivyxError, Result};
 
@@ -61,8 +61,12 @@ impl Action for ListPrs {
             AivyxError::Validation("No forge configured — set forge in [devtools]".into())
         })?;
 
-        let state = input.get("state").and_then(|v| v.as_str()).unwrap_or("open");
-        let limit = input.get("limit")
+        let state = input
+            .get("state")
+            .and_then(|v| v.as_str())
+            .unwrap_or("open");
+        let limit = input
+            .get("limit")
             .and_then(|v| v.as_u64())
             .unwrap_or(20)
             .min(50);
@@ -124,19 +128,17 @@ impl Action for GetPrDiff {
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         let repo = forge_repo(&self.config)?;
-        let number = input.get("number")
+        let number = input
+            .get("number")
             .and_then(|v| v.as_u64())
             .ok_or_else(|| AivyxError::Validation("number is required".into()))?;
-        let full_diff = input.get("full_diff")
+        let full_diff = input
+            .get("full_diff")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
         // Fetch PR metadata
-        let pr = forge_get(
-            &self.config,
-            &format!("/repos/{repo}/pulls/{number}"),
-        )
-        .await?;
+        let pr = forge_get(&self.config, &format!("/repos/{repo}/pulls/{number}")).await?;
 
         let mut result = normalize_pr(&pr);
 
@@ -166,10 +168,12 @@ impl Action for GetPrDiff {
                 })
                 .collect();
 
-            let total_additions: i64 = file_summary.iter()
+            let total_additions: i64 = file_summary
+                .iter()
                 .filter_map(|f| f["additions"].as_i64())
                 .sum();
-            let total_deletions: i64 = file_summary.iter()
+            let total_deletions: i64 = file_summary
+                .iter()
                 .filter_map(|f| f["deletions"].as_i64())
                 .sum();
 
@@ -181,7 +185,8 @@ impl Action for GetPrDiff {
 
         // Optionally fetch the raw diff
         if full_diff {
-            let diff_text = fetch_pr_diff_text(&self.config, repo, number).await
+            let diff_text = fetch_pr_diff_text(&self.config, repo, number)
+                .await
                 .unwrap_or_else(|e| format!("[Could not fetch diff: {e}]"));
             result["diff"] = serde_json::json!(diff_text);
         }
@@ -234,10 +239,12 @@ impl Action for CreatePrComment {
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         let repo = forge_repo(&self.config)?;
-        let number = input.get("number")
+        let number = input
+            .get("number")
             .and_then(|v| v.as_u64())
             .ok_or_else(|| AivyxError::Validation("number is required".into()))?;
-        let body = input.get("body")
+        let body = input
+            .get("body")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AivyxError::Validation("body is required".into()))?;
 
@@ -373,11 +380,7 @@ async fn post_inline_comment(
 
 // ── Diff fetching ─────────────────────────────────────────────
 
-async fn fetch_pr_diff_text(
-    config: &DevToolsConfig,
-    repo: &str,
-    number: u64,
-) -> Result<String> {
+async fn fetch_pr_diff_text(config: &DevToolsConfig, repo: &str, number: u64) -> Result<String> {
     // Both GitHub and Gitea support .diff suffix
     forge_get_text(config, &format!("/repos/{repo}/pulls/{number}.diff")).await
 }
@@ -454,9 +457,9 @@ async fn fetch_github_prs(
         .iter()
         .filter(|pr| {
             if let Some(a) = author {
-                pr["user"]["login"].as_str().is_some_and(|login| {
-                    login.eq_ignore_ascii_case(a)
-                })
+                pr["user"]["login"]
+                    .as_str()
+                    .is_some_and(|login| login.eq_ignore_ascii_case(a))
             } else {
                 true
             }
@@ -533,7 +536,9 @@ mod tests {
 
     #[test]
     fn list_prs_name_and_schema() {
-        let action = ListPrs { config: github_config() };
+        let action = ListPrs {
+            config: github_config(),
+        };
         assert_eq!(action.name(), "list_prs");
         let schema = action.input_schema();
         let props = schema["properties"].as_object().unwrap();
@@ -546,7 +551,9 @@ mod tests {
 
     #[test]
     fn get_pr_diff_name_and_schema() {
-        let action = GetPrDiff { config: github_config() };
+        let action = GetPrDiff {
+            config: github_config(),
+        };
         assert_eq!(action.name(), "get_pr_diff");
         let schema = action.input_schema();
         let props = schema["properties"].as_object().unwrap();
@@ -558,7 +565,9 @@ mod tests {
 
     #[test]
     fn create_pr_comment_name_and_schema() {
-        let action = CreatePrComment { config: github_config() };
+        let action = CreatePrComment {
+            config: github_config(),
+        };
         assert_eq!(action.name(), "create_pr_comment");
         let schema = action.input_schema();
         let props = schema["properties"].as_object().unwrap();
@@ -575,14 +584,18 @@ mod tests {
 
     #[tokio::test]
     async fn list_prs_rejects_no_forge() {
-        let action = ListPrs { config: no_forge_config() };
+        let action = ListPrs {
+            config: no_forge_config(),
+        };
         let result = action.execute(serde_json::json!({})).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn get_pr_diff_rejects_missing_number() {
-        let action = GetPrDiff { config: github_config() };
+        let action = GetPrDiff {
+            config: github_config(),
+        };
         let result = action.execute(serde_json::json!({})).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -591,7 +604,9 @@ mod tests {
 
     #[tokio::test]
     async fn create_pr_comment_rejects_missing_body() {
-        let action = CreatePrComment { config: github_config() };
+        let action = CreatePrComment {
+            config: github_config(),
+        };
         let result = action.execute(serde_json::json!({ "number": 1 })).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -600,8 +615,12 @@ mod tests {
 
     #[tokio::test]
     async fn create_pr_comment_rejects_empty_body() {
-        let action = CreatePrComment { config: github_config() };
-        let result = action.execute(serde_json::json!({ "number": 1, "body": "  " })).await;
+        let action = CreatePrComment {
+            config: github_config(),
+        };
+        let result = action
+            .execute(serde_json::json!({ "number": 1, "body": "  " }))
+            .await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("empty"));
@@ -609,8 +628,12 @@ mod tests {
 
     #[tokio::test]
     async fn create_pr_comment_rejects_no_token() {
-        let action = CreatePrComment { config: no_token_config() };
-        let result = action.execute(serde_json::json!({ "number": 1, "body": "LGTM" })).await;
+        let action = CreatePrComment {
+            config: no_token_config(),
+        };
+        let result = action
+            .execute(serde_json::json!({ "number": 1, "body": "LGTM" }))
+            .await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("token") || err.contains("FORGE_TOKEN"));
@@ -618,8 +641,12 @@ mod tests {
 
     #[tokio::test]
     async fn create_pr_comment_rejects_missing_number() {
-        let action = CreatePrComment { config: github_config() };
-        let result = action.execute(serde_json::json!({ "body": "comment" })).await;
+        let action = CreatePrComment {
+            config: github_config(),
+        };
+        let result = action
+            .execute(serde_json::json!({ "body": "comment" }))
+            .await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("number"));

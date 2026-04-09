@@ -19,7 +19,9 @@ pub struct CheckDiskSpace;
 
 #[async_trait::async_trait]
 impl Action for CheckDiskSpace {
-    fn name(&self) -> &str { "check_disk_space" }
+    fn name(&self) -> &str {
+        "check_disk_space"
+    }
 
     fn description(&self) -> &str {
         "Check disk space usage for all mounted filesystems. \
@@ -56,15 +58,20 @@ impl Action for CheckDiskSpace {
 
         // Use `df -B1` for byte-accurate output (portable across Linux distros)
         let output = tokio::process::Command::new("df")
-            .args(["-B1", "--output=source,fstype,size,used,avail,pcent,target", target_path])
+            .args([
+                "-B1",
+                "--output=source,fstype,size,used,avail,pcent,target",
+                target_path,
+            ])
             .output()
             .await
             .map_err(|e| aivyx_core::AivyxError::Other(format!("df failed: {e}")))?;
 
         if !output.status.success() {
-            return Err(aivyx_core::AivyxError::Other(
-                format!("df error: {}", String::from_utf8_lossy(&output.stderr))
-            ));
+            return Err(aivyx_core::AivyxError::Other(format!(
+                "df error: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -73,7 +80,9 @@ impl Action for CheckDiskSpace {
 
         for line in stdout.lines().skip(1) {
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() < 7 { continue; }
+            if parts.len() < 7 {
+                continue;
+            }
 
             let source = parts[0];
             let fstype = parts[1];
@@ -85,7 +94,17 @@ impl Action for CheckDiskSpace {
             let mount = parts[6];
 
             // Skip pseudo-filesystems
-            if matches!(fstype, "tmpfs" | "devtmpfs" | "devpts" | "proc" | "sysfs" | "cgroup2" | "cgroup" | "overlay") {
+            if matches!(
+                fstype,
+                "tmpfs"
+                    | "devtmpfs"
+                    | "devpts"
+                    | "proc"
+                    | "sysfs"
+                    | "cgroup2"
+                    | "cgroup"
+                    | "overlay"
+            ) {
                 continue;
             }
 
@@ -115,7 +134,11 @@ impl Action for CheckDiskSpace {
             }));
         }
 
-        let overall = if alerts.is_empty() { "healthy" } else { "alerts" };
+        let overall = if alerts.is_empty() {
+            "healthy"
+        } else {
+            "alerts"
+        };
 
         Ok(serde_json::json!({
             "overall_status": overall,
@@ -150,7 +173,9 @@ pub struct CheckProcess;
 
 #[async_trait::async_trait]
 impl Action for CheckProcess {
-    fn name(&self) -> &str { "check_process" }
+    fn name(&self) -> &str {
+        "check_process"
+    }
 
     fn description(&self) -> &str {
         "Check if a named process is currently running. \
@@ -177,12 +202,18 @@ impl Action for CheckProcess {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let process_name = input["process_name"].as_str()
-            .ok_or_else(|| aivyx_core::AivyxError::Validation("check_process: 'process_name' required".into()))?;
+        let process_name = input["process_name"].as_str().ok_or_else(|| {
+            aivyx_core::AivyxError::Validation("check_process: 'process_name' required".into())
+        })?;
 
         // Validate process name is safe (no shell metacharacters)
-        if process_name.chars().any(|c| matches!(c, ';' | '|' | '&' | '`' | '$' | '>' | '<' | '*' | '?')) {
-            return Err(aivyx_core::AivyxError::Validation("process_name contains invalid characters".into()));
+        if process_name
+            .chars()
+            .any(|c| matches!(c, ';' | '|' | '&' | '`' | '$' | '>' | '<' | '*' | '?'))
+        {
+            return Err(aivyx_core::AivyxError::Validation(
+                "process_name contains invalid characters".into(),
+            ));
         }
 
         // Use `pgrep -l` to find matching processes
@@ -253,7 +284,9 @@ pub struct TailLog;
 
 #[async_trait::async_trait]
 impl Action for TailLog {
-    fn name(&self) -> &str { "tail_log" }
+    fn name(&self) -> &str {
+        "tail_log"
+    }
 
     fn description(&self) -> &str {
         "Read the tail of a log file. Optionally filter lines by a grep pattern. \
@@ -284,19 +317,22 @@ impl Action for TailLog {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let path = input["path"].as_str()
-            .ok_or_else(|| aivyx_core::AivyxError::Validation("tail_log: 'path' is required".into()))?;
+        let path = input["path"].as_str().ok_or_else(|| {
+            aivyx_core::AivyxError::Validation("tail_log: 'path' is required".into())
+        })?;
 
         // Security: must be absolute path, block sensitive system files
         if !std::path::Path::new(path).is_absolute() {
-            return Err(aivyx_core::AivyxError::Validation("path must be absolute".into()));
+            return Err(aivyx_core::AivyxError::Validation(
+                "path must be absolute".into(),
+            ));
         }
         let denied_prefixes = ["/etc/shadow", "/etc/passwd", "/etc/sudoers", "/root/"];
         for prefix in denied_prefixes {
             if path.starts_with(prefix) {
-                return Err(aivyx_core::AivyxError::CapabilityDenied(
-                    format!("Access to '{path}' is not permitted")
-                ));
+                return Err(aivyx_core::AivyxError::CapabilityDenied(format!(
+                    "Access to '{path}' is not permitted"
+                )));
             }
         }
 
@@ -306,7 +342,9 @@ impl Action for TailLog {
         let mut cmd = tokio::process::Command::new("tail");
         cmd.args(["-n", &lines.to_string(), path]);
 
-        let tail_output = cmd.output().await
+        let tail_output = cmd
+            .output()
+            .await
             .map_err(|e| aivyx_core::AivyxError::Other(format!("tail failed: {e}")))?;
 
         if !tail_output.status.success() {
@@ -330,7 +368,8 @@ impl Action for TailLog {
 
         let line_count = filtered.lines().count();
         let error_indicators = ["error", "fatal", "panic", "exception", "critical", "fail"];
-        let error_lines: usize = filtered.lines()
+        let error_lines: usize = filtered
+            .lines()
             .filter(|l| {
                 let ll = l.to_lowercase();
                 error_indicators.iter().any(|e| ll.contains(e))
@@ -353,7 +392,9 @@ pub struct CheckUrlHealth;
 
 #[async_trait::async_trait]
 impl Action for CheckUrlHealth {
-    fn name(&self) -> &str { "check_url_health" }
+    fn name(&self) -> &str {
+        "check_url_health"
+    }
 
     fn description(&self) -> &str {
         "Perform an HTTP health check for a URL. Returns HTTP status code, \
@@ -389,12 +430,15 @@ impl Action for CheckUrlHealth {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let url = input["url"].as_str()
-            .ok_or_else(|| aivyx_core::AivyxError::Validation("check_url_health: 'url' is required".into()))?;
+        let url = input["url"].as_str().ok_or_else(|| {
+            aivyx_core::AivyxError::Validation("check_url_health: 'url' is required".into())
+        })?;
 
         // Only allow http/https (SSRF protection)
         if !url.starts_with("http://") && !url.starts_with("https://") {
-            return Err(aivyx_core::AivyxError::Validation("URL must start with http:// or https://".into()));
+            return Err(aivyx_core::AivyxError::Validation(
+                "URL must start with http:// or https://".into(),
+            ));
         }
 
         let timeout_secs = input["timeout_secs"].as_u64().unwrap_or(10).min(30);
@@ -436,16 +480,14 @@ impl Action for CheckUrlHealth {
                     "timeout_secs": timeout_secs,
                 }))
             }
-            Err(e) => {
-                Ok(serde_json::json!({
-                    "url": url,
-                    "healthy": false,
-                    "error": e.to_string(),
-                    "latency_ms": latency_ms,
-                    "timed_out": e.is_timeout(),
-                    "connection_error": e.is_connect(),
-                }))
-            }
+            Err(e) => Ok(serde_json::json!({
+                "url": url,
+                "healthy": false,
+                "error": e.to_string(),
+                "latency_ms": latency_ms,
+                "timed_out": e.is_timeout(),
+                "connection_error": e.is_connect(),
+            })),
         }
     }
 }
@@ -456,7 +498,9 @@ pub struct SystemStats;
 
 #[async_trait::async_trait]
 impl Action for SystemStats {
-    fn name(&self) -> &str { "system_stats" }
+    fn name(&self) -> &str {
+        "system_stats"
+    }
 
     fn description(&self) -> &str {
         "Get a snapshot of system resource usage: CPU load average, memory usage, \
@@ -473,15 +517,17 @@ impl Action for SystemStats {
 
     async fn execute(&self, _input: serde_json::Value) -> Result<serde_json::Value> {
         // Read /proc/loadavg for load averages
-        let loadavg = tokio::fs::read_to_string("/proc/loadavg").await
+        let loadavg = tokio::fs::read_to_string("/proc/loadavg")
+            .await
             .unwrap_or_default();
         let load_parts: Vec<&str> = loadavg.split_whitespace().collect();
-        let load_1  = load_parts.get(0).copied().unwrap_or("?");
-        let load_5  = load_parts.get(1).copied().unwrap_or("?");
+        let load_1 = load_parts.get(0).copied().unwrap_or("?");
+        let load_5 = load_parts.get(1).copied().unwrap_or("?");
         let load_15 = load_parts.get(2).copied().unwrap_or("?");
 
         // Read /proc/meminfo
-        let meminfo = tokio::fs::read_to_string("/proc/meminfo").await
+        let meminfo = tokio::fs::read_to_string("/proc/meminfo")
+            .await
             .unwrap_or_default();
         let mut mem_total_kb: u64 = 0;
         let mut mem_available_kb: u64 = 0;
@@ -500,9 +546,11 @@ impl Action for SystemStats {
         };
 
         // Read /proc/uptime
-        let uptime_str = tokio::fs::read_to_string("/proc/uptime").await
+        let uptime_str = tokio::fs::read_to_string("/proc/uptime")
+            .await
             .unwrap_or_default();
-        let uptime_secs: u64 = uptime_str.split_whitespace()
+        let uptime_secs: u64 = uptime_str
+            .split_whitespace()
             .next()
             .and_then(|s| s.parse::<f64>().ok())
             .map(|f| f as u64)
@@ -517,9 +565,13 @@ impl Action for SystemStats {
             .ok();
         let empty_stdout = Vec::new();
         let ps_stdout = String::from_utf8_lossy(
-            ps_out.as_ref().map(|o| o.stdout.as_slice()).unwrap_or(&empty_stdout)
+            ps_out
+                .as_ref()
+                .map(|o| o.stdout.as_slice())
+                .unwrap_or(&empty_stdout),
         );
-        let top_procs: Vec<serde_json::Value> = ps_stdout.lines()
+        let top_procs: Vec<serde_json::Value> = ps_stdout
+            .lines()
             .skip(1)
             .take(5)
             .map(|line| {
@@ -532,7 +584,6 @@ impl Action for SystemStats {
                 })
             })
             .collect();
-
 
         Ok(serde_json::json!({
             "load_average": {

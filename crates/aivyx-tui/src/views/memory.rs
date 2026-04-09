@@ -5,7 +5,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, BorderType, Widget},
+    widgets::{Block, BorderType, Borders, Widget},
 };
 
 use crate::app::App;
@@ -16,25 +16,30 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         Constraint::Length(2),
         Constraint::Min(5),
         Constraint::Length(1),
-    ]).areas(area);
+    ])
+    .areas(area);
 
     let title = Line::from(vec![
         Span::styled("Memory", theme::text_bold()),
-        Span::styled(format!("  {} memories stored.", app.memory_total), theme::dim()),
+        Span::styled(
+            format!("  {} memories stored.", app.memory_total),
+            theme::dim(),
+        ),
     ]);
     buf.set_line(header.x, header.y, &title, header.width);
 
-    let [list_area, detail_area] = Layout::horizontal([
-        Constraint::Percentage(50),
-        Constraint::Percentage(50),
-    ]).areas(body);
+    let [list_area, detail_area] =
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(body);
 
     // ── Memory list ───────────────────────────────────────────
     let list_block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Plain)
         .border_style(theme::border())
-        .title(Line::from(Span::styled("[ MEMORY BANK ]", theme::primary_bold())));
+        .title(Line::from(Span::styled(
+            "[ MEMORY BANK ]",
+            theme::primary_bold(),
+        )));
     let list_inner = list_block.inner(list_area);
     list_block.render(list_area, buf);
 
@@ -58,12 +63,22 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             }
 
             let is_selected = i == app.memory_selected;
-            let style = if is_selected { theme::primary_bold() } else { theme::text() };
+            let style = if is_selected {
+                theme::primary_bold()
+            } else {
+                theme::text()
+            };
             let marker = if is_selected { "[■] " } else { "[ ] " };
 
             // Content preview (first line, truncated)
-            let preview: String = mem.content.lines().next().unwrap_or("")
-                .chars().take((list_inner.width - 6) as usize).collect();
+            let preview: String = mem
+                .content
+                .lines()
+                .next()
+                .unwrap_or("")
+                .chars()
+                .take((list_inner.width - 6) as usize)
+                .collect();
             let line = Line::from(vec![
                 Span::styled(marker, style),
                 Span::styled(preview, style),
@@ -73,9 +88,12 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
             // Tags in amber brackets matching goals/chat style
             if !mem.tags.is_empty() {
-                let tags: Vec<Span> = mem.tags.iter().take(4).map(|t| {
-                    Span::styled(format!("[{t}]"), Style::default().fg(theme::PRIMARY))
-                }).collect();
+                let tags: Vec<Span> = mem
+                    .tags
+                    .iter()
+                    .take(4)
+                    .map(|t| Span::styled(format!("[{t}]"), Style::default().fg(theme::PRIMARY)))
+                    .collect();
                 buf.set_line(list_inner.x + 4, y, &Line::from(tags), list_inner.width - 5);
             }
             y += 1;
@@ -87,7 +105,10 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         .borders(Borders::ALL)
         .border_type(BorderType::Plain)
         .border_style(theme::border())
-        .title(Line::from(Span::styled("[ DETAIL ]", theme::primary_bold())));
+        .title(Line::from(Span::styled(
+            "[ DETAIL ]",
+            theme::primary_bold(),
+        )));
     let detail_inner = detail_block.inner(detail_area);
     detail_block.render(detail_area, buf);
 
@@ -114,10 +135,17 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         // Content (word-wrapped)
         let max_w = (detail_inner.width - 4) as usize;
         for line in mem.content.lines() {
-            if y >= detail_inner.y + detail_inner.height { break; }
+            if y >= detail_inner.y + detail_inner.height {
+                break;
+            }
 
             if line.len() <= max_w {
-                buf.set_line(detail_inner.x + 1, y, &Line::from(Span::styled(line, theme::text())), detail_inner.width - 2);
+                buf.set_line(
+                    detail_inner.x + 1,
+                    y,
+                    &Line::from(Span::styled(line, theme::text())),
+                    detail_inner.width - 2,
+                );
                 y += 1;
             } else {
                 // Simple wrap
@@ -125,7 +153,12 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                 while pos < line.len() && y < detail_inner.y + detail_inner.height {
                     let end = (pos + max_w).min(line.len());
                     let chunk = &line[pos..end];
-                    buf.set_line(detail_inner.x + 1, y, &Line::from(Span::styled(chunk, theme::text())), detail_inner.width - 2);
+                    buf.set_line(
+                        detail_inner.x + 1,
+                        y,
+                        &Line::from(Span::styled(chunk, theme::text())),
+                        detail_inner.width - 2,
+                    );
                     y += 1;
                     pos = end;
                 }
@@ -135,17 +168,36 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         // Tags in amber brackets (matching list view)
         if y + 1 < detail_inner.y + detail_inner.height && !mem.tags.is_empty() {
             y += 1;
-            let tags: Vec<Span> = mem.tags.iter().map(|t| {
-                Span::styled(
-                    format!(" [{t}] "),
-                    Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD),
-                )
-            }).collect();
-            buf.set_line(detail_inner.x + 1, y, &Line::from(tags), detail_inner.width - 2);
+            let tags: Vec<Span> = mem
+                .tags
+                .iter()
+                .map(|t| {
+                    Span::styled(
+                        format!(" [{t}] "),
+                        Style::default()
+                            .fg(theme::PRIMARY)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                })
+                .collect();
+            buf.set_line(
+                detail_inner.x + 1,
+                y,
+                &Line::from(tags),
+                detail_inner.width - 2,
+            );
         }
     } else {
-        let empty = Line::from(Span::styled("  Select a memory to view details.", theme::dim()));
-        buf.set_line(detail_inner.x + 1, detail_inner.y, &empty, detail_inner.width - 2);
+        let empty = Line::from(Span::styled(
+            "  Select a memory to view details.",
+            theme::dim(),
+        ));
+        buf.set_line(
+            detail_inner.x + 1,
+            detail_inner.y,
+            &empty,
+            detail_inner.width - 2,
+        );
     }
 
     // ── Help bar ──────────────────────────────────────────────

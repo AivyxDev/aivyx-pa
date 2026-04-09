@@ -121,7 +121,8 @@ fn parse_desktop_file(path: &Path) -> Option<DesktopApp> {
         } else if let Some(val) = line.strip_prefix("Icon=") {
             icon = Some(val.to_string());
         } else if let Some(val) = line.strip_prefix("Categories=") {
-            categories = val.split(';')
+            categories = val
+                .split(';')
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect();
@@ -232,7 +233,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.desktop");
         let mut f = std::fs::File::create(&path).unwrap();
-        writeln!(f, "[Desktop Entry]\nType=Application\nName=Test\nExec=test-app\n").unwrap();
+        writeln!(
+            f,
+            "[Desktop Entry]\nType=Application\nName=Test\nExec=test-app\n"
+        )
+        .unwrap();
 
         let app = parse_desktop_file(&path).unwrap();
         assert_eq!(app.exec, "test-app");

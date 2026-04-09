@@ -12,9 +12,14 @@ use aivyx_core::{AivyxError, Result};
 
 /// Send an SMS via Twilio REST API.
 async fn send_twilio(config: &SmsConfig, to: &str, body: &str) -> Result<serde_json::Value> {
-    let base = config.api_url.as_deref()
+    let base = config
+        .api_url
+        .as_deref()
         .unwrap_or("https://api.twilio.com");
-    let url = format!("{base}/2010-04-01/Accounts/{}/Messages.json", config.account_id);
+    let url = format!(
+        "{base}/2010-04-01/Accounts/{}/Messages.json",
+        config.account_id
+    );
 
     let client = crate::http_client();
     let resp = client
@@ -37,7 +42,10 @@ async fn send_twilio(config: &SmsConfig, to: &str, body: &str) -> Result<serde_j
 
     if !status.is_success() {
         let msg = resp_body["message"].as_str().unwrap_or("unknown error");
-        return Err(AivyxError::Channel(format!("Twilio API error ({}): {msg}", status.as_u16())));
+        return Err(AivyxError::Channel(format!(
+            "Twilio API error ({}): {msg}",
+            status.as_u16()
+        )));
     }
 
     Ok(serde_json::json!({
@@ -49,7 +57,9 @@ async fn send_twilio(config: &SmsConfig, to: &str, body: &str) -> Result<serde_j
 
 /// Send an SMS via Vonage (Nexmo) REST API.
 async fn send_vonage(config: &SmsConfig, to: &str, body: &str) -> Result<serde_json::Value> {
-    let base = config.api_url.as_deref()
+    let base = config
+        .api_url
+        .as_deref()
         .unwrap_or("https://rest.nexmo.com");
     let url = format!("{base}/sms/json");
 
@@ -142,9 +152,10 @@ impl Action for SendSms {
             return Err(AivyxError::Validation("text must not be empty".into()));
         }
         if text.len() > 1600 {
-            return Err(AivyxError::Validation(
-                format!("text exceeds 1600 character limit ({} chars)", text.len()),
-            ));
+            return Err(AivyxError::Validation(format!(
+                "text exceeds 1600 character limit ({} chars)",
+                text.len()
+            )));
         }
         if !to.starts_with('+') {
             return Err(AivyxError::Validation(
@@ -178,11 +189,7 @@ impl Action for SendSms {
 /// Forward a notification via SMS to the default recipient.
 ///
 /// Returns `Ok(())` silently if no `default_recipient` is configured.
-pub async fn forward_notification(
-    config: &SmsConfig,
-    title: &str,
-    body: &str,
-) -> Result<()> {
+pub async fn forward_notification(config: &SmsConfig, title: &str, body: &str) -> Result<()> {
     if let Some(ref to) = config.default_recipient {
         let text = format!("{}: {}", title, body);
         // Truncate to SMS limit (char-boundary safe to avoid panic on multi-byte UTF-8)
@@ -232,7 +239,9 @@ mod tests {
 
     #[test]
     fn send_sms_name_and_schema() {
-        let action = SendSms { config: twilio_config() };
+        let action = SendSms {
+            config: twilio_config(),
+        };
         assert_eq!(action.name(), "send_sms");
         let schema = action.input_schema();
         let required = schema["required"].as_array().unwrap();
@@ -249,11 +258,15 @@ mod tests {
 
     #[tokio::test]
     async fn send_sms_rejects_empty_text() {
-        let action = SendSms { config: twilio_config() };
-        let result = action.execute(serde_json::json!({
-            "to": "+15559876543",
-            "text": "  "
-        })).await;
+        let action = SendSms {
+            config: twilio_config(),
+        };
+        let result = action
+            .execute(serde_json::json!({
+                "to": "+15559876543",
+                "text": "  "
+            }))
+            .await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("empty"));
@@ -261,25 +274,33 @@ mod tests {
 
     #[tokio::test]
     async fn send_sms_rejects_missing_to() {
-        let action = SendSms { config: twilio_config() };
+        let action = SendSms {
+            config: twilio_config(),
+        };
         let result = action.execute(serde_json::json!({ "text": "hello" })).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn send_sms_rejects_missing_text() {
-        let action = SendSms { config: twilio_config() };
+        let action = SendSms {
+            config: twilio_config(),
+        };
         let result = action.execute(serde_json::json!({ "to": "+1555" })).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn send_sms_rejects_non_e164() {
-        let action = SendSms { config: twilio_config() };
-        let result = action.execute(serde_json::json!({
-            "to": "5551234567",
-            "text": "hello"
-        })).await;
+        let action = SendSms {
+            config: twilio_config(),
+        };
+        let result = action
+            .execute(serde_json::json!({
+                "to": "5551234567",
+                "text": "hello"
+            }))
+            .await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("E.164"));
@@ -287,12 +308,16 @@ mod tests {
 
     #[tokio::test]
     async fn send_sms_rejects_too_long() {
-        let action = SendSms { config: twilio_config() };
+        let action = SendSms {
+            config: twilio_config(),
+        };
         let long_text = "x".repeat(1601);
-        let result = action.execute(serde_json::json!({
-            "to": "+15559876543",
-            "text": long_text
-        })).await;
+        let result = action
+            .execute(serde_json::json!({
+                "to": "+15559876543",
+                "text": long_text
+            }))
+            .await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("1600"));
@@ -302,12 +327,16 @@ mod tests {
     async fn send_sms_accepts_max_length() {
         // Validates that exactly 1600 chars passes validation
         // (will fail at network level, but validation should pass)
-        let action = SendSms { config: twilio_config() };
+        let action = SendSms {
+            config: twilio_config(),
+        };
         let text = "x".repeat(1600);
-        let result = action.execute(serde_json::json!({
-            "to": "+15559876543",
-            "text": text
-        })).await;
+        let result = action
+            .execute(serde_json::json!({
+                "to": "+15559876543",
+                "text": text
+            }))
+            .await;
         // Should fail with network error, not validation
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();

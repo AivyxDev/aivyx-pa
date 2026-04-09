@@ -23,7 +23,7 @@ use aivyx_pa::persona_defaults;
 use aivyx_pa::persona_defaults::{GoalTemplate, ScheduleTemplate};
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, BorderType, Clear, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 use zeroize::Zeroizing;
 
 use crate::theme;
@@ -32,66 +32,66 @@ use crate::theme;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Step {
-    Passphrase  = 0,
-    Provider    = 1,
-    Identity    = 2,
-    SoulSkills  = 3,
-    Schedule    = 4,
-    Email       = 5,
+    Passphrase = 0,
+    Provider = 1,
+    Identity = 2,
+    SoulSkills = 3,
+    Schedule = 4,
+    Email = 5,
     Integrations = 6,
-    Ignition    = 7,
+    Ignition = 7,
 }
 
 impl Step {
     fn label(self) -> &'static str {
         match self {
-            Step::Passphrase   => "SEC",
-            Step::Provider     => "LLM",
-            Step::Identity     => "IDN",
-            Step::SoulSkills   => "SOL",
-            Step::Schedule     => "SCH",
-            Step::Email        => "EML",
+            Step::Passphrase => "SEC",
+            Step::Provider => "LLM",
+            Step::Identity => "IDN",
+            Step::SoulSkills => "SOL",
+            Step::Schedule => "SCH",
+            Step::Email => "EML",
             Step::Integrations => "INT",
-            Step::Ignition     => "IGN",
+            Step::Ignition => "IGN",
         }
     }
 
     fn title(self) -> &'static str {
         match self {
-            Step::Passphrase   => "// DIRECTIVE: ESTABLISH ENCRYPTION",
-            Step::Provider     => "// DIRECTIVE: CHOOSE COMPUTE HOST",
-            Step::Identity     => "// DIRECTIVE: AGENT DESIGNATION",
-            Step::SoulSkills   => "// DIRECTIVE: LOAD NEURAL WEIGHTS",
-            Step::Schedule     => "// DIRECTIVE: INJECT GOAL STATE",
-            Step::Email        => "// DIRECTIVE: BIND MAIL PROTOCOLS",
+            Step::Passphrase => "// DIRECTIVE: ESTABLISH ENCRYPTION",
+            Step::Provider => "// DIRECTIVE: CHOOSE COMPUTE HOST",
+            Step::Identity => "// DIRECTIVE: AGENT DESIGNATION",
+            Step::SoulSkills => "// DIRECTIVE: LOAD NEURAL WEIGHTS",
+            Step::Schedule => "// DIRECTIVE: INJECT GOAL STATE",
+            Step::Email => "// DIRECTIVE: BIND MAIL PROTOCOLS",
             Step::Integrations => "// DIRECTIVE: ATTACH SYNC PIPELINES",
-            Step::Ignition     => "// DIRECTIVE: INITIATE HEARTBEAT",
+            Step::Ignition => "// DIRECTIVE: INITIATE HEARTBEAT",
         }
     }
 
     fn next(self) -> Option<Step> {
         match self {
-            Step::Passphrase   => Some(Step::Provider),
-            Step::Provider     => Some(Step::Identity),
-            Step::Identity     => Some(Step::SoulSkills),
-            Step::SoulSkills   => Some(Step::Schedule),
-            Step::Schedule     => Some(Step::Email),
-            Step::Email        => Some(Step::Integrations),
+            Step::Passphrase => Some(Step::Provider),
+            Step::Provider => Some(Step::Identity),
+            Step::Identity => Some(Step::SoulSkills),
+            Step::SoulSkills => Some(Step::Schedule),
+            Step::Schedule => Some(Step::Email),
+            Step::Email => Some(Step::Integrations),
             Step::Integrations => Some(Step::Ignition),
-            Step::Ignition     => None,
+            Step::Ignition => None,
         }
     }
 
     fn prev(self) -> Option<Step> {
         match self {
-            Step::Passphrase   => None,
-            Step::Provider     => Some(Step::Passphrase),
-            Step::Identity     => Some(Step::Provider),
-            Step::SoulSkills   => Some(Step::Identity),
-            Step::Schedule     => Some(Step::SoulSkills),
-            Step::Email        => Some(Step::Schedule),
+            Step::Passphrase => None,
+            Step::Provider => Some(Step::Passphrase),
+            Step::Identity => Some(Step::Provider),
+            Step::SoulSkills => Some(Step::Identity),
+            Step::Schedule => Some(Step::SoulSkills),
+            Step::Email => Some(Step::Schedule),
             Step::Integrations => Some(Step::Email),
-            Step::Ignition     => Some(Step::Integrations),
+            Step::Ignition => Some(Step::Integrations),
         }
     }
 }
@@ -99,21 +99,42 @@ impl Step {
 // ── Constants ─────────────────────────────────────────────────────
 
 const PROVIDERS: &[(&str, &str, &[&str])] = &[
-    ("Ollama",           "Ollama",           &["qwen3:14b", "qwen2.5-coder:14b", "llama3.1:8b", "mistral:7b"]),
-    ("OpenAI",           "OpenAI",           &["gpt-4o", "gpt-4o-mini", "o1-mini"]),
-    ("Claude",           "Claude",           &["claude-sonnet-4-20250514", "claude-haiku-4-5-20251001"]),
-    ("OpenRouter",       "OpenAICompatible", &["anthropic/claude-sonnet-4-20250514", "openai/gpt-4o", "google/gemini-2.0-flash-001"]),
+    (
+        "Ollama",
+        "Ollama",
+        &[
+            "qwen3:14b",
+            "qwen2.5-coder:14b",
+            "llama3.1:8b",
+            "mistral:7b",
+        ],
+    ),
+    ("OpenAI", "OpenAI", &["gpt-4o", "gpt-4o-mini", "o1-mini"]),
+    (
+        "Claude",
+        "Claude",
+        &["claude-sonnet-4-20250514", "claude-haiku-4-5-20251001"],
+    ),
+    (
+        "OpenRouter",
+        "OpenAICompatible",
+        &[
+            "anthropic/claude-sonnet-4-20250514",
+            "openai/gpt-4o",
+            "google/gemini-2.0-flash-001",
+        ],
+    ),
 ];
 
 const PERSONAS: &[(&str, &str)] = &[
-    ("assistant",  "Friendly and proactive general assistant"),
-    ("coder",      "Technical and precise — for developers"),
+    ("assistant", "Friendly and proactive general assistant"),
+    ("coder", "Technical and precise — for developers"),
     ("researcher", "Methodical and thorough — deep analysis"),
-    ("writer",     "Clear and engaging — content creation"),
-    ("coach",      "Motivational and goal-oriented"),
-    ("companion",  "Warm and conversational"),
-    ("ops",        "Reliable and security-conscious — sysadmin"),
-    ("analyst",    "Data-driven and structured"),
+    ("writer", "Clear and engaging — content creation"),
+    ("coach", "Motivational and goal-oriented"),
+    ("companion", "Warm and conversational"),
+    ("ops", "Reliable and security-conscious — sysadmin"),
+    ("analyst", "Data-driven and structured"),
 ];
 
 const HEARTBEAT_LABELS: &[&str] = &[
@@ -206,7 +227,7 @@ struct GenesisState {
     signal_account: String,
     signal_socket: String,
     // SMS (5)
-    sms_provider: String,     // "twilio" or "vonage"
+    sms_provider: String, // "twilio" or "vonage"
     sms_account_id: String,
     sms_auth_token: Zeroizing<String>,
     sms_from_number: String,
@@ -216,9 +237,9 @@ struct GenesisState {
     finance_receipt_folder: String,
     // DevTools (8)
     devtools_repo_path: String,
-    devtools_forge: String,       // "" = none, "github", "gitea"
+    devtools_forge: String, // "" = none, "github", "gitea"
     devtools_forge_api_url: String,
-    devtools_repo_slug: String,   // "owner/name"
+    devtools_repo_slug: String, // "owner/name"
     devtools_forge_token: Zeroizing<String>,
     // Desktop (9)
     desktop_deep_interaction: bool,
@@ -342,7 +363,11 @@ impl GenesisState {
     }
 
     fn effective_agent_name(&self) -> &str {
-        if self.agent_name.is_empty() { "assistant" } else { &self.agent_name }
+        if self.agent_name.is_empty() {
+            "assistant"
+        } else {
+            &self.agent_name
+        }
     }
 
     /// Blinking cursor character (500ms on/off).
@@ -372,9 +397,7 @@ pub async fn run_wizard(
         if event::poll(Duration::from_millis(16))? {
             if let Event::Key(key) = event::read()? {
                 // Ctrl+C always aborts
-                if key.modifiers.contains(KeyModifiers::CONTROL)
-                    && key.code == KeyCode::Char('c')
-                {
+                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
                     return Ok(None);
                 }
 
@@ -516,20 +539,22 @@ fn validate_step(state: &GenesisState) -> Result<(), String> {
 
 fn handle_key(state: &mut GenesisState, key: event::KeyEvent) -> Action {
     match state.step {
-        Step::Passphrase   => handle_passphrase(state, key),
-        Step::Provider     => handle_provider(state, key),
-        Step::Identity     => handle_identity(state, key),
-        Step::SoulSkills   => handle_soul_skills(state, key),
-        Step::Schedule     => handle_schedule(state, key),
-        Step::Email        => handle_email(state, key),
+        Step::Passphrase => handle_passphrase(state, key),
+        Step::Provider => handle_provider(state, key),
+        Step::Identity => handle_identity(state, key),
+        Step::SoulSkills => handle_soul_skills(state, key),
+        Step::Schedule => handle_schedule(state, key),
+        Step::Email => handle_email(state, key),
         Step::Integrations => handle_integrations(state, key),
-        Step::Ignition     => handle_ignition(state, key),
+        Step::Ignition => handle_ignition(state, key),
     }
 }
 
 fn handle_passphrase(state: &mut GenesisState, key: event::KeyEvent) -> Action {
     match key.code {
-        KeyCode::Tab => { state.focused_field = 1 - state.focused_field; }
+        KeyCode::Tab => {
+            state.focused_field = 1 - state.focused_field;
+        }
         KeyCode::Enter => {
             if state.focused_field == 0 {
                 state.focused_field = 1;
@@ -539,12 +564,18 @@ fn handle_passphrase(state: &mut GenesisState, key: event::KeyEvent) -> Action {
         }
         KeyCode::Esc => return Action::Back,
         KeyCode::Backspace => {
-            if state.focused_field == 0 { state.passphrase.pop(); }
-            else { state.confirm.pop(); }
+            if state.focused_field == 0 {
+                state.passphrase.pop();
+            } else {
+                state.confirm.pop();
+            }
         }
         KeyCode::Char(c) => {
-            if state.focused_field == 0 { state.passphrase.push(c); }
-            else { state.confirm.push(c); }
+            if state.focused_field == 0 {
+                state.passphrase.push(c);
+            } else {
+                state.confirm.push(c);
+            }
         }
         _ => {}
     }
@@ -565,7 +596,9 @@ fn handle_provider(state: &mut GenesisState, key: event::KeyEvent) -> Action {
                 state.model_list_idx = 0;
                 state.ollama_models.clear();
                 state.ollama_probed = false;
-                if state.is_ollama() { state.needs_probe = true; }
+                if state.is_ollama() {
+                    state.needs_probe = true;
+                }
             } else if state.focused_field == 1 && state.model_list_idx > 0 {
                 state.model_list_idx -= 1;
                 let list = state.effective_model_list();
@@ -579,7 +612,9 @@ fn handle_provider(state: &mut GenesisState, key: event::KeyEvent) -> Action {
                 state.model_list_idx = 0;
                 state.ollama_models.clear();
                 state.ollama_probed = false;
-                if state.is_ollama() { state.needs_probe = true; }
+                if state.is_ollama() {
+                    state.needs_probe = true;
+                }
             } else if state.focused_field == 1 {
                 let list_len = state.effective_model_list().len();
                 if state.model_list_idx + 1 < list_len {
@@ -598,12 +633,18 @@ fn handle_provider(state: &mut GenesisState, key: event::KeyEvent) -> Action {
         }
         KeyCode::Esc => return Action::Back,
         KeyCode::Backspace => {
-            if state.focused_field == 1 { state.model_input.pop(); }
-            else if state.focused_field == 2 { state.api_key.pop(); }
+            if state.focused_field == 1 {
+                state.model_input.pop();
+            } else if state.focused_field == 2 {
+                state.api_key.pop();
+            }
         }
         KeyCode::Char(c) => {
-            if state.focused_field == 1 { state.model_input.push(c); }
-            else if state.focused_field == 2 { state.api_key.push(c); }
+            if state.focused_field == 1 {
+                state.model_input.push(c);
+            } else if state.focused_field == 2 {
+                state.api_key.push(c);
+            }
         }
         _ => {}
     }
@@ -613,12 +654,18 @@ fn handle_provider(state: &mut GenesisState, key: event::KeyEvent) -> Action {
 fn handle_identity(state: &mut GenesisState, key: event::KeyEvent) -> Action {
     // Fields: 0 = agent name, 1 = persona list
     match key.code {
-        KeyCode::Tab => { state.focused_field = 1 - state.focused_field; }
+        KeyCode::Tab => {
+            state.focused_field = 1 - state.focused_field;
+        }
         KeyCode::Up if state.focused_field == 1 => {
-            if state.persona_idx > 0 { state.persona_idx -= 1; }
+            if state.persona_idx > 0 {
+                state.persona_idx -= 1;
+            }
         }
         KeyCode::Down if state.focused_field == 1 => {
-            if state.persona_idx < PERSONAS.len() - 1 { state.persona_idx += 1; }
+            if state.persona_idx < PERSONAS.len() - 1 {
+                state.persona_idx += 1;
+            }
         }
         KeyCode::Enter => {
             if state.focused_field == 0 {
@@ -628,7 +675,9 @@ fn handle_identity(state: &mut GenesisState, key: event::KeyEvent) -> Action {
             }
         }
         KeyCode::Esc => return Action::Back,
-        KeyCode::Backspace if state.focused_field == 0 => { state.agent_name.pop(); }
+        KeyCode::Backspace if state.focused_field == 0 => {
+            state.agent_name.pop();
+        }
         KeyCode::Char(c) if state.focused_field == 0 => state.agent_name.push(c),
         _ => {}
     }
@@ -638,14 +687,18 @@ fn handle_identity(state: &mut GenesisState, key: event::KeyEvent) -> Action {
 fn handle_soul_skills(state: &mut GenesisState, key: event::KeyEvent) -> Action {
     // Fields: 0 = soul accept toggle, 1 = skills accept toggle, 2 = custom skills input
     match key.code {
-        KeyCode::Tab => { state.focused_field = (state.focused_field + 1) % 3; }
+        KeyCode::Tab => {
+            state.focused_field = (state.focused_field + 1) % 3;
+        }
         KeyCode::Char(' ') if state.focused_field == 0 => {
             state.soul_accepted = !state.soul_accepted;
         }
         KeyCode::Char(' ') if state.focused_field == 1 => {
             state.skills_accepted = !state.skills_accepted;
         }
-        KeyCode::Backspace if state.focused_field == 2 => { state.custom_skills_input.pop(); }
+        KeyCode::Backspace if state.focused_field == 2 => {
+            state.custom_skills_input.pop();
+        }
         KeyCode::Char(c) if state.focused_field == 2 => state.custom_skills_input.push(c),
         KeyCode::Enter => {
             if state.focused_field < 2 {
@@ -663,17 +716,25 @@ fn handle_soul_skills(state: &mut GenesisState, key: event::KeyEvent) -> Action 
 fn handle_schedule(state: &mut GenesisState, key: event::KeyEvent) -> Action {
     // Fields: 0 = briefing hour, 1 = check interval, 2 = goals toggle
     match key.code {
-        KeyCode::Tab => { state.focused_field = (state.focused_field + 1) % 3; }
+        KeyCode::Tab => {
+            state.focused_field = (state.focused_field + 1) % 3;
+        }
         KeyCode::Char(' ') if state.focused_field == 2 => {
             state.include_goals = !state.include_goals;
         }
         KeyCode::Backspace => {
-            if state.focused_field == 0 { state.briefing_hour.pop(); }
-            else if state.focused_field == 1 { state.check_interval.pop(); }
+            if state.focused_field == 0 {
+                state.briefing_hour.pop();
+            } else if state.focused_field == 1 {
+                state.check_interval.pop();
+            }
         }
         KeyCode::Char(c) if c.is_ascii_digit() => {
-            if state.focused_field == 0 { state.briefing_hour.push(c); }
-            else if state.focused_field == 1 { state.check_interval.push(c); }
+            if state.focused_field == 0 {
+                state.briefing_hour.push(c);
+            } else if state.focused_field == 1 {
+                state.check_interval.push(c);
+            }
         }
         KeyCode::Enter => {
             if state.focused_field < 2 {
@@ -706,7 +767,9 @@ fn handle_email(state: &mut GenesisState, key: event::KeyEvent) -> Action {
     // Email fields: 0=address, 1=imap_host, 2=imap_port, 3=smtp_host, 4=smtp_port, 5=username, 6=password
     let field_count = 7;
     match key.code {
-        KeyCode::Tab => { state.focused_field = (state.focused_field + 1) % field_count; }
+        KeyCode::Tab => {
+            state.focused_field = (state.focused_field + 1) % field_count;
+        }
         KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             state.setup_email = false;
         }
@@ -730,30 +793,40 @@ fn handle_email(state: &mut GenesisState, key: event::KeyEvent) -> Action {
             }
         }
         KeyCode::Esc => return Action::Back,
-        KeyCode::Backspace => {
-            match state.focused_field {
-                0 => { state.email_address.pop(); }
-                1 => { state.imap_host.pop(); }
-                2 => { state.imap_port.pop(); }
-                3 => { state.smtp_host.pop(); }
-                4 => { state.smtp_port.pop(); }
-                5 => { state.email_username.pop(); }
-                6 => { state.email_password.pop(); }
-                _ => {}
+        KeyCode::Backspace => match state.focused_field {
+            0 => {
+                state.email_address.pop();
             }
-        }
-        KeyCode::Char(c) => {
-            match state.focused_field {
-                0 => state.email_address.push(c),
-                1 => state.imap_host.push(c),
-                2 if c.is_ascii_digit() => state.imap_port.push(c),
-                3 => state.smtp_host.push(c),
-                4 if c.is_ascii_digit() => state.smtp_port.push(c),
-                5 => state.email_username.push(c),
-                6 => state.email_password.push(c),
-                _ => {}
+            1 => {
+                state.imap_host.pop();
             }
-        }
+            2 => {
+                state.imap_port.pop();
+            }
+            3 => {
+                state.smtp_host.pop();
+            }
+            4 => {
+                state.smtp_port.pop();
+            }
+            5 => {
+                state.email_username.pop();
+            }
+            6 => {
+                state.email_password.pop();
+            }
+            _ => {}
+        },
+        KeyCode::Char(c) => match state.focused_field {
+            0 => state.email_address.push(c),
+            1 => state.imap_host.push(c),
+            2 if c.is_ascii_digit() => state.imap_port.push(c),
+            3 => state.smtp_host.push(c),
+            4 if c.is_ascii_digit() => state.smtp_port.push(c),
+            5 => state.email_username.push(c),
+            6 => state.email_password.push(c),
+            _ => {}
+        },
         _ => {}
     }
     Action::Continue
@@ -763,23 +836,25 @@ fn handle_integrations(state: &mut GenesisState, key: event::KeyEvent) -> Action
     let max = integration_field_count(state);
     match key.code {
         KeyCode::Up => {
-            if state.focused_field > 0 { state.focused_field -= 1; }
+            if state.focused_field > 0 {
+                state.focused_field -= 1;
+            }
         }
         KeyCode::Down => {
             state.focused_field += 1;
-            if state.focused_field >= max { state.focused_field = max.saturating_sub(1); }
-        }
-        KeyCode::Char(' ') => {
-            match integration_focus(state) {
-                IntegrationFocus::Toggle(i) => {
-                    state.integration_flags[i] = !state.integration_flags[i];
-                }
-                IntegrationFocus::SubField("desktop", 0) => {
-                    state.desktop_deep_interaction = !state.desktop_deep_interaction;
-                }
-                _ => {}
+            if state.focused_field >= max {
+                state.focused_field = max.saturating_sub(1);
             }
         }
+        KeyCode::Char(' ') => match integration_focus(state) {
+            IntegrationFocus::Toggle(i) => {
+                state.integration_flags[i] = !state.integration_flags[i];
+            }
+            IntegrationFocus::SubField("desktop", 0) => {
+                state.desktop_deep_interaction = !state.desktop_deep_interaction;
+            }
+            _ => {}
+        },
         KeyCode::Enter => {
             if state.focused_field + 1 < max {
                 state.focused_field += 1;
@@ -801,22 +876,24 @@ fn handle_integrations(state: &mut GenesisState, key: event::KeyEvent) -> Action
 
 /// Sub-field counts for each integration when enabled.
 const INTEGRATION_SUB_COUNTS: &[(&str, usize)] = &[
-    ("calendar", 3),  // url, user, pass
-    ("contacts", 3),  // url, user, pass
-    ("telegram", 2),  // token, chat_id
-    ("matrix",   3),  // homeserver, token, room_id
-    ("signal",   2),  // account, socket
-    ("sms",      4),  // provider, account_id, auth_token, from_number
-    ("vault",    1),  // path
-    ("finance",  1),  // receipt_folder
-    ("devtools", 5),  // repo_path, forge, forge_api_url, repo_slug, forge_token
-    ("desktop",  1),  // deep_interaction toggle
+    ("calendar", 3), // url, user, pass
+    ("contacts", 3), // url, user, pass
+    ("telegram", 2), // token, chat_id
+    ("matrix", 3),   // homeserver, token, room_id
+    ("signal", 2),   // account, socket
+    ("sms", 4),      // provider, account_id, auth_token, from_number
+    ("vault", 1),    // path
+    ("finance", 1),  // receipt_folder
+    ("devtools", 5), // repo_path, forge, forge_api_url, repo_slug, forge_token
+    ("desktop", 1),  // deep_interaction toggle
 ];
 
 fn integration_field_count(state: &GenesisState) -> usize {
     let mut count = 10; // base toggles (one per integration)
     for (i, &(_, sub_count)) in INTEGRATION_SUB_COUNTS.iter().enumerate() {
-        if state.integration_flags[i] { count += sub_count; }
+        if state.integration_flags[i] {
+            count += sub_count;
+        }
     }
     count
 }
@@ -833,11 +910,15 @@ fn integration_focus(state: &GenesisState) -> IntegrationFocus {
     let mut idx = state.focused_field;
     for (i, &(name, sub_count)) in INTEGRATION_SUB_COUNTS.iter().enumerate() {
         // This position is the toggle row for integration i
-        if idx == 0 { return IntegrationFocus::Toggle(i); }
+        if idx == 0 {
+            return IntegrationFocus::Toggle(i);
+        }
         idx -= 1;
         // If this integration is enabled, its sub-fields follow the toggle
         if state.integration_flags[i] {
-            if idx < sub_count { return IntegrationFocus::SubField(name, idx); }
+            if idx < sub_count {
+                return IntegrationFocus::SubField(name, idx);
+            }
             idx -= sub_count;
         }
     }
@@ -855,30 +936,78 @@ fn integration_sub_field(state: &GenesisState) -> Option<(&'static str, usize)> 
 fn integration_backspace(state: &mut GenesisState) {
     if let Some((group, sub)) = integration_sub_field(state) {
         match (group, sub) {
-            ("calendar", 0) => { state.calendar_url.pop(); }
-            ("calendar", 1) => { state.calendar_user.pop(); }
-            ("calendar", 2) => { state.calendar_pass.pop(); }
-            ("contacts", 0) => { state.contacts_url.pop(); }
-            ("contacts", 1) => { state.contacts_user.pop(); }
-            ("contacts", 2) => { state.contacts_pass.pop(); }
-            ("telegram", 0) => { state.telegram_token.pop(); }
-            ("telegram", 1) => { state.telegram_chat_id.pop(); }
-            ("matrix", 0) => { state.matrix_homeserver.pop(); }
-            ("matrix", 1) => { state.matrix_token.pop(); }
-            ("matrix", 2) => { state.matrix_room_id.pop(); }
-            ("signal", 0) => { state.signal_account.pop(); }
-            ("signal", 1) => { state.signal_socket.pop(); }
-            ("sms", 0) => { state.sms_provider.pop(); }
-            ("sms", 1) => { state.sms_account_id.pop(); }
-            ("sms", 2) => { state.sms_auth_token.pop(); }
-            ("sms", 3) => { state.sms_from_number.pop(); }
-            ("vault", 0) => { state.vault_path.pop(); }
-            ("finance", 0) => { state.finance_receipt_folder.pop(); }
-            ("devtools", 0) => { state.devtools_repo_path.pop(); }
-            ("devtools", 1) => { state.devtools_forge.pop(); }
-            ("devtools", 2) => { state.devtools_forge_api_url.pop(); }
-            ("devtools", 3) => { state.devtools_repo_slug.pop(); }
-            ("devtools", 4) => { state.devtools_forge_token.pop(); }
+            ("calendar", 0) => {
+                state.calendar_url.pop();
+            }
+            ("calendar", 1) => {
+                state.calendar_user.pop();
+            }
+            ("calendar", 2) => {
+                state.calendar_pass.pop();
+            }
+            ("contacts", 0) => {
+                state.contacts_url.pop();
+            }
+            ("contacts", 1) => {
+                state.contacts_user.pop();
+            }
+            ("contacts", 2) => {
+                state.contacts_pass.pop();
+            }
+            ("telegram", 0) => {
+                state.telegram_token.pop();
+            }
+            ("telegram", 1) => {
+                state.telegram_chat_id.pop();
+            }
+            ("matrix", 0) => {
+                state.matrix_homeserver.pop();
+            }
+            ("matrix", 1) => {
+                state.matrix_token.pop();
+            }
+            ("matrix", 2) => {
+                state.matrix_room_id.pop();
+            }
+            ("signal", 0) => {
+                state.signal_account.pop();
+            }
+            ("signal", 1) => {
+                state.signal_socket.pop();
+            }
+            ("sms", 0) => {
+                state.sms_provider.pop();
+            }
+            ("sms", 1) => {
+                state.sms_account_id.pop();
+            }
+            ("sms", 2) => {
+                state.sms_auth_token.pop();
+            }
+            ("sms", 3) => {
+                state.sms_from_number.pop();
+            }
+            ("vault", 0) => {
+                state.vault_path.pop();
+            }
+            ("finance", 0) => {
+                state.finance_receipt_folder.pop();
+            }
+            ("devtools", 0) => {
+                state.devtools_repo_path.pop();
+            }
+            ("devtools", 1) => {
+                state.devtools_forge.pop();
+            }
+            ("devtools", 2) => {
+                state.devtools_forge_api_url.pop();
+            }
+            ("devtools", 3) => {
+                state.devtools_repo_slug.pop();
+            }
+            ("devtools", 4) => {
+                state.devtools_forge_token.pop();
+            }
             // desktop (0) is a toggle, handled via Space in handle_integrations
             _ => {}
         }
@@ -921,10 +1050,14 @@ fn integration_char(state: &mut GenesisState, c: char) {
 fn handle_ignition(state: &mut GenesisState, key: event::KeyEvent) -> Action {
     match key.code {
         KeyCode::Up => {
-            if state.focused_field > 0 { state.focused_field -= 1; }
+            if state.focused_field > 0 {
+                state.focused_field -= 1;
+            }
         }
         KeyCode::Down => {
-            if state.focused_field < 10 { state.focused_field += 1; }
+            if state.focused_field < 10 {
+                state.focused_field += 1;
+            }
         }
         KeyCode::Char(' ') => {
             if state.focused_field < 10 {
@@ -953,16 +1086,22 @@ fn render(state: &GenesisState, f: &mut Frame) {
     f.render_widget(Block::default().style(Style::default().bg(theme::BG)), size);
 
     // Vertical layout: header(2) + progress(1) + gap(1) + panel(flex) + gap(1) + hints(1)
-    let [header_area, progress_area, _gap1, panel_area, _gap2, hints_area] =
-        Layout::vertical([
-            Constraint::Length(2),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(14),
-            Constraint::Length(1),
-            Constraint::Length(1),
-        ])
-        .areas(size);
+    let [
+        header_area,
+        progress_area,
+        _gap1,
+        panel_area,
+        _gap2,
+        hints_area,
+    ] = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(14),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(size);
 
     render_header(header_area, f);
     render_progress(state, progress_area, f);
@@ -997,31 +1136,44 @@ fn render(state: &GenesisState, f: &mut Frame) {
     // Error message (render above panel if present)
     if let Some(ref err) = state.error_message {
         let err_y = wizard_rect.y.saturating_sub(1);
-        let err_line = Line::from(Span::styled(format!("  [!!!] CRITICAL: {err}"), Style::default().fg(theme::ERROR).add_modifier(Modifier::BOLD)));
-        f.render_widget(Paragraph::new(err_line), Rect {
-            x: wizard_rect.x,
-            y: err_y,
-            width: wizard_rect.width,
-            height: 1,
-        });
+        let err_line = Line::from(Span::styled(
+            format!("  [!!!] CRITICAL: {err}"),
+            Style::default()
+                .fg(theme::ERROR)
+                .add_modifier(Modifier::BOLD),
+        ));
+        f.render_widget(
+            Paragraph::new(err_line),
+            Rect {
+                x: wizard_rect.x,
+                y: err_y,
+                width: wizard_rect.width,
+                height: 1,
+            },
+        );
     }
 
     // Dispatch to step renderer
     match state.step {
-        Step::Passphrase   => render_passphrase(state, inner, f),
-        Step::Provider     => render_provider(state, inner, f),
-        Step::Identity     => render_identity(state, inner, f),
-        Step::SoulSkills   => render_soul_skills(state, inner, f),
-        Step::Schedule     => render_schedule(state, inner, f),
-        Step::Email        => render_email(state, inner, f),
+        Step::Passphrase => render_passphrase(state, inner, f),
+        Step::Provider => render_provider(state, inner, f),
+        Step::Identity => render_identity(state, inner, f),
+        Step::SoulSkills => render_soul_skills(state, inner, f),
+        Step::Schedule => render_schedule(state, inner, f),
+        Step::Email => render_email(state, inner, f),
         Step::Integrations => render_integrations(state, inner, f),
-        Step::Ignition     => render_ignition(state, inner, f),
+        Step::Ignition => render_ignition(state, inner, f),
     }
 }
 
 fn render_header(area: Rect, f: &mut Frame) {
     let line = Line::from(vec![
-        Span::styled("  AIVYX.STUDIO ", Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "  AIVYX.STUDIO ",
+            Style::default()
+                .fg(theme::PRIMARY)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled("// GENESIS PROTOCOL v0.1.0", theme::secondary()),
     ]);
     f.render_widget(Paragraph::new(line), area);
@@ -1046,7 +1198,9 @@ fn render_progress(state: &GenesisState, area: Rect, f: &mut Frame) {
         let past = i < current;
 
         let style = if active {
-            Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(theme::PRIMARY)
+                .add_modifier(Modifier::BOLD)
         } else if past {
             theme::sage()
         } else {
@@ -1054,7 +1208,11 @@ fn render_progress(state: &GenesisState, area: Rect, f: &mut Frame) {
         };
 
         let num_str = format!("{:02}", i + 1);
-        let fmt = if active { format!("[{}_{}]", num_str, step.label()) } else { format!(" {}_{} ", num_str, step.label()) };
+        let fmt = if active {
+            format!("[{}_{}]", num_str, step.label())
+        } else {
+            format!(" {}_{} ", num_str, step.label())
+        };
 
         spans.push(Span::styled(fmt, style));
 
@@ -1063,17 +1221,32 @@ fn render_progress(state: &GenesisState, area: Rect, f: &mut Frame) {
             spans.push(Span::styled(" - ", sep_style));
         }
     }
-    f.render_widget(Paragraph::new(Line::from(spans).alignment(Alignment::Center)), area);
+    f.render_widget(
+        Paragraph::new(Line::from(spans).alignment(Alignment::Center)),
+        area,
+    );
 }
 
 fn render_hints(state: &GenesisState, area: Rect, f: &mut Frame) {
-    let back = if state.step.prev().is_some() { "Esc:Back  " } else { "Esc:Quit  " };
+    let back = if state.step.prev().is_some() {
+        "Esc:Back  "
+    } else {
+        "Esc:Quit  "
+    };
     let next = if state.step == Step::Ignition {
-        if state.focused_field == 10 { "Enter:Ignite" } else { "Space:Toggle  ↓:Ignite button" }
+        if state.focused_field == 10 {
+            "Enter:Ignite"
+        } else {
+            "Space:Toggle  ↓:Ignite button"
+        }
     } else {
         "Enter:Next"
     };
-    let extra = if state.step == Step::Ignition { "" } else { "Tab:Field  " };
+    let extra = if state.step == Step::Ignition {
+        ""
+    } else {
+        "Tab:Field  "
+    };
     let line = Line::from(vec![
         Span::styled("  ", theme::dim()),
         Span::styled(next, theme::primary()),
@@ -1091,7 +1264,12 @@ fn render_passphrase(state: &GenesisState, area: Rect, f: &mut Frame) {
     let mut lines = vec![
         Line::from(vec![
             Span::styled("// DIRECTIVE: ", theme::text_bold()),
-            Span::styled("ESTABLISH ENCRYPTION GATEWAY", Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "ESTABLISH ENCRYPTION GATEWAY",
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::from(""),
         Line::from(Span::styled(
@@ -1106,17 +1284,32 @@ fn render_passphrase(state: &GenesisState, area: Rect, f: &mut Frame) {
     ];
 
     // Passphrase field
-    let p1_style = if state.focused_field == 0 { theme::text() } else { theme::muted() };
+    let p1_style = if state.focused_field == 0 {
+        theme::text()
+    } else {
+        theme::muted()
+    };
     let p1 = "*".repeat(state.passphrase.len());
-    lines.push(Line::from(Span::styled("  MASTER_PASSPHRASE_KEY:", theme::muted())));
+    lines.push(Line::from(Span::styled(
+        "  MASTER_PASSPHRASE_KEY:",
+        theme::muted(),
+    )));
     lines.push(Line::from(vec![
         Span::styled(
-            if state.focused_field == 0 { "  ► [ " } else { "    [ " },
+            if state.focused_field == 0 {
+                "  ► [ "
+            } else {
+                "    [ "
+            },
             theme::primary_bold(),
         ),
         Span::styled(p1, p1_style),
         Span::styled(
-            if state.focused_field == 0 { state.cursor() } else { " " },
+            if state.focused_field == 0 {
+                state.cursor()
+            } else {
+                " "
+            },
             theme::primary(),
         ),
         Span::styled(" ]", theme::primary_bold()),
@@ -1125,17 +1318,29 @@ fn render_passphrase(state: &GenesisState, area: Rect, f: &mut Frame) {
     lines.push(Line::from(""));
 
     // Confirm field
-    let p2_style = if state.focused_field == 1 { theme::text() } else { theme::muted() };
+    let p2_style = if state.focused_field == 1 {
+        theme::text()
+    } else {
+        theme::muted()
+    };
     let p2 = "*".repeat(state.confirm.len());
     lines.push(Line::from(Span::styled("  CONFIRM_KEY:", theme::muted())));
     lines.push(Line::from(vec![
         Span::styled(
-            if state.focused_field == 1 { "  ► [ " } else { "    [ " },
+            if state.focused_field == 1 {
+                "  ► [ "
+            } else {
+                "    [ "
+            },
             theme::primary_bold(),
         ),
         Span::styled(p2, p2_style),
         Span::styled(
-            if state.focused_field == 1 { state.cursor() } else { " " },
+            if state.focused_field == 1 {
+                state.cursor()
+            } else {
+                " "
+            },
             theme::primary(),
         ),
         Span::styled(" ]", theme::primary_bold()),
@@ -1145,9 +1350,15 @@ fn render_passphrase(state: &GenesisState, area: Rect, f: &mut Frame) {
     if state.focused_field == 1 && !state.confirm.is_empty() {
         lines.push(Line::from(""));
         if *state.passphrase != *state.confirm {
-            lines.push(Line::from(Span::styled("    [!!!] HASH MISMATCH DETECTED.", theme::error())));
+            lines.push(Line::from(Span::styled(
+                "    [!!!] HASH MISMATCH DETECTED.",
+                theme::error(),
+            )));
         } else if state.passphrase.len() >= 8 {
-            lines.push(Line::from(Span::styled("    [OK] SIGNATURES ALIGNED.", theme::sage())));
+            lines.push(Line::from(Span::styled(
+                "    [OK] SIGNATURES ALIGNED.",
+                theme::sage(),
+            )));
         }
     }
 
@@ -1158,7 +1369,12 @@ fn render_provider(state: &GenesisState, area: Rect, f: &mut Frame) {
     let mut lines = vec![
         Line::from(vec![
             Span::styled("// DIRECTIVE: ", theme::text_bold()),
-            Span::styled("CHOOSE COMPUTE HOST", Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "CHOOSE COMPUTE HOST",
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::from(""),
     ];
@@ -1166,8 +1382,16 @@ fn render_provider(state: &GenesisState, area: Rect, f: &mut Frame) {
     // Provider list
     for (i, (name, _, _)) in PROVIDERS.iter().enumerate() {
         let selected = i == state.provider_idx;
-        let marker = if selected && state.focused_field == 0 { "▌ " } else { "  " };
-        let style = if selected { theme::highlight() } else { theme::muted() };
+        let marker = if selected && state.focused_field == 0 {
+            "▌ "
+        } else {
+            "  "
+        };
+        let style = if selected {
+            theme::highlight()
+        } else {
+            theme::muted()
+        };
         lines.push(Line::from(vec![
             Span::styled(format!("  {marker}"), style),
             Span::styled(name.to_uppercase(), style),
@@ -1178,13 +1402,22 @@ fn render_provider(state: &GenesisState, area: Rect, f: &mut Frame) {
 
     // Model
     let model_focused = state.focused_field == 1;
-    lines.push(Line::from(Span::styled("  MODEL_IDENTIFIER:", theme::muted())));
+    lines.push(Line::from(Span::styled(
+        "  MODEL_IDENTIFIER:",
+        theme::muted(),
+    )));
 
     let model_list = state.effective_model_list();
     if !model_list.is_empty() {
         for (i, m) in model_list.iter().enumerate() {
             let sel = i == state.model_list_idx;
-            let marker = if sel && model_focused { "▌ " } else if sel { "■ " } else { "  " };
+            let marker = if sel && model_focused {
+                "▌ "
+            } else if sel {
+                "■ "
+            } else {
+                "  "
+            };
             let style = if sel && model_focused {
                 theme::highlight()
             } else if sel {
@@ -1196,11 +1429,21 @@ fn render_provider(state: &GenesisState, area: Rect, f: &mut Frame) {
         }
     } else {
         // No list — free-form text input
-        let m_style = if model_focused { theme::text() } else { theme::muted() };
+        let m_style = if model_focused {
+            theme::text()
+        } else {
+            theme::muted()
+        };
         lines.push(Line::from(vec![
-            Span::styled(if model_focused { "  [ " } else { "  [ " }, theme::primary_bold()),
+            Span::styled(
+                if model_focused { "  [ " } else { "  [ " },
+                theme::primary_bold(),
+            ),
             Span::styled(&state.model_input, m_style),
-            Span::styled(if model_focused { state.cursor() } else { " " }, theme::primary()),
+            Span::styled(
+                if model_focused { state.cursor() } else { " " },
+                theme::primary(),
+            ),
             Span::styled(" ]", theme::primary_bold()),
         ]));
     }
@@ -1209,13 +1452,23 @@ fn render_provider(state: &GenesisState, area: Rect, f: &mut Frame) {
     if state.needs_api_key() {
         lines.push(Line::from(""));
         let key_focused = state.focused_field == 2;
-        let k_style = if key_focused { theme::text() } else { theme::muted() };
+        let k_style = if key_focused {
+            theme::text()
+        } else {
+            theme::muted()
+        };
         let k_display = "*".repeat(state.api_key.len());
         lines.push(Line::from(Span::styled("  API_TOKEN:", theme::muted())));
         lines.push(Line::from(vec![
-            Span::styled(if key_focused { "  [ " } else { "  [ " }, theme::primary_bold()),
+            Span::styled(
+                if key_focused { "  [ " } else { "  [ " },
+                theme::primary_bold(),
+            ),
             Span::styled(k_display, k_style),
-            Span::styled(if key_focused { state.cursor() } else { " " }, theme::primary()),
+            Span::styled(
+                if key_focused { state.cursor() } else { " " },
+                theme::primary(),
+            ),
             Span::styled(" ]", theme::primary_bold()),
         ]));
     }
@@ -1252,34 +1505,69 @@ fn render_identity(state: &GenesisState, area: Rect, f: &mut Frame) {
     let mut lines = vec![
         Line::from(vec![
             Span::styled("// DIRECTIVE: ", theme::text_bold()),
-            Span::styled("AGENT DESIGNATION", Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "AGENT DESIGNATION",
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::from(""),
     ];
 
     // Agent name
     let name_focused = state.focused_field == 0;
-    lines.push(Line::from(Span::styled("  DESIGNATION_IDENTIFIER (default: assistant):", theme::muted())));
-    let n_style = if name_focused { theme::text() } else { theme::muted() };
+    lines.push(Line::from(Span::styled(
+        "  DESIGNATION_IDENTIFIER (default: assistant):",
+        theme::muted(),
+    )));
+    let n_style = if name_focused {
+        theme::text()
+    } else {
+        theme::muted()
+    };
     lines.push(Line::from(vec![
-        Span::styled(if name_focused { "  [ " } else { "  [ " }, theme::primary_bold()),
         Span::styled(
-            if state.agent_name.is_empty() && !name_focused { "assistant" } else { &state.agent_name },
+            if name_focused { "  [ " } else { "  [ " },
+            theme::primary_bold(),
+        ),
+        Span::styled(
+            if state.agent_name.is_empty() && !name_focused {
+                "assistant"
+            } else {
+                &state.agent_name
+            },
             n_style,
         ),
-        Span::styled(if name_focused { state.cursor() } else { " " }, theme::primary()),
+        Span::styled(
+            if name_focused { state.cursor() } else { " " },
+            theme::primary(),
+        ),
         Span::styled(" ]", theme::primary_bold()),
     ]));
 
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("  PERSONA_PRESET:", theme::muted())));
+    lines.push(Line::from(Span::styled(
+        "  PERSONA_PRESET:",
+        theme::muted(),
+    )));
 
     // Persona list (compact: 1 line each)
     let persona_focused = state.focused_field == 1;
     for (i, (name, desc)) in PERSONAS.iter().enumerate() {
         let selected = i == state.persona_idx;
-        let marker = if selected && persona_focused { "▌ " } else if selected { "■ " } else { "  " };
-        let name_style = if selected { theme::highlight() } else { theme::muted() };
+        let marker = if selected && persona_focused {
+            "▌ "
+        } else if selected {
+            "■ "
+        } else {
+            "  "
+        };
+        let name_style = if selected {
+            theme::highlight()
+        } else {
+            theme::muted()
+        };
         let desc_style = if selected { theme::dim() } else { theme::dim() };
         lines.push(Line::from(vec![
             Span::styled(format!("  {marker}"), name_style),
@@ -1305,7 +1593,10 @@ fn render_identity(state: &GenesisState, area: Rect, f: &mut Frame) {
             bundle.heartbeat.can_encourage,
             bundle.heartbeat.can_track_milestones,
             bundle.heartbeat.notification_pacing,
-        ].iter().filter(|&&x| x).count();
+        ]
+        .iter()
+        .filter(|&&x| x)
+        .count();
         lines.push(Line::from(Span::styled(
             format!("  SKILLS_ALLOCATED: {skills_str}"),
             theme::dim(),
@@ -1325,25 +1616,51 @@ fn render_soul_skills(state: &GenesisState, area: Rect, f: &mut Frame) {
     let mut lines = vec![
         Line::from(vec![
             Span::styled("// DIRECTIVE: ", theme::text_bold()),
-            Span::styled("LOAD NEURAL WEIGHTS", Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "LOAD NEURAL WEIGHTS",
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::from(""),
     ];
 
     // Soul toggle
     let soul_focused = state.focused_field == 0;
-    let soul_mark = if state.soul_accepted { "[ ON ]" } else { "[ OFF]" };
-    let soul_style = if soul_focused { theme::highlight() } else { theme::text() };
+    let soul_mark = if state.soul_accepted {
+        "[ ON ]"
+    } else {
+        "[ OFF]"
+    };
+    let soul_style = if soul_focused {
+        theme::highlight()
+    } else {
+        theme::text()
+    };
     lines.push(Line::from(vec![
-        Span::styled(format!("  {soul_mark} "), if state.soul_accepted { theme::sage() } else { theme::muted() }),
+        Span::styled(
+            format!("  {soul_mark} "),
+            if state.soul_accepted {
+                theme::sage()
+            } else {
+                theme::muted()
+            },
+        ),
         Span::styled("INSTALL SOUL_TEMPLATE", soul_style),
     ]));
 
     // Soul preview (first 2 lines)
     if state.soul_accepted {
         for line in bundle.soul_template.lines().take(2) {
-            let truncated: String = line.chars().take((area.width as usize).saturating_sub(8)).collect();
-            lines.push(Line::from(Span::styled(format!("      \"{truncated}\""), theme::dim())));
+            let truncated: String = line
+                .chars()
+                .take((area.width as usize).saturating_sub(8))
+                .collect();
+            lines.push(Line::from(Span::styled(
+                format!("      \"{truncated}\""),
+                theme::dim(),
+            )));
         }
         lines.push(Line::from(Span::styled("      ...", theme::dim())));
     }
@@ -1352,31 +1669,66 @@ fn render_soul_skills(state: &GenesisState, area: Rect, f: &mut Frame) {
 
     // Skills toggle
     let skills_focused = state.focused_field == 1;
-    let skills_mark = if state.skills_accepted { "[ ON ]" } else { "[ OFF]" };
-    let skills_style = if skills_focused { theme::highlight() } else { theme::text() };
+    let skills_mark = if state.skills_accepted {
+        "[ ON ]"
+    } else {
+        "[ OFF]"
+    };
+    let skills_style = if skills_focused {
+        theme::highlight()
+    } else {
+        theme::text()
+    };
     lines.push(Line::from(vec![
-        Span::styled(format!("  {skills_mark} "), if state.skills_accepted { theme::sage() } else { theme::muted() }),
+        Span::styled(
+            format!("  {skills_mark} "),
+            if state.skills_accepted {
+                theme::sage()
+            } else {
+                theme::muted()
+            },
+        ),
         Span::styled("BOND DEFAULT_SKILLS", skills_style),
     ]));
 
     if state.skills_accepted {
         let skills_str = bundle.skills.join(", ");
-        lines.push(Line::from(Span::styled(format!("      {skills_str}"), theme::dim())));
+        lines.push(Line::from(Span::styled(
+            format!("      {skills_str}"),
+            theme::dim(),
+        )));
     }
 
     lines.push(Line::from(""));
 
     // Custom skills input
     let custom_focused = state.focused_field == 2;
-    lines.push(Line::from(Span::styled("  ADDITIONAL_SKILLS (comma-separated):", theme::muted())));
-    let c_style = if custom_focused { theme::text() } else { theme::muted() };
+    lines.push(Line::from(Span::styled(
+        "  ADDITIONAL_SKILLS (comma-separated):",
+        theme::muted(),
+    )));
+    let c_style = if custom_focused {
+        theme::text()
+    } else {
+        theme::muted()
+    };
     lines.push(Line::from(vec![
-        Span::styled(if custom_focused { "  [ " } else { "  [ " }, theme::primary_bold()),
         Span::styled(
-            if state.custom_skills_input.is_empty() && !custom_focused { "(none)" } else { &state.custom_skills_input },
+            if custom_focused { "  [ " } else { "  [ " },
+            theme::primary_bold(),
+        ),
+        Span::styled(
+            if state.custom_skills_input.is_empty() && !custom_focused {
+                "(none)"
+            } else {
+                &state.custom_skills_input
+            },
             c_style,
         ),
-        Span::styled(if custom_focused { state.cursor() } else { " " }, theme::primary()),
+        Span::styled(
+            if custom_focused { state.cursor() } else { " " },
+            theme::primary(),
+        ),
         Span::styled(" ]", theme::primary_bold()),
     ]));
 
@@ -1389,19 +1741,37 @@ fn render_schedule(state: &GenesisState, area: Rect, f: &mut Frame) {
     let mut lines = vec![
         Line::from(vec![
             Span::styled("// DIRECTIVE: ", theme::text_bold()),
-            Span::styled("INJECT GOAL STATE", Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "INJECT GOAL STATE",
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::from(""),
     ];
 
     // Briefing hour
     let hour_focused = state.focused_field == 0;
-    lines.push(Line::from(Span::styled("  CRON_BRIEFING_HOUR (0-23):", theme::muted())));
-    let h_style = if hour_focused { theme::text() } else { theme::muted() };
+    lines.push(Line::from(Span::styled(
+        "  CRON_BRIEFING_HOUR (0-23):",
+        theme::muted(),
+    )));
+    let h_style = if hour_focused {
+        theme::text()
+    } else {
+        theme::muted()
+    };
     lines.push(Line::from(vec![
-        Span::styled(if hour_focused { "  [ " } else { "  [ " }, theme::primary_bold()),
+        Span::styled(
+            if hour_focused { "  [ " } else { "  [ " },
+            theme::primary_bold(),
+        ),
         Span::styled(&state.briefing_hour, h_style),
-        Span::styled(if hour_focused { state.cursor() } else { " " }, theme::primary()),
+        Span::styled(
+            if hour_focused { state.cursor() } else { " " },
+            theme::primary(),
+        ),
         Span::styled(" ]", theme::primary_bold()),
     ]));
 
@@ -1409,12 +1779,29 @@ fn render_schedule(state: &GenesisState, area: Rect, f: &mut Frame) {
 
     // Check interval
     let interval_focused = state.focused_field == 1;
-    lines.push(Line::from(Span::styled("  BACKGROUND_POLL_INTERVAL (minutes):", theme::muted())));
-    let i_style = if interval_focused { theme::text() } else { theme::muted() };
+    lines.push(Line::from(Span::styled(
+        "  BACKGROUND_POLL_INTERVAL (minutes):",
+        theme::muted(),
+    )));
+    let i_style = if interval_focused {
+        theme::text()
+    } else {
+        theme::muted()
+    };
     lines.push(Line::from(vec![
-        Span::styled(if interval_focused { "  [ " } else { "  [ " }, theme::primary_bold()),
+        Span::styled(
+            if interval_focused { "  [ " } else { "  [ " },
+            theme::primary_bold(),
+        ),
         Span::styled(&state.check_interval, i_style),
-        Span::styled(if interval_focused { state.cursor() } else { " " }, theme::primary()),
+        Span::styled(
+            if interval_focused {
+                state.cursor()
+            } else {
+                " "
+            },
+            theme::primary(),
+        ),
         Span::styled(" ]", theme::primary_bold()),
     ]));
 
@@ -1423,7 +1810,10 @@ fn render_schedule(state: &GenesisState, area: Rect, f: &mut Frame) {
     // Default schedules preview
     if !bundle.schedules.is_empty() {
         lines.push(Line::from(Span::styled(
-            format!("  SYSTEM QUEUED {} DEFAULT SCHEDULES:", bundle.schedules.len()),
+            format!(
+                "  SYSTEM QUEUED {} DEFAULT SCHEDULES:",
+                bundle.schedules.len()
+            ),
             theme::dim(),
         )));
         for s in bundle.schedules {
@@ -1437,11 +1827,29 @@ fn render_schedule(state: &GenesisState, area: Rect, f: &mut Frame) {
 
     // Goals toggle
     let goals_focused = state.focused_field == 2;
-    let goals_mark = if state.include_goals { "[ ON ]" } else { "[ OFF]" };
-    let goals_style = if goals_focused { theme::highlight() } else { theme::text() };
+    let goals_mark = if state.include_goals {
+        "[ ON ]"
+    } else {
+        "[ OFF]"
+    };
+    let goals_style = if goals_focused {
+        theme::highlight()
+    } else {
+        theme::text()
+    };
     lines.push(Line::from(vec![
-        Span::styled(format!("  {goals_mark} "), if state.include_goals { theme::sage() } else { theme::muted() }),
-        Span::styled(format!("SEED {} INITIAL_GOAL_STATES", bundle.goals.len()), goals_style),
+        Span::styled(
+            format!("  {goals_mark} "),
+            if state.include_goals {
+                theme::sage()
+            } else {
+                theme::muted()
+            },
+        ),
+        Span::styled(
+            format!("SEED {} INITIAL_GOAL_STATES", bundle.goals.len()),
+            goals_style,
+        ),
     ]));
 
     if state.include_goals && !bundle.goals.is_empty() {
@@ -1460,7 +1868,12 @@ fn render_email(state: &GenesisState, area: Rect, f: &mut Frame) {
     let mut lines = vec![
         Line::from(vec![
             Span::styled("// DIRECTIVE: ", theme::text_bold()),
-            Span::styled("BIND MAIL PROTOCOLS", Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "BIND MAIL PROTOCOLS",
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::from(""),
         Line::from(Span::styled(
@@ -1480,13 +1893,13 @@ fn render_email(state: &GenesisState, area: Rect, f: &mut Frame) {
     }
 
     let fields: &[(&str, &str, bool)] = &[
-        ("ADDRESS_ID",   &state.email_address, false),
+        ("ADDRESS_ID", &state.email_address, false),
         ("IMAP_HOST", &state.imap_host, false),
         ("IMAP_PORT", &state.imap_port, false),
         ("SMTP_HOST", &state.smtp_host, false),
         ("SMTP_PORT", &state.smtp_port, false),
-        ("AUTH_USER",  &state.email_username, false),
-        ("AUTH_PASS",  "", true),
+        ("AUTH_USER", &state.email_username, false),
+        ("AUTH_PASS", "", true),
     ];
 
     for (i, (label, value, is_secret)) in fields.iter().enumerate() {
@@ -1496,7 +1909,11 @@ fn render_email(state: &GenesisState, area: Rect, f: &mut Frame) {
         } else {
             value.to_string()
         };
-        let style = if focused { theme::text() } else { theme::muted() };
+        let style = if focused {
+            theme::text()
+        } else {
+            theme::muted()
+        };
         lines.push(Line::from(vec![
             Span::styled(if focused { "  [ " } else { "  [ " }, theme::primary_bold()),
             Span::styled(format!("{label:<12} "), theme::muted()),
@@ -1507,7 +1924,10 @@ fn render_email(state: &GenesisState, area: Rect, f: &mut Frame) {
     }
 
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("  Ctrl+N to disable email", theme::dim())));
+    lines.push(Line::from(Span::styled(
+        "  Ctrl+N to disable email",
+        theme::dim(),
+    )));
 
     f.render_widget(Paragraph::new(lines), area);
 }
@@ -1516,7 +1936,12 @@ fn render_integrations(state: &GenesisState, area: Rect, f: &mut Frame) {
     let mut lines = vec![
         Line::from(vec![
             Span::styled("// DIRECTIVE: ", theme::text_bold()),
-            Span::styled("ATTACH SYNC PIPELINES", Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "ATTACH SYNC PIPELINES",
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::from(""),
         Line::from(Span::styled(
@@ -1531,8 +1956,16 @@ fn render_integrations(state: &GenesisState, area: Rect, f: &mut Frame) {
         let focused = state.focused_field == field_idx;
         let enabled = state.integration_flags[i];
         let mark = if enabled { "[ ON ]" } else { "[ OFF]" };
-        let mark_style = if enabled { theme::sage() } else { theme::muted() };
-        let label_style = if focused { theme::highlight() } else { theme::text() };
+        let mark_style = if enabled {
+            theme::sage()
+        } else {
+            theme::muted()
+        };
+        let label_style = if focused {
+            theme::highlight()
+        } else {
+            theme::text()
+        };
         lines.push(Line::from(vec![
             Span::styled(format!("  {mark} "), mark_style),
             Span::styled(label.to_uppercase(), label_style),
@@ -1544,61 +1977,86 @@ fn render_integrations(state: &GenesisState, area: Rect, f: &mut Frame) {
             // Each entry: (label, display_value, is_secret, is_toggle)
             let sub_fields: Vec<(&str, String, bool, bool)> = match i {
                 0 => vec![
-                    ("URL",  state.calendar_url.clone(), false, false),
+                    ("URL", state.calendar_url.clone(), false, false),
                     ("USER", state.calendar_user.clone(), false, false),
                     ("PASS", "*".repeat(state.calendar_pass.len()), true, false),
                 ],
                 1 => vec![
-                    ("URL",  state.contacts_url.clone(), false, false),
+                    ("URL", state.contacts_url.clone(), false, false),
                     ("USER", state.contacts_user.clone(), false, false),
                     ("PASS", "*".repeat(state.contacts_pass.len()), true, false),
                 ],
                 2 => vec![
-                    ("TOKEN",   "*".repeat(state.telegram_token.len()), true, false),
+                    ("TOKEN", "*".repeat(state.telegram_token.len()), true, false),
                     ("CHAT_ID", state.telegram_chat_id.clone(), false, false),
                 ],
                 3 => vec![
-                    ("HOST",    state.matrix_homeserver.clone(), false, false),
-                    ("TOKEN",   "*".repeat(state.matrix_token.len()), true, false),
+                    ("HOST", state.matrix_homeserver.clone(), false, false),
+                    ("TOKEN", "*".repeat(state.matrix_token.len()), true, false),
                     ("ROOM_ID", state.matrix_room_id.clone(), false, false),
                 ],
                 4 => vec![
-                    ("PHONE",  state.signal_account.clone(), false, false),
+                    ("PHONE", state.signal_account.clone(), false, false),
                     ("SOCKET", state.signal_socket.clone(), false, false),
                 ],
                 5 => vec![
                     ("PROVIDER", state.sms_provider.clone(), false, false),
-                    ("ACCT_ID",  state.sms_account_id.clone(), false, false),
-                    ("TOKEN",    "*".repeat(state.sms_auth_token.len()), true, false),
+                    ("ACCT_ID", state.sms_account_id.clone(), false, false),
+                    ("TOKEN", "*".repeat(state.sms_auth_token.len()), true, false),
                     ("FROM_NUM", state.sms_from_number.clone(), false, false),
                 ],
-                6 => vec![
-                    ("PATH", state.vault_path.clone(), false, false),
-                ],
-                7 => vec![
-                    ("RECEIPTS", state.finance_receipt_folder.clone(), false, false),
-                ],
+                6 => vec![("PATH", state.vault_path.clone(), false, false)],
+                7 => vec![(
+                    "RECEIPTS",
+                    state.finance_receipt_folder.clone(),
+                    false,
+                    false,
+                )],
                 8 => vec![
                     ("REPO_PATH", state.devtools_repo_path.clone(), false, false),
-                    ("FORGE",     state.devtools_forge.clone(), false, false),
-                    ("API_URL",   state.devtools_forge_api_url.clone(), false, false),
+                    ("FORGE", state.devtools_forge.clone(), false, false),
+                    (
+                        "API_URL",
+                        state.devtools_forge_api_url.clone(),
+                        false,
+                        false,
+                    ),
                     ("REPO_SLUG", state.devtools_repo_slug.clone(), false, false),
-                    ("TOKEN",     "*".repeat(state.devtools_forge_token.len()), true, false),
+                    (
+                        "TOKEN",
+                        "*".repeat(state.devtools_forge_token.len()),
+                        true,
+                        false,
+                    ),
                 ],
                 9 => {
-                    let mark = if state.desktop_deep_interaction { "ON" } else { "OFF" };
-                    vec![
-                        ("DEEP_INT", mark.to_string(), false, true),
-                    ]
+                    let mark = if state.desktop_deep_interaction {
+                        "ON"
+                    } else {
+                        "OFF"
+                    };
+                    vec![("DEEP_INT", mark.to_string(), false, true)]
                 }
                 _ => vec![],
             };
 
             for (label, display, _is_secret, is_toggle) in sub_fields {
                 let sub_focused = state.focused_field == field_idx;
-                let style = if sub_focused { theme::text() } else { theme::muted() };
-                let cursor = if sub_focused && !is_toggle { state.cursor() } else { " " };
-                let prefix = if is_toggle && sub_focused { "  >>  [ " } else { "      [ " };
+                let style = if sub_focused {
+                    theme::text()
+                } else {
+                    theme::muted()
+                };
+                let cursor = if sub_focused && !is_toggle {
+                    state.cursor()
+                } else {
+                    " "
+                };
+                let prefix = if is_toggle && sub_focused {
+                    "  >>  [ "
+                } else {
+                    "      [ "
+                };
                 lines.push(Line::from(vec![
                     Span::styled(prefix, theme::primary_bold()),
                     Span::styled(format!("{label:<10}"), theme::dim()),
@@ -1620,7 +2078,12 @@ fn render_ignition(state: &GenesisState, area: Rect, f: &mut Frame) {
     let mut lines = vec![
         Line::from(vec![
             Span::styled("// DIRECTIVE: ", theme::text_bold()),
-            Span::styled("INITIATE HEARTBEAT", Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "INITIATE HEARTBEAT",
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::from(""),
     ];
@@ -1629,11 +2092,21 @@ fn render_ignition(state: &GenesisState, area: Rect, f: &mut Frame) {
     let model_display: String = state.model_input.chars().take(28).collect();
     lines.push(Line::from(vec![
         Span::styled("  DESCRIPTOR       ", theme::dim()),
-        Span::styled(state.effective_agent_name().to_uppercase(), theme::text_bold()),
+        Span::styled(
+            state.effective_agent_name().to_uppercase(),
+            theme::text_bold(),
+        ),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  RUNTIME_CORE     ", theme::dim()),
-        Span::styled(format!("{} : {}", state.current_provider_label().to_uppercase(), model_display.to_uppercase()), theme::primary()),
+        Span::styled(
+            format!(
+                "{} : {}",
+                state.current_provider_label().to_uppercase(),
+                model_display.to_uppercase()
+            ),
+            theme::primary(),
+        ),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  NEURAL_PERSONA   ", theme::dim()),
@@ -1644,8 +2117,15 @@ fn render_ignition(state: &GenesisState, area: Rect, f: &mut Frame) {
         Span::styled("CHACHA20-POLY1305", theme::sage()),
     ]));
 
-    let skill_count = if state.skills_accepted { bundle.skills.len() } else { 0 }
-        + state.custom_skills_input.split(',').filter(|s| !s.trim().is_empty()).count();
+    let skill_count = if state.skills_accepted {
+        bundle.skills.len()
+    } else {
+        0
+    } + state
+        .custom_skills_input
+        .split(',')
+        .filter(|s| !s.trim().is_empty())
+        .count();
     lines.push(Line::from(vec![
         Span::styled("  SKILLS_ALLOCATED ", theme::dim()),
         Span::styled(format!("{skill_count} REGISTERED"), theme::muted()),
@@ -1667,23 +2147,37 @@ fn render_ignition(state: &GenesisState, area: Rect, f: &mut Frame) {
     }
 
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("  HEARTBEAT_DIAGNOSTIC_PARAMETERS:", theme::muted())));
+    lines.push(Line::from(Span::styled(
+        "  HEARTBEAT_DIAGNOSTIC_PARAMETERS:",
+        theme::muted(),
+    )));
 
     // Two-column heartbeat toggle layout (5 per column)
     // Left column: items 0-4  |  Right column: items 5-9
     let col_width = 28usize; // characters per column
     for row in 0..5usize {
-        let left_i  = row;
+        let left_i = row;
         let right_i = row + 5;
 
         let make_toggle = |i: usize| -> (String, String, Style, Style) {
             let focused = state.focused_field == i;
             let enabled = state.heartbeat_flags[i];
-            let mark        = if enabled { "[■]" } else { "[○]" };
-            let mark_style  = if enabled { theme::sage() } else { theme::muted() };
-            let label_style = if focused  { theme::highlight() } else { theme::dim() };
+            let mark = if enabled { "[■]" } else { "[○]" };
+            let mark_style = if enabled {
+                theme::sage()
+            } else {
+                theme::muted()
+            };
+            let label_style = if focused {
+                theme::highlight()
+            } else {
+                theme::dim()
+            };
             let label_upper: String = HEARTBEAT_LABELS[i]
-                .chars().take(col_width - 5).collect::<String>().to_uppercase();
+                .chars()
+                .take(col_width - 5)
+                .collect::<String>()
+                .to_uppercase();
             (mark.to_string(), label_upper, mark_style, label_style)
         };
 
@@ -1703,12 +2197,18 @@ fn render_ignition(state: &GenesisState, area: Rect, f: &mut Frame) {
     let on_ignite = state.focused_field == 10;
     let blink = state.frame_count % 60 < 30;
     let ignite_style = if on_ignite {
-        Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD | Modifier::REVERSED)
+        Style::default()
+            .fg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD | Modifier::REVERSED)
     } else {
         theme::primary_bold()
     };
     lines.push(Line::from(Span::styled(
-        if on_ignite || blink { "  [ EXECUTE PROTOCOL -> SYSTEM IGNITION ]" } else { " " },
+        if on_ignite || blink {
+            "  [ EXECUTE PROTOCOL -> SYSTEM IGNITION ]"
+        } else {
+            " "
+        },
         ignite_style,
     )));
 
@@ -1745,8 +2245,16 @@ can_encourage = {}
 can_track_milestones = {}
 notification_pacing = {}
 "#,
-        flags[0], flags[1], flags[2], flags[3], flags[4],
-        flags[5], flags[6], flags[7], flags[8], flags[9],
+        flags[0],
+        flags[1],
+        flags[2],
+        flags[3],
+        flags[4],
+        flags[5],
+        flags[6],
+        flags[7],
+        flags[8],
+        flags[9],
     )
 }
 
@@ -1776,7 +2284,11 @@ priority = "{}"
     out
 }
 
-fn format_schedules_section(schedules: &[ScheduleTemplate], agent_name: &str, configured: &[&str]) -> String {
+fn format_schedules_section(
+    schedules: &[ScheduleTemplate],
+    agent_name: &str,
+    configured: &[&str],
+) -> String {
     let safe_agent = sanitize_toml_value(agent_name);
     let mut out = String::new();
     for s in schedules {
@@ -1809,15 +2321,15 @@ fn format_soul_line(soul: &str) -> String {
 
 fn format_persona_section(persona_name: &str) -> String {
     let (warmth, formality, verbosity, humor, confidence, curiosity) = match persona_name {
-        "assistant"  => (0.7, 0.4, 0.5, 0.3, 0.6, 0.7),
-        "coder"      => (0.4, 0.3, 0.4, 0.2, 0.9, 0.5),
+        "assistant" => (0.7, 0.4, 0.5, 0.3, 0.6, 0.7),
+        "coder" => (0.4, 0.3, 0.4, 0.2, 0.9, 0.5),
         "researcher" => (0.4, 0.7, 0.7, 0.1, 0.7, 0.9),
-        "writer"     => (0.6, 0.5, 0.6, 0.4, 0.7, 0.6),
-        "coach"      => (0.8, 0.3, 0.6, 0.4, 0.7, 0.6),
-        "companion"  => (0.9, 0.2, 0.6, 0.6, 0.5, 0.8),
-        "ops"        => (0.3, 0.6, 0.3, 0.1, 0.9, 0.4),
-        "analyst"    => (0.3, 0.7, 0.5, 0.1, 0.8, 0.8),
-        _            => (0.7, 0.4, 0.5, 0.3, 0.6, 0.7),
+        "writer" => (0.6, 0.5, 0.6, 0.4, 0.7, 0.6),
+        "coach" => (0.8, 0.3, 0.6, 0.4, 0.7, 0.6),
+        "companion" => (0.9, 0.2, 0.6, 0.6, 0.5, 0.8),
+        "ops" => (0.3, 0.6, 0.3, 0.1, 0.9, 0.4),
+        "analyst" => (0.3, 0.7, 0.5, 0.1, 0.8, 0.8),
+        _ => (0.7, 0.4, 0.5, 0.3, 0.6, 0.7),
     };
     format!(
         r#"
@@ -1876,27 +2388,55 @@ fn finalize(state: &GenesisState, dirs: &AivyxDirs) -> anyhow::Result<()> {
     }
 
     if state.setup_email && !state.email_password.is_empty() {
-        store.put("EMAIL_PASSWORD", state.email_password.as_bytes(), &master_key)?;
+        store.put(
+            "EMAIL_PASSWORD",
+            state.email_password.as_bytes(),
+            &master_key,
+        )?;
     }
 
     // Integration secrets
     if state.integration_flags[0] && !state.calendar_pass.is_empty() {
-        store.put("CALENDAR_PASSWORD", state.calendar_pass.as_bytes(), &master_key)?;
+        store.put(
+            "CALENDAR_PASSWORD",
+            state.calendar_pass.as_bytes(),
+            &master_key,
+        )?;
     }
     if state.integration_flags[1] && !state.contacts_pass.is_empty() {
-        store.put("CONTACTS_PASSWORD", state.contacts_pass.as_bytes(), &master_key)?;
+        store.put(
+            "CONTACTS_PASSWORD",
+            state.contacts_pass.as_bytes(),
+            &master_key,
+        )?;
     }
     if state.integration_flags[2] && !state.telegram_token.is_empty() {
-        store.put("TELEGRAM_BOT_TOKEN", state.telegram_token.as_bytes(), &master_key)?;
+        store.put(
+            "TELEGRAM_BOT_TOKEN",
+            state.telegram_token.as_bytes(),
+            &master_key,
+        )?;
     }
     if state.integration_flags[3] && !state.matrix_token.is_empty() {
-        store.put("MATRIX_ACCESS_TOKEN", state.matrix_token.as_bytes(), &master_key)?;
+        store.put(
+            "MATRIX_ACCESS_TOKEN",
+            state.matrix_token.as_bytes(),
+            &master_key,
+        )?;
     }
     if state.integration_flags[5] && !state.sms_auth_token.is_empty() {
-        store.put("SMS_AUTH_TOKEN", state.sms_auth_token.as_bytes(), &master_key)?;
+        store.put(
+            "SMS_AUTH_TOKEN",
+            state.sms_auth_token.as_bytes(),
+            &master_key,
+        )?;
     }
     if state.integration_flags[8] && !state.devtools_forge_token.is_empty() {
-        store.put("FORGE_TOKEN", state.devtools_forge_token.as_bytes(), &master_key)?;
+        store.put(
+            "FORGE_TOKEN",
+            state.devtools_forge_token.as_bytes(),
+            &master_key,
+        )?;
     }
 
     // 4. Build config.toml
@@ -1980,16 +2520,36 @@ fn finalize(state: &GenesisState, dirs: &AivyxDirs) -> anyhow::Result<()> {
     // Schedules — filter by configured integrations
     if !bundle.schedules.is_empty() {
         let mut configured: Vec<&str> = Vec::new();
-        if state.setup_email                { configured.push("email"); }
-        if state.integration_flags[0]       { configured.push("calendar"); }
-        if state.integration_flags[1]       { configured.push("contacts"); }
-        if state.integration_flags[2]       { configured.push("telegram"); }
-        if state.integration_flags[3]       { configured.push("matrix"); }
-        if state.integration_flags[4]       { configured.push("signal"); }
-        if state.integration_flags[5]       { configured.push("sms"); }
-        if state.integration_flags[6]       { configured.push("vault"); }
-        if state.integration_flags[7]       { configured.push("finance"); }
-        if state.integration_flags[8]       { configured.push("devtools"); }
+        if state.setup_email {
+            configured.push("email");
+        }
+        if state.integration_flags[0] {
+            configured.push("calendar");
+        }
+        if state.integration_flags[1] {
+            configured.push("contacts");
+        }
+        if state.integration_flags[2] {
+            configured.push("telegram");
+        }
+        if state.integration_flags[3] {
+            configured.push("matrix");
+        }
+        if state.integration_flags[4] {
+            configured.push("signal");
+        }
+        if state.integration_flags[5] {
+            configured.push("sms");
+        }
+        if state.integration_flags[6] {
+            configured.push("vault");
+        }
+        if state.integration_flags[7] {
+            configured.push("finance");
+        }
+        if state.integration_flags[8] {
+            configured.push("devtools");
+        }
         config.push_str(&format_schedules_section(
             bundle.schedules,
             state.effective_agent_name(),
@@ -2104,8 +2664,7 @@ fn finalize(state: &GenesisState, dirs: &AivyxDirs) -> anyhow::Result<()> {
 
     // Desktop section — auto-enabled when a display server is present,
     // deep interaction is opt-in via the integration toggle.
-    let has_display = std::env::var("DISPLAY").is_ok()
-        || std::env::var("WAYLAND_DISPLAY").is_ok();
+    let has_display = std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
     if has_display || state.integration_flags[9] {
         config.push_str("\n[desktop]\nclipboard = true\nwindows = true\nnotifications = true\n");
         if state.integration_flags[9] && state.desktop_deep_interaction {

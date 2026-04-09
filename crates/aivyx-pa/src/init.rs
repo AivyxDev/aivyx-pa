@@ -61,10 +61,31 @@ fn guess_smtp_host(email: &str) -> String {
 }
 
 const PROVIDERS: &[(&str, &str, &[&str])] = &[
-    ("Ollama", "ollama", &["qwen3:14b", "qwen2.5-coder:14b", "llama3.1:8b", "mistral:7b"]),
+    (
+        "Ollama",
+        "ollama",
+        &[
+            "qwen3:14b",
+            "qwen2.5-coder:14b",
+            "llama3.1:8b",
+            "mistral:7b",
+        ],
+    ),
     ("OpenAI", "openai", &["gpt-4o", "gpt-4o-mini", "o1-mini"]),
-    ("Claude", "anthropic", &["claude-sonnet-4-20250514", "claude-haiku-4-5-20251001"]),
-    ("OpenAICompatible", "openrouter", &["anthropic/claude-sonnet-4-20250514", "openai/gpt-4o", "google/gemini-2.0-flash-001"]),
+    (
+        "Claude",
+        "anthropic",
+        &["claude-sonnet-4-20250514", "claude-haiku-4-5-20251001"],
+    ),
+    (
+        "OpenAICompatible",
+        "openrouter",
+        &[
+            "anthropic/claude-sonnet-4-20250514",
+            "openai/gpt-4o",
+            "google/gemini-2.0-flash-001",
+        ],
+    ),
 ];
 
 /// Sanitize a string for safe interpolation into a TOML double-quoted value.
@@ -89,7 +110,9 @@ fn prompt(msg: &str) -> anyhow::Result<String> {
     print!("{msg}");
     let _ = io::stdout().flush();
     let mut input = String::new();
-    io::stdin().lock().read_line(&mut input)
+    io::stdin()
+        .lock()
+        .read_line(&mut input)
         .map_err(|e| anyhow::anyhow!("Error reading input: {e}"))?;
     Ok(input.trim().to_string())
 }
@@ -102,7 +125,9 @@ fn prompt_secret(msg: &str) -> anyhow::Result<Zeroizing<String>> {
         Ok(p) => Ok(Zeroizing::new(p)),
         Err(_) => {
             let mut input = String::new();
-            io::stdin().lock().read_line(&mut input)
+            io::stdin()
+                .lock()
+                .read_line(&mut input)
                 .map_err(|e| anyhow::anyhow!("Error reading input: {e}"))?;
             Ok(Zeroizing::new(input.trim().to_string()))
         }
@@ -111,7 +136,11 @@ fn prompt_secret(msg: &str) -> anyhow::Result<Zeroizing<String>> {
 
 fn prompt_default(msg: &str, default: &str) -> anyhow::Result<String> {
     let input = prompt(&format!("{msg} [{default}]: "))?;
-    Ok(if input.is_empty() { default.to_string() } else { input })
+    Ok(if input.is_empty() {
+        default.to_string()
+    } else {
+        input
+    })
 }
 
 // ── Config Section Formatters ──────────────────────────────────────
@@ -183,7 +212,11 @@ priority = "{}"
 /// The `agent` field is required by `ScheduleEntry`, so we set it to
 /// the agent name. `description` from the template becomes a TOML
 /// comment (it's not a field on `ScheduleEntry`).
-fn format_schedules_section(schedules: &[ScheduleTemplate], agent_name: &str, configured: &[&str]) -> String {
+fn format_schedules_section(
+    schedules: &[ScheduleTemplate],
+    agent_name: &str,
+    configured: &[&str],
+) -> String {
     let safe_agent = sanitize_toml_value(agent_name);
     let mut out = String::new();
     let mut skipped = 0usize;
@@ -298,8 +331,14 @@ pub async fn run(home: &Path) -> anyhow::Result<Zeroizing<String>> {
 
     let provider_idx: usize = loop {
         let input = prompt("  Provider [0]: ")?;
-        let val = if input.is_empty() { 0 } else { input.parse().unwrap_or(99) };
-        if val < PROVIDERS.len() { break val; }
+        let val = if input.is_empty() {
+            0
+        } else {
+            input.parse().unwrap_or(99)
+        };
+        if val < PROVIDERS.len() {
+            break val;
+        }
         println!("  Invalid selection.");
     };
 
@@ -386,7 +425,11 @@ pub async fn run(home: &Path) -> anyhow::Result<Zeroizing<String>> {
     // API key for cloud providers (echo suppressed for security)
     let api_key = if provider_type != "Ollama" {
         let key = prompt_secret("  API Key: ")?;
-        if key.is_empty() { None } else { Some((*key).clone()) }
+        if key.is_empty() {
+            None
+        } else {
+            Some((*key).clone())
+        }
     } else {
         None
     };
@@ -406,8 +449,14 @@ pub async fn run(home: &Path) -> anyhow::Result<Zeroizing<String>> {
 
     let persona_idx: usize = loop {
         let input = prompt("  Persona [0]: ")?;
-        let val = if input.is_empty() { 0 } else { input.parse().unwrap_or(99) };
-        if val < PA_PERSONAS.len() { break val; }
+        let val = if input.is_empty() {
+            0
+        } else {
+            input.parse().unwrap_or(99)
+        };
+        if val < PA_PERSONAS.len() {
+            break val;
+        }
         println!("  Invalid selection.");
     };
 
@@ -434,7 +483,15 @@ pub async fn run(home: &Path) -> anyhow::Result<Zeroizing<String>> {
     .map(|(_, name)| *name)
     .collect();
     println!("    Heartbeat: {}", hb_features.join(", "));
-    println!("    Schedules: {}", bundle.schedules.iter().map(|s| s.name).collect::<Vec<_>>().join(", "));
+    println!(
+        "    Schedules: {}",
+        bundle
+            .schedules
+            .iter()
+            .map(|s| s.name)
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
 
     // ── Step 4: Soul ───────────────────────────────────────────
     println!();
@@ -457,10 +514,16 @@ pub async fn run(home: &Path) -> anyhow::Result<Zeroizing<String>> {
             let mut lines = Vec::new();
             loop {
                 let line = prompt("  > ")?;
-                if line.is_empty() { break; }
+                if line.is_empty() {
+                    break;
+                }
                 lines.push(line);
             }
-            if lines.is_empty() { None } else { Some(lines.join("\n")) }
+            if lines.is_empty() {
+                None
+            } else {
+                Some(lines.join("\n"))
+            }
         }
         _ => Some(bundle.soul_template.to_string()), // Y / Enter
     };
@@ -578,16 +641,47 @@ pub async fn run(home: &Path) -> anyhow::Result<Zeroizing<String>> {
 
     let integrations_input = prompt("  Set up any? (comma-separated numbers, or Enter to skip): ")?;
 
-    struct CalendarSetup { url: String, username: String, password: String }
-    struct ContactsSetup { url: String, username: String, password: String }
-    struct TelegramSetup { default_chat_id: Option<String> }
-    struct MatrixSetup { homeserver: String, default_room_id: Option<String> }
-    struct SignalSetup { account: String, socket_path: String }
-    struct SmsSetup { provider: String, account_id: String, from_number: String }
-    struct VaultSetup { path: String }
-    struct FinanceSetup { receipt_folder: String }
-    struct DevToolsSetup { repo_path: String, forge: Option<String>, forge_api_url: Option<String>, repo: Option<String> }
-    struct DesktopInteractionSetup { enabled: bool }
+    struct CalendarSetup {
+        url: String,
+        username: String,
+        password: String,
+    }
+    struct ContactsSetup {
+        url: String,
+        username: String,
+        password: String,
+    }
+    struct TelegramSetup {
+        default_chat_id: Option<String>,
+    }
+    struct MatrixSetup {
+        homeserver: String,
+        default_room_id: Option<String>,
+    }
+    struct SignalSetup {
+        account: String,
+        socket_path: String,
+    }
+    struct SmsSetup {
+        provider: String,
+        account_id: String,
+        from_number: String,
+    }
+    struct VaultSetup {
+        path: String,
+    }
+    struct FinanceSetup {
+        receipt_folder: String,
+    }
+    struct DevToolsSetup {
+        repo_path: String,
+        forge: Option<String>,
+        forge_api_url: Option<String>,
+        repo: Option<String>,
+    }
+    struct DesktopInteractionSetup {
+        enabled: bool,
+    }
 
     let mut integration_secrets: Vec<(&str, String)> = Vec::new();
     let mut calendar_setup: Option<CalendarSetup> = None;
@@ -616,7 +710,11 @@ pub async fn run(home: &Path) -> anyhow::Result<Zeroizing<String>> {
                 let url = prompt("    Server URL: ")?;
                 let username = prompt("    Username: ")?;
                 let password = prompt_secret("    Password: ")?.to_string();
-                calendar_setup = Some(CalendarSetup { url, username, password });
+                calendar_setup = Some(CalendarSetup {
+                    url,
+                    username,
+                    password,
+                });
             }
             2 => {
                 println!();
@@ -624,7 +722,11 @@ pub async fn run(home: &Path) -> anyhow::Result<Zeroizing<String>> {
                 let url = prompt("    Server URL: ")?;
                 let username = prompt("    Username: ")?;
                 let password = prompt_secret("    Password: ")?.to_string();
-                contacts_setup = Some(ContactsSetup { url, username, password });
+                contacts_setup = Some(ContactsSetup {
+                    url,
+                    username,
+                    password,
+                });
             }
             3 => {
                 println!();
@@ -632,7 +734,11 @@ pub async fn run(home: &Path) -> anyhow::Result<Zeroizing<String>> {
                 let token = prompt_secret("    Bot token: ")?.to_string();
                 let chat_id = prompt("    Default chat ID (optional): ")?;
                 telegram_setup = Some(TelegramSetup {
-                    default_chat_id: if chat_id.is_empty() { None } else { Some(chat_id) },
+                    default_chat_id: if chat_id.is_empty() {
+                        None
+                    } else {
+                        Some(chat_id)
+                    },
                 });
                 integration_secrets.push(("TELEGRAM_BOT_TOKEN", token));
             }
@@ -644,7 +750,11 @@ pub async fn run(home: &Path) -> anyhow::Result<Zeroizing<String>> {
                 let room_id = prompt("    Default room ID (optional): ")?;
                 matrix_setup = Some(MatrixSetup {
                     homeserver,
-                    default_room_id: if room_id.is_empty() { None } else { Some(room_id) },
+                    default_room_id: if room_id.is_empty() {
+                        None
+                    } else {
+                        Some(room_id)
+                    },
                 });
                 integration_secrets.push(("MATRIX_ACCESS_TOKEN", token));
             }
@@ -653,14 +763,21 @@ pub async fn run(home: &Path) -> anyhow::Result<Zeroizing<String>> {
                 println!("  Signal:");
                 let account = prompt("    Phone number: ")?;
                 let socket_path = prompt_default("    Socket path", "/var/run/signal-cli/socket")?;
-                signal_setup = Some(SignalSetup { account, socket_path });
+                signal_setup = Some(SignalSetup {
+                    account,
+                    socket_path,
+                });
             }
             6 => {
                 println!();
                 println!("  SMS:");
                 println!("    Providers: [1] Twilio  [2] Vonage");
                 let provider_choice = prompt_default("    Provider", "1")?;
-                let provider = if provider_choice == "2" { "vonage" } else { "twilio" };
+                let provider = if provider_choice == "2" {
+                    "vonage"
+                } else {
+                    "twilio"
+                };
                 let account_id = prompt("    Account ID / API Key: ")?;
                 let auth_token = prompt_secret("    Auth Token: ")?.to_string();
                 let from_number = prompt("    From number (E.164, e.g. +15551234567): ")?;
@@ -684,7 +801,8 @@ pub async fn run(home: &Path) -> anyhow::Result<Zeroizing<String>> {
                 println!("  Finance Tracking:");
                 println!("    Track expenses, bills, and budgets. Detects transactions");
                 println!("    from emails automatically when email is configured.");
-                let receipt_folder = prompt_default("    Receipt subfolder (in vault)", "receipts")?;
+                let receipt_folder =
+                    prompt_default("    Receipt subfolder (in vault)", "receipts")?;
                 finance_setup = Some(FinanceSetup { receipt_folder });
             }
             9 => {
@@ -695,9 +813,15 @@ pub async fn run(home: &Path) -> anyhow::Result<Zeroizing<String>> {
                 let (forge, forge_api_url, repo) = if setup_forge.to_lowercase().starts_with('y') {
                     println!("    Forge: [1] GitHub  [2] Gitea");
                     let forge_choice = prompt_default("    Forge", "1")?;
-                    let forge_name = if forge_choice == "2" { "gitea" } else { "github" };
+                    let forge_name = if forge_choice == "2" {
+                        "gitea"
+                    } else {
+                        "github"
+                    };
                     let api_url = if forge_name == "gitea" {
-                        Some(prompt("    Gitea API URL (e.g. https://gitea.example.com/api/v1): ")?)
+                        Some(prompt(
+                            "    Gitea API URL (e.g. https://gitea.example.com/api/v1): ",
+                        )?)
                     } else {
                         None // GitHub uses default
                     };
@@ -707,12 +831,21 @@ pub async fn run(home: &Path) -> anyhow::Result<Zeroizing<String>> {
                     (
                         Some(forge_name.to_string()),
                         api_url,
-                        if repo_slug.is_empty() { None } else { Some(repo_slug) },
+                        if repo_slug.is_empty() {
+                            None
+                        } else {
+                            Some(repo_slug)
+                        },
                     )
                 } else {
                     (None, None, None)
                 };
-                devtools_setup = Some(DevToolsSetup { repo_path, forge, forge_api_url, repo });
+                devtools_setup = Some(DevToolsSetup {
+                    repo_path,
+                    forge,
+                    forge_api_url,
+                    repo,
+                });
             }
             10 => {
                 println!();
@@ -885,7 +1018,8 @@ model = "{safe_model}""#
     };
 
     // ── Build config.toml incrementally ───────────────────────
-    let mut config_toml = format!("# Aivyx Personal Assistant Configuration\n\n{provider_section}\n");
+    let mut config_toml =
+        format!("# Aivyx Personal Assistant Configuration\n\n{provider_section}\n");
 
     config_toml.push_str("\n[autonomy]\ndefault_tier = \"Trust\"\n");
 
@@ -922,17 +1056,41 @@ model = "{safe_model}""#
     // Schedules from persona defaults — skip schedules that require unconfigured integrations.
     if !bundle.schedules.is_empty() {
         let mut configured_integrations: Vec<&str> = Vec::new();
-        if email_settings.is_some() { configured_integrations.push("email"); }
-        if calendar_setup.is_some() { configured_integrations.push("calendar"); }
-        if contacts_setup.is_some() { configured_integrations.push("contacts"); }
-        if telegram_setup.is_some() { configured_integrations.push("telegram"); }
-        if matrix_setup.is_some() { configured_integrations.push("matrix"); }
-        if signal_setup.is_some() { configured_integrations.push("signal"); }
-        if sms_setup.is_some() { configured_integrations.push("sms"); }
-        if vault_setup.is_some() { configured_integrations.push("vault"); }
-        if finance_setup.is_some() { configured_integrations.push("finance"); }
-        if devtools_setup.is_some() { configured_integrations.push("devtools"); }
-        config_toml.push_str(&format_schedules_section(bundle.schedules, &agent_name, &configured_integrations));
+        if email_settings.is_some() {
+            configured_integrations.push("email");
+        }
+        if calendar_setup.is_some() {
+            configured_integrations.push("calendar");
+        }
+        if contacts_setup.is_some() {
+            configured_integrations.push("contacts");
+        }
+        if telegram_setup.is_some() {
+            configured_integrations.push("telegram");
+        }
+        if matrix_setup.is_some() {
+            configured_integrations.push("matrix");
+        }
+        if signal_setup.is_some() {
+            configured_integrations.push("signal");
+        }
+        if sms_setup.is_some() {
+            configured_integrations.push("sms");
+        }
+        if vault_setup.is_some() {
+            configured_integrations.push("vault");
+        }
+        if finance_setup.is_some() {
+            configured_integrations.push("finance");
+        }
+        if devtools_setup.is_some() {
+            configured_integrations.push("devtools");
+        }
+        config_toml.push_str(&format_schedules_section(
+            bundle.schedules,
+            &agent_name,
+            &configured_integrations,
+        ));
     }
 
     // Email
@@ -1014,10 +1172,7 @@ model = "{safe_model}""#
             sanitize_toml_value(&dt.repo_path),
         ));
         if let Some(ref forge) = dt.forge {
-            config_toml.push_str(&format!(
-                "forge = \"{}\"\n",
-                sanitize_toml_value(forge),
-            ));
+            config_toml.push_str(&format!("forge = \"{}\"\n", sanitize_toml_value(forge),));
         }
         if let Some(ref url) = dt.forge_api_url {
             config_toml.push_str(&format!(
@@ -1035,8 +1190,7 @@ model = "{safe_model}""#
 
     // Desktop section — always write when a display server is present,
     // even without deep interaction, so users can see and modify it.
-    let has_display = std::env::var("DISPLAY").is_ok()
-        || std::env::var("WAYLAND_DISPLAY").is_ok();
+    let has_display = std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
     if has_display || desktop_interaction_setup.is_some() {
         config_toml.push_str("\n[desktop]\n# Auto-enabled: display server detected\nclipboard = true\nwindows = true\nnotifications = true\n");
 
@@ -1065,7 +1219,6 @@ model = "{safe_model}""#
             ));
         }
     }
-
 
     std::fs::write(dirs.config_path(), config_toml)?;
 
@@ -1100,7 +1253,10 @@ model = "{safe_model}""#
         finance_setup.is_some(),
         devtools_setup.is_some(),
         desktop_interaction_setup.is_some(),
-    ].iter().filter(|&&x| x).count();
+    ]
+    .iter()
+    .filter(|&&x| x)
+    .count();
     if integration_count > 0 {
         println!("  Integrations: {integration_count} configured");
     }
@@ -1143,7 +1299,10 @@ persona = "assistant"
         let hb = config.heartbeat.expect("heartbeat section missing");
         assert!(hb.enabled);
         assert_eq!(hb.can_reflect, bundle.heartbeat.can_reflect);
-        assert_eq!(hb.can_analyze_failures, bundle.heartbeat.can_analyze_failures);
+        assert_eq!(
+            hb.can_analyze_failures,
+            bundle.heartbeat.can_analyze_failures
+        );
         assert_eq!(hb.can_track_mood, bundle.heartbeat.can_track_mood);
         assert_eq!(hb.notification_pacing, bundle.heartbeat.notification_pacing);
     }
@@ -1154,7 +1313,10 @@ persona = "assistant"
         let fragment = format_goals_section(bundle.goals);
         let config = parse_with_fragment(&fragment);
         assert_eq!(config.initial_goals.len(), bundle.goals.len());
-        assert_eq!(config.initial_goals[0].description, bundle.goals[0].description);
+        assert_eq!(
+            config.initial_goals[0].description,
+            bundle.goals[0].description
+        );
         assert_eq!(config.initial_goals[0].priority, bundle.goals[0].priority);
     }
 
@@ -1178,13 +1340,21 @@ persona = "assistant"
         let none: &[&str] = &[];
         let fragment = format_schedules_section(bundle.schedules, "test", none);
         let config = parse_with_fragment(&fragment);
-        assert_eq!(config.schedules.len(), 0, "All coder schedules need devtools");
+        assert_eq!(
+            config.schedules.len(),
+            0,
+            "All coder schedules need devtools"
+        );
 
         // With devtools configured, all should be included.
         let with_devtools = &["devtools"];
         let fragment = format_schedules_section(bundle.schedules, "test", with_devtools);
         let config = parse_with_fragment(&fragment);
-        assert_eq!(config.schedules.len(), 3, "All coder schedules should be included with devtools");
+        assert_eq!(
+            config.schedules.len(),
+            3,
+            "All coder schedules should be included with devtools"
+        );
     }
 
     #[test]
@@ -1278,7 +1448,11 @@ enabled = true
         let mut f = tempfile::NamedTempFile::new().unwrap();
         write!(f, "[agent]\nname = \"test\"\n\n[emal]\nimap_host = \"x\"\n").unwrap();
         let warnings = PaConfig::lint(f.path(), None, None);
-        assert!(warnings.iter().any(|w| w.contains("Unknown section [emal]")));
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("Unknown section [emal]"))
+        );
         assert!(warnings.iter().any(|w| w.contains("did you mean [email]?")));
     }
 
@@ -1307,7 +1481,11 @@ enabled = true
         let mut f = tempfile::NamedTempFile::new().unwrap();
         write!(f, "[agent]\nname = \"test\"\npersona = \"assistant\"\n\n[heartbeat]\nenabled = true\ninterval_minutes = 30\n").unwrap();
         let warnings = PaConfig::lint(f.path(), None, None);
-        assert!(warnings.is_empty(), "Expected no warnings, got: {:?}", warnings);
+        assert!(
+            warnings.is_empty(),
+            "Expected no warnings, got: {:?}",
+            warnings
+        );
     }
 
     /// End-to-end test: build a full genesis config for every persona with
@@ -1315,24 +1493,45 @@ enabled = true
     /// PaConfig and verify the SettingsSnapshot.
     #[test]
     fn genesis_config_end_to_end_all_personas() {
-        use aivyx_config::AivyxConfig;
         use crate::settings::reload_settings_snapshot;
+        use aivyx_config::AivyxConfig;
 
-        let personas = ["assistant", "coder", "researcher", "writer", "coach", "companion", "ops", "analyst"];
+        let personas = [
+            "assistant",
+            "coder",
+            "researcher",
+            "writer",
+            "coach",
+            "companion",
+            "ops",
+            "analyst",
+        ];
         let providers = [
-            ("Ollama", r#"type = "Ollama"
+            (
+                "Ollama",
+                r#"type = "Ollama"
 base_url = "http://localhost:11434"
-model = "qwen3:8b""#),
-            ("Claude", r#"type = "Claude"
+model = "qwen3:8b""#,
+            ),
+            (
+                "Claude",
+                r#"type = "Claude"
 api_key_ref = "ANTHROPIC_API_KEY"
-model = "claude-sonnet-4-20250514""#),
-            ("OpenAI", r#"type = "OpenAI"
+model = "claude-sonnet-4-20250514""#,
+            ),
+            (
+                "OpenAI",
+                r#"type = "OpenAI"
 api_key_ref = "OPENAI_API_KEY"
-model = "gpt-4o""#),
-            ("OpenAICompatible", r#"type = "OpenAICompatible"
+model = "gpt-4o""#,
+            ),
+            (
+                "OpenAICompatible",
+                r#"type = "OpenAICompatible"
 api_key_ref = "OPENROUTER_API_KEY"
 base_url = "https://openrouter.ai/api"
-model = "deepseek/deepseek-r1""#),
+model = "deepseek/deepseek-r1""#,
+            ),
         ];
 
         for persona in &personas {
@@ -1341,7 +1540,9 @@ model = "deepseek/deepseek-r1""#),
                 let safe_agent = "TestAgent";
 
                 // Build config.toml exactly as genesis does
-                let mut config = format!("# Genesis E2E test: {persona} + {provider_label}\n\n[provider]\n{provider_toml}\n");
+                let mut config = format!(
+                    "# Genesis E2E test: {persona} + {provider_label}\n\n[provider]\n{provider_toml}\n"
+                );
 
                 config.push_str("\n[autonomy]\ndefault_tier = \"Trust\"\n");
 
@@ -1368,12 +1569,19 @@ model = "deepseek/deepseek-r1""#),
                 config.push_str(&format_goals_section(bundle.goals));
 
                 // Schedules — all integrations "configured" so nothing is skipped
-                let all_integrations = vec!["email", "calendar", "contacts", "telegram",
-                    "matrix", "signal", "sms", "vault", "finance", "devtools"];
-                config.push_str(&format_schedules_section(bundle.schedules, safe_agent, &all_integrations));
+                let all_integrations = vec![
+                    "email", "calendar", "contacts", "telegram", "matrix", "signal", "sms",
+                    "vault", "finance", "devtools",
+                ];
+                config.push_str(&format_schedules_section(
+                    bundle.schedules,
+                    safe_agent,
+                    &all_integrations,
+                ));
 
                 // All integration sections
-                config.push_str(r#"
+                config.push_str(
+                    r#"
 [email]
 imap_host = "imap.example.com"
 imap_port = 993
@@ -1431,48 +1639,80 @@ repo = "user/project"
 clipboard = true
 windows = true
 notifications = true
-"#);
+"#,
+                );
 
                 // ── Step 1: Verify raw TOML parses ──────────────
                 let core_result = toml::from_str::<AivyxConfig>(&config);
-                assert!(core_result.is_ok(),
+                assert!(
+                    core_result.is_ok(),
                     "AivyxConfig parse FAILED for {persona}+{provider_label}:\n{}\nConfig:\n{config}",
-                    core_result.unwrap_err());
+                    core_result.unwrap_err()
+                );
 
                 let pa_result = toml::from_str::<PaConfig>(&config);
-                assert!(pa_result.is_ok(),
+                assert!(
+                    pa_result.is_ok(),
                     "PaConfig parse FAILED for {persona}+{provider_label}:\n{}\nConfig:\n{config}",
-                    pa_result.unwrap_err());
+                    pa_result.unwrap_err()
+                );
 
                 // ── Step 2: Verify via reload_settings_snapshot ─
                 let mut f = tempfile::NamedTempFile::new().unwrap();
                 std::io::Write::write_all(&mut f, config.as_bytes()).unwrap();
                 let snapshot = reload_settings_snapshot(f.path());
-                assert!(snapshot.is_ok(),
+                assert!(
+                    snapshot.is_ok(),
                     "reload_settings_snapshot FAILED for {persona}+{provider_label}: {}",
-                    snapshot.unwrap_err());
+                    snapshot.unwrap_err()
+                );
                 let s = snapshot.unwrap();
 
                 // ── Step 3: Verify snapshot fields ──────────────
-                assert_eq!(s.agent_name, "TestAgent", "{persona}+{provider_label}: agent_name");
-                assert_eq!(s.agent_persona, *persona, "{persona}+{provider_label}: persona");
-                assert_eq!(s.provider_label, match *provider_label {
-                    "Ollama" => "Ollama",
-                    "Claude" => "Claude",
-                    "OpenAI" => "OpenAI",
-                    "OpenAICompatible" => "OpenAI-Compatible",
-                    _ => panic!("unknown provider"),
-                }, "{persona}+{provider_label}: provider_label");
-                assert!(!s.agent_skills.is_empty(), "{persona}+{provider_label}: skills should not be empty");
-                assert!(s.has_custom_soul, "{persona}+{provider_label}: should have custom soul");
-                assert_eq!(s.autonomy_tier, "Trust", "{persona}+{provider_label}: autonomy tier");
+                assert_eq!(
+                    s.agent_name, "TestAgent",
+                    "{persona}+{provider_label}: agent_name"
+                );
+                assert_eq!(
+                    s.agent_persona, *persona,
+                    "{persona}+{provider_label}: persona"
+                );
+                assert_eq!(
+                    s.provider_label,
+                    match *provider_label {
+                        "Ollama" => "Ollama",
+                        "Claude" => "Claude",
+                        "OpenAI" => "OpenAI",
+                        "OpenAICompatible" => "OpenAI-Compatible",
+                        _ => panic!("unknown provider"),
+                    },
+                    "{persona}+{provider_label}: provider_label"
+                );
+                assert!(
+                    !s.agent_skills.is_empty(),
+                    "{persona}+{provider_label}: skills should not be empty"
+                );
+                assert!(
+                    s.has_custom_soul,
+                    "{persona}+{provider_label}: should have custom soul"
+                );
+                assert_eq!(
+                    s.autonomy_tier, "Trust",
+                    "{persona}+{provider_label}: autonomy tier"
+                );
 
                 // Heartbeat
-                assert!(s.heartbeat_enabled, "{persona}+{provider_label}: heartbeat should be enabled");
+                assert!(
+                    s.heartbeat_enabled,
+                    "{persona}+{provider_label}: heartbeat should be enabled"
+                );
                 assert_eq!(s.heartbeat_interval, 30);
 
                 // Persona dimensions present
-                assert!(s.persona_dimensions.is_some(), "{persona}+{provider_label}: persona dimensions");
+                assert!(
+                    s.persona_dimensions.is_some(),
+                    "{persona}+{provider_label}: persona dimensions"
+                );
 
                 // Loop
                 assert!(s.morning_briefing);
@@ -1485,16 +1725,28 @@ notifications = true
                 // Integrations — all should be configured
                 assert!(s.email_configured, "{persona}+{provider_label}: email");
                 assert_eq!(s.email_address.as_deref(), Some("user@example.com"));
-                assert!(s.calendar_configured, "{persona}+{provider_label}: calendar");
-                assert!(s.contacts_configured, "{persona}+{provider_label}: contacts");
-                assert!(s.telegram_configured, "{persona}+{provider_label}: telegram");
+                assert!(
+                    s.calendar_configured,
+                    "{persona}+{provider_label}: calendar"
+                );
+                assert!(
+                    s.contacts_configured,
+                    "{persona}+{provider_label}: contacts"
+                );
+                assert!(
+                    s.telegram_configured,
+                    "{persona}+{provider_label}: telegram"
+                );
                 assert!(s.matrix_configured, "{persona}+{provider_label}: matrix");
                 assert!(s.matrix_homeserver.as_deref() == Some("https://matrix.example.com"));
                 assert!(s.signal_configured, "{persona}+{provider_label}: signal");
                 assert!(s.sms_configured, "{persona}+{provider_label}: sms");
                 assert!(s.vault_configured, "{persona}+{provider_label}: vault");
                 assert!(s.finance_configured, "{persona}+{provider_label}: finance");
-                assert!(s.devtools_configured, "{persona}+{provider_label}: devtools");
+                assert!(
+                    s.devtools_configured,
+                    "{persona}+{provider_label}: devtools"
+                );
                 assert!(s.desktop_configured, "{persona}+{provider_label}: desktop");
             }
         }
@@ -1518,12 +1770,15 @@ default_tier = "Trust"
 name = "Aria"
 persona = "assistant"
 "#;
-        let core: AivyxConfig = toml::from_str(config)
-            .unwrap_or_else(|e| panic!("AivyxConfig failed: {e}"));
-        let pa: PaConfig = toml::from_str(config)
-            .unwrap_or_else(|e| panic!("PaConfig failed: {e}"));
+        let core: AivyxConfig =
+            toml::from_str(config).unwrap_or_else(|e| panic!("AivyxConfig failed: {e}"));
+        let pa: PaConfig =
+            toml::from_str(config).unwrap_or_else(|e| panic!("PaConfig failed: {e}"));
 
-        assert!(matches!(core.provider, aivyx_config::ProviderConfig::Ollama { .. }));
+        assert!(matches!(
+            core.provider,
+            aivyx_config::ProviderConfig::Ollama { .. }
+        ));
         assert_eq!(pa.agent.unwrap().name, "Aria");
         assert!(pa.email.is_none());
         assert!(pa.desktop.is_none());

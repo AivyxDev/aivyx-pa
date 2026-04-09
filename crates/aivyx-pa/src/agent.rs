@@ -10,23 +10,23 @@ use aivyx_agent::brain_tools::{
 };
 use aivyx_agent::cost_tracker::CostTracker;
 use aivyx_agent::rate_limiter::RateLimiter;
+use aivyx_audit::AuditLog;
 use aivyx_brain::{Brain, BrainStore, GoalFilter, GoalStatus};
-use aivyx_capability::{CapabilitySet, Capability, ActionPattern, CapabilityScope};
+use aivyx_capability::{ActionPattern, Capability, CapabilityScope, CapabilitySet};
 use aivyx_config::{AivyxConfig, AivyxDirs, McpServerConfig};
 use aivyx_core::{AgentId, CapabilityId, Principal, ToolRegistry};
-use aivyx_audit::AuditLog;
 use aivyx_crypto::{EncryptedStore, MasterKey, derive_audit_key, derive_brain_key};
 use aivyx_llm::{LlmProvider, create_embedding_provider};
 use aivyx_memory::{MemoryManager, MemoryStore};
 use aivyx_task_engine::{
-    MissionToolContext, Mission, TaskEngine, TaskStore, TaskStatus, StepStatus,
-    ExecutionMode, ExperimentTracker, FactoryRecipe, create_mission_tools,
+    ExecutionMode, ExperimentTracker, FactoryRecipe, Mission, MissionToolContext, StepStatus,
+    TaskEngine, TaskStatus, TaskStore, create_mission_tools,
 };
 
+use crate::config::PaConfig;
 use aivyx_actions::bridge::register_default_actions;
 use aivyx_actions::plugin::PluginState;
 use aivyx_mcp::{McpClient, McpProxyTool, McpServerPool, ToolResultCache};
-use crate::config::PaConfig;
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -112,14 +112,14 @@ impl aivyx_core::Tool for BrainUpdateSelfModelTool {
     }
 
     fn required_scope(&self) -> Option<aivyx_capability::CapabilityScope> {
-        Some(aivyx_capability::CapabilityScope::Custom("self-improvement".into()))
+        Some(aivyx_capability::CapabilityScope::Custom(
+            "self-improvement".into(),
+        ))
     }
 
     async fn execute(&self, input: serde_json::Value) -> aivyx_core::Result<serde_json::Value> {
         // Load current self-model (or create empty)
-        let mut model = self.store
-            .load_self_model(&self.key)?
-            .unwrap_or_default();
+        let mut model = self.store.load_self_model(&self.key)?.unwrap_or_default();
 
         let mut changes = Vec::new();
 
@@ -127,10 +127,11 @@ impl aivyx_core::Tool for BrainUpdateSelfModelTool {
         if let Some(items) = input["add_strengths"].as_array() {
             for item in items {
                 if let Some(s) = item.as_str()
-                    && !model.strengths.contains(&s.to_string()) {
-                        model.strengths.push(s.to_string());
-                        changes.push(format!("added strength: {s}"));
-                    }
+                    && !model.strengths.contains(&s.to_string())
+                {
+                    model.strengths.push(s.to_string());
+                    changes.push(format!("added strength: {s}"));
+                }
             }
         }
 
@@ -151,10 +152,11 @@ impl aivyx_core::Tool for BrainUpdateSelfModelTool {
         if let Some(items) = input["add_weaknesses"].as_array() {
             for item in items {
                 if let Some(s) = item.as_str()
-                    && !model.weaknesses.contains(&s.to_string()) {
-                        model.weaknesses.push(s.to_string());
-                        changes.push(format!("added weakness: {s}"));
-                    }
+                    && !model.weaknesses.contains(&s.to_string())
+                {
+                    model.weaknesses.push(s.to_string());
+                    changes.push(format!("added weakness: {s}"));
+                }
             }
         }
 
@@ -177,7 +179,10 @@ impl aivyx_core::Tool for BrainUpdateSelfModelTool {
                 if let Some(s) = score.as_f64() {
                     let clamped = s.clamp(0.0, 1.0) as f32;
                     model.domain_confidence.insert(domain.clone(), clamped);
-                    changes.push(format!("domain '{domain}' confidence: {:.0}%", clamped * 100.0));
+                    changes.push(format!(
+                        "domain '{domain}' confidence: {:.0}%",
+                        clamped * 100.0
+                    ));
                 }
             }
         }
@@ -188,7 +193,10 @@ impl aivyx_core::Tool for BrainUpdateSelfModelTool {
                 if let Some(s) = score.as_f64() {
                     let clamped = s.clamp(0.0, 1.0) as f32;
                     model.tool_proficiency.insert(tool.clone(), clamped);
-                    changes.push(format!("tool '{tool}' proficiency: {:.0}%", clamped * 100.0));
+                    changes.push(format!(
+                        "tool '{tool}' proficiency: {:.0}%",
+                        clamped * 100.0
+                    ));
                 }
             }
         }
@@ -227,14 +235,21 @@ struct McpListPromptsTool {
 
 impl McpListPromptsTool {
     fn new(pool: Arc<McpServerPool>) -> Self {
-        Self { id: aivyx_core::ToolId::new(), pool }
+        Self {
+            id: aivyx_core::ToolId::new(),
+            pool,
+        }
     }
 }
 
 #[async_trait::async_trait]
 impl aivyx_core::Tool for McpListPromptsTool {
-    fn id(&self) -> aivyx_core::ToolId { self.id }
-    fn name(&self) -> &str { "mcp_list_prompts" }
+    fn id(&self) -> aivyx_core::ToolId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "mcp_list_prompts"
+    }
     fn description(&self) -> &str {
         "List prompt templates available from connected MCP servers. \
          These are pre-built prompt templates the servers provide."
@@ -250,7 +265,9 @@ impl aivyx_core::Tool for McpListPromptsTool {
             }
         })
     }
-    fn required_scope(&self) -> Option<aivyx_capability::CapabilityScope> { None }
+    fn required_scope(&self) -> Option<aivyx_capability::CapabilityScope> {
+        None
+    }
 
     async fn execute(&self, input: serde_json::Value) -> aivyx_core::Result<serde_json::Value> {
         let server_filter = input["server"].as_str();
@@ -258,7 +275,10 @@ impl aivyx_core::Tool for McpListPromptsTool {
 
         for name in self.pool.server_names().await {
             if let Some(filter) = server_filter
-                && name != filter { continue; }
+                && name != filter
+            {
+                continue;
+            }
             if let Some(client) = self.pool.get(&name).await {
                 match client.list_prompts().await {
                     Ok(prompts) => {
@@ -304,8 +324,12 @@ impl ListDiscoveredPatternsTool {
 
 #[async_trait::async_trait]
 impl aivyx_core::Tool for ListDiscoveredPatternsTool {
-    fn id(&self) -> aivyx_core::ToolId { self.id }
-    fn name(&self) -> &str { "list_discovered_patterns" }
+    fn id(&self) -> aivyx_core::ToolId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "list_discovered_patterns"
+    }
     fn description(&self) -> &str {
         "List workflow patterns automatically discovered from your tool usage history. \
          Patterns are sequences of tools that frequently succeed together."
@@ -325,7 +349,9 @@ impl aivyx_core::Tool for ListDiscoveredPatternsTool {
             }
         })
     }
-    fn required_scope(&self) -> Option<aivyx_capability::CapabilityScope> { None }
+    fn required_scope(&self) -> Option<aivyx_capability::CapabilityScope> {
+        None
+    }
 
     async fn execute(&self, input: serde_json::Value) -> aivyx_core::Result<serde_json::Value> {
         let min_occ = input["min_occurrences"].as_u64().unwrap_or(2) as u32;
@@ -339,16 +365,19 @@ impl aivyx_core::Tool for ListDiscoveredPatternsTool {
         };
         let patterns = mm.query_patterns(&filter).unwrap_or_default();
 
-        let results: Vec<serde_json::Value> = patterns.iter().map(|p| {
-            serde_json::json!({
-                "id": p.id.to_string(),
-                "tool_sequence": p.tool_sequence,
-                "occurrences": p.occurrence_count,
-                "success_rate": p.success_rate,
-                "avg_duration_ms": p.avg_duration_ms,
-                "keywords": p.goal_keywords,
+        let results: Vec<serde_json::Value> = patterns
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "id": p.id.to_string(),
+                    "tool_sequence": p.tool_sequence,
+                    "occurrences": p.occurrence_count,
+                    "success_rate": p.success_rate,
+                    "avg_duration_ms": p.avg_duration_ms,
+                    "keywords": p.goal_keywords,
+                })
             })
-        }).collect();
+            .collect();
 
         Ok(serde_json::json!({
             "patterns": results,
@@ -408,8 +437,12 @@ impl PaMissionCreateTool {
 
 #[async_trait::async_trait]
 impl aivyx_core::Tool for PaMissionCreateTool {
-    fn id(&self) -> aivyx_core::ToolId { self.id }
-    fn name(&self) -> &str { "mission_create" }
+    fn id(&self) -> aivyx_core::ToolId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "mission_create"
+    }
 
     fn description(&self) -> &str {
         "Create a new mission from a goal. The goal is decomposed into steps and \
@@ -479,16 +512,18 @@ impl aivyx_core::Tool for PaMissionCreateTool {
             // Build engine from context fields (mirrors build_engine helper).
             let bg_engine = match (|| -> aivyx_core::Result<TaskEngine> {
                 let mk = {
-                    let bytes: [u8; 32] = bg_ctx.master_key_bytes.as_slice()
-                        .try_into()
-                        .map_err(|_| aivyx_core::AivyxError::Crypto("invalid master key length".into()))?;
+                    let bytes: [u8; 32] =
+                        bg_ctx.master_key_bytes.as_slice().try_into().map_err(|_| {
+                            aivyx_core::AivyxError::Crypto("invalid master key length".into())
+                        })?;
                     MasterKey::from_bytes(bytes)
                 };
                 let task_key = aivyx_crypto::derive_task_key(&mk);
                 let store = TaskStore::open(bg_ctx.dirs.tasks_dir().join("tasks.db"))?;
                 let audit_key = derive_audit_key(&mk);
                 let audit_log = AuditLog::new(bg_ctx.dirs.audit_path(), &audit_key);
-                let mut engine = TaskEngine::new(bg_ctx.session.clone(), store, task_key, Some(audit_log));
+                let mut engine =
+                    TaskEngine::new(bg_ctx.session.clone(), store, task_key, Some(audit_log));
                 if let Some(ref mm) = bg_ctx.memory_manager {
                     engine = engine.with_memory_manager(mm.clone());
                 }
@@ -502,10 +537,9 @@ impl aivyx_core::Tool for PaMissionCreateTool {
             };
 
             let timeout = std::time::Duration::from_secs(1800);
-            let result = tokio::time::timeout(
-                timeout,
-                bg_engine.execute_mission(&bg_task_id, None, None),
-            ).await;
+            let result =
+                tokio::time::timeout(timeout, bg_engine.execute_mission(&bg_task_id, None, None))
+                    .await;
 
             // Load the final mission state for the bridge.
             let mission = match bg_engine.get_mission(&bg_task_id) {
@@ -532,7 +566,9 @@ impl aivyx_core::Tool for PaMissionCreateTool {
                 let mut t = tracker.lock().await;
                 // Use the recipe name as pattern description if available,
                 // otherwise fall back to a truncated goal.
-                let desc = mission.recipe_name.as_deref()
+                let desc = mission
+                    .recipe_name
+                    .as_deref()
                     .unwrap_or_else(|| &bg_goal[..bg_goal.len().min(80)]);
                 t.record(
                     aivyx_core::PatternId::new(),
@@ -585,8 +621,12 @@ impl MissionFromRecipeTool {
 
 #[async_trait::async_trait]
 impl aivyx_core::Tool for MissionFromRecipeTool {
-    fn id(&self) -> aivyx_core::ToolId { self.id }
-    fn name(&self) -> &str { "mission_from_recipe" }
+    fn id(&self) -> aivyx_core::ToolId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "mission_from_recipe"
+    }
 
     fn description(&self) -> &str {
         "Create a mission from a TOML recipe template. \
@@ -626,20 +666,22 @@ impl aivyx_core::Tool for MissionFromRecipeTool {
         if recipe_name == "list" {
             let mut recipes = Vec::new();
             if self.recipe_dir.is_dir()
-                && let Ok(entries) = std::fs::read_dir(&self.recipe_dir) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if path.extension().is_some_and(|e| e == "toml")
-                            && let Ok(r) = FactoryRecipe::load(&path) {
-                                recipes.push(serde_json::json!({
-                                    "name": path.file_stem().unwrap_or_default().to_string_lossy(),
-                                    "description": r.factory.description,
-                                    "stages": r.stages.len(),
-                                    "tags": r.factory.tags,
-                                }));
-                            }
+                && let Ok(entries) = std::fs::read_dir(&self.recipe_dir)
+            {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().is_some_and(|e| e == "toml")
+                        && let Ok(r) = FactoryRecipe::load(&path)
+                    {
+                        recipes.push(serde_json::json!({
+                            "name": path.file_stem().unwrap_or_default().to_string_lossy(),
+                            "description": r.factory.description,
+                            "stages": r.stages.len(),
+                            "tags": r.factory.tags,
+                        }));
                     }
                 }
+            }
             return Ok(serde_json::json!({
                 "recipes": recipes,
                 "recipe_dir": self.recipe_dir.display().to_string(),
@@ -647,11 +689,11 @@ impl aivyx_core::Tool for MissionFromRecipeTool {
         }
 
         // Create mode: load recipe and build mission.
-        let goal = input["goal"]
-            .as_str()
-            .ok_or_else(|| AivyxError::Agent(
+        let goal = input["goal"].as_str().ok_or_else(|| {
+            AivyxError::Agent(
                 "mission_from_recipe: 'goal' is required when creating a mission".into(),
-            ))?;
+            )
+        })?;
 
         let recipe_path = self.recipe_dir.join(format!("{recipe_name}.toml"));
         let recipe = FactoryRecipe::load(&recipe_path)?;
@@ -660,7 +702,11 @@ impl aivyx_core::Tool for MissionFromRecipeTool {
         let mission = recipe.to_mission(goal, &self.agent_name)?;
         let task_id = mission.id;
         let stage_count = recipe.stages.len();
-        let specialists = recipe.specialists().into_iter().map(String::from).collect::<Vec<_>>();
+        let specialists = recipe
+            .specialists()
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<_>>();
 
         // Save and execute via TaskEngine.
         let engine = build_task_engine(&self.ctx)?;
@@ -697,14 +743,23 @@ fn bridge_mission_to_brain(
 
     // Calculate step completion ratio for progress updates.
     let total_steps = mission.steps.len() as f32;
-    let completed_steps = mission.steps.iter()
+    let completed_steps = mission
+        .steps
+        .iter()
         .filter(|s| s.status == StepStatus::Completed)
         .count() as f32;
-    let step_ratio = if total_steps > 0.0 { completed_steps / total_steps } else { 0.0 };
+    let step_ratio = if total_steps > 0.0 {
+        completed_steps / total_steps
+    } else {
+        0.0
+    };
 
     // Find matching brain goals by keyword overlap.
     let active_goals = match brain_store.list_goals(
-        &GoalFilter { status: Some(GoalStatus::Active), ..Default::default() },
+        &GoalFilter {
+            status: Some(GoalStatus::Active),
+            ..Default::default()
+        },
         brain_key,
     ) {
         Ok(goals) => goals,
@@ -717,14 +772,21 @@ fn bridge_mission_to_brain(
     // Tokenize the mission goal into significant words (>3 chars, lowercased).
     let goal_words: Vec<String> = original_goal
         .split_whitespace()
-        .map(|w| w.to_lowercase().trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+        .map(|w| {
+            w.to_lowercase()
+                .trim_matches(|c: char| !c.is_alphanumeric())
+                .to_string()
+        })
         .filter(|w| w.len() > 3)
         .collect();
 
     let mut matched = 0u32;
     for goal in &active_goals {
         let desc_lower = goal.description.to_lowercase();
-        let overlap = goal_words.iter().filter(|w| desc_lower.contains(w.as_str())).count();
+        let overlap = goal_words
+            .iter()
+            .filter(|w| desc_lower.contains(w.as_str()))
+            .count();
 
         // Require at least 2 overlapping words or 40% of goal words.
         let threshold = (goal_words.len() as f32 * 0.4).max(2.0) as usize;
@@ -748,12 +810,19 @@ fn bridge_mission_to_brain(
         }
 
         if let Err(e) = brain_store.upsert_goal(&updated, brain_key) {
-            tracing::warn!("Failed to update goal '{}' from mission bridge: {e}", goal.description);
+            tracing::warn!(
+                "Failed to update goal '{}' from mission bridge: {e}",
+                goal.description
+            );
         } else {
             matched += 1;
             tracing::info!(
                 "Mission bridge: {} goal '{}' (progress: {:.0}%)",
-                if success { "advanced" } else { "recorded failure on" },
+                if success {
+                    "advanced"
+                } else {
+                    "recorded failure on"
+                },
                 goal.description,
                 updated.progress * 100.0,
             );
@@ -763,7 +832,10 @@ fn bridge_mission_to_brain(
     // Update self-model with mission outcome.
     if let Ok(Some(mut model)) = brain_store.load_self_model(brain_key) {
         // Extract a domain hint from the mission goal (first significant word).
-        let domain = goal_words.first().cloned().unwrap_or_else(|| "general".into());
+        let domain = goal_words
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "general".into());
 
         let current = model.domain_confidence.get(&domain).copied().unwrap_or(0.5);
         let delta = if success { 0.05 } else { -0.05 };
@@ -771,7 +843,11 @@ fn bridge_mission_to_brain(
         model.domain_confidence.insert(domain.clone(), new_conf);
 
         // Update tool proficiency for mission_create itself.
-        let tool_current = model.tool_proficiency.get("mission_create").copied().unwrap_or(0.5);
+        let tool_current = model
+            .tool_proficiency
+            .get("mission_create")
+            .copied()
+            .unwrap_or(0.5);
         let tool_delta = if success { 0.02 } else { -0.03 };
         model.tool_proficiency.insert(
             "mission_create".into(),
@@ -792,7 +868,8 @@ fn bridge_mission_to_brain(
 
     tracing::info!(
         "Mission bridge complete: {} goals matched, success={}",
-        matched, success
+        matched,
+        success
     );
 }
 
@@ -895,7 +972,8 @@ pub async fn build_agent(
     );
 
     // Create IMAP connection pool if email is configured.
-    let imap_pool = email_config.as_ref()
+    let imap_pool = email_config
+        .as_ref()
         .map(|ec| aivyx_actions::email::ImapPool::new(ec.clone()));
 
     // Register email tools if email is configured.
@@ -972,13 +1050,14 @@ pub async fn build_agent(
     let agent_id = AgentId::new();
 
     // Wire memory if an embedding provider is available
-    let memory_manager = match wire_memory(dirs, config, &store, &master_key, agent_id, &agent_cfg.name) {
-        Ok(mgr) => Some(mgr),
-        Err(e) => {
-            tracing::warn!("Memory system unavailable: {e}");
-            None
-        }
-    };
+    let memory_manager =
+        match wire_memory(dirs, config, &store, &master_key, agent_id, &agent_cfg.name) {
+            Ok(mgr) => Some(mgr),
+            Err(e) => {
+                tracing::warn!("Memory system unavailable: {e}");
+                None
+            }
+        };
 
     // Register memory tools into the tool registry
     if let Some(ref mgr) = memory_manager {
@@ -1009,7 +1088,9 @@ pub async fn build_agent(
 
     // Register finance tracking tools if finance is enabled.
     if pa_config.finance.as_ref().is_some_and(|f| f.enabled) {
-        let receipt_folder = pa_config.finance.as_ref()
+        let receipt_folder = pa_config
+            .finance
+            .as_ref()
             .map(|f| f.receipt_folder.as_str())
             .unwrap_or("receipts");
         let vault_path = vault_path_for_receipts.as_deref();
@@ -1034,7 +1115,10 @@ pub async fn build_agent(
             pa_config.finance.as_ref().is_some_and(|f| f.enabled),
             telegram_config.is_some(),
             matrix_config.is_some(),
-        ].iter().filter(|&&x| x).count();
+        ]
+        .iter()
+        .filter(|&&x| x)
+        .count();
         if source_count >= 2 {
             system_prompt.push_str(crate::config::PA_PROMPT_CONTEXT_FUSION);
         }
@@ -1073,11 +1157,7 @@ pub async fn build_agent(
     system_prompt.push_str(crate::config::PA_PROMPT_WORKFLOW_LIBRARY);
 
     // Undo system — record, list, and reverse destructive actions
-    aivyx_actions::bridge::register_undo_actions(
-        &mut registry,
-        Arc::clone(&store),
-        &master_key,
-    );
+    aivyx_actions::bridge::register_undo_actions(&mut registry, Arc::clone(&store), &master_key);
     system_prompt.push_str(&crate::config::pa_prompt_undo(tier));
 
     // ── MCP Plugin Integration ──────────────────────────────────────
@@ -1105,7 +1185,8 @@ pub async fn build_agent(
                 Ok(tool_count) => {
                     tracing::info!(
                         "Plugin '{}': connected, {} tools discovered",
-                        plugin.name, tool_count,
+                        plugin.name,
+                        tool_count,
                     );
                     total_tools += tool_count;
                 }
@@ -1121,7 +1202,8 @@ pub async fn build_agent(
                 Ok(tool_count) => {
                     tracing::info!(
                         "MCP server '{}': connected, {} tools discovered",
-                        server_config.name, tool_count,
+                        server_config.name,
+                        tool_count,
                     );
                     total_tools += tool_count;
                 }
@@ -1132,7 +1214,8 @@ pub async fn build_agent(
         }
 
         // Collect all MCP configs for proxy tool creation
-        let all_mcp_configs: Vec<&McpServerConfig> = enabled_plugins.iter()
+        let all_mcp_configs: Vec<&McpServerConfig> = enabled_plugins
+            .iter()
             .map(|p| &p.mcp_config)
             .chain(pa_config.mcp_servers.iter())
             .collect();
@@ -1140,7 +1223,8 @@ pub async fn build_agent(
         // Register proxy tools from all connected servers into the agent registry.
         for server_name in pool.server_names().await {
             if let Some(client) = pool.get(&server_name).await {
-                let config_ref = all_mcp_configs.iter()
+                let config_ref = all_mcp_configs
+                    .iter()
                     .find(|c| c.name == server_name)
                     .copied();
 
@@ -1149,12 +1233,17 @@ pub async fn build_agent(
                         for tool_def in tools {
                             let proxy = if let Some(cfg) = config_ref {
                                 McpProxyTool::with_config(
-                                    tool_def, Arc::clone(&pool), &server_name,
-                                    Some(Arc::clone(&cache)), cfg,
+                                    tool_def,
+                                    Arc::clone(&pool),
+                                    &server_name,
+                                    Some(Arc::clone(&cache)),
+                                    cfg,
                                 )
                             } else {
                                 McpProxyTool::new(
-                                    tool_def, Arc::clone(&pool), &server_name,
+                                    tool_def,
+                                    Arc::clone(&pool),
+                                    &server_name,
                                     Some(Arc::clone(&cache)),
                                 )
                             };
@@ -1199,9 +1288,7 @@ pub async fn build_agent(
         }
         // Append custom description if provided (works for any mode).
         if let Some(ref desc) = env.description {
-            system_prompt.push_str(&format!(
-                "\n\nEnvironment note: {desc}"
-            ));
+            system_prompt.push_str(&format!("\n\nEnvironment note: {desc}"));
         }
     }
 
@@ -1212,25 +1299,36 @@ pub async fn build_agent(
     system_prompt.push_str(&crate::config::pa_prompt_tool_chaining(has_desktop));
 
     // Wire brain (goals, self-model, working memory)
-    let (brain, shared_brain_store, is_first_launch) = match wire_brain(dirs, &master_key, &agent_cfg.name, &agent_cfg.persona, &pa_config.initial_goals) {
+    let (brain, shared_brain_store, is_first_launch) = match wire_brain(
+        dirs,
+        &master_key,
+        &agent_cfg.name,
+        &agent_cfg.persona,
+        &pa_config.initial_goals,
+    ) {
         Ok((brain, brain_store, first_launch)) => {
             // Register brain tools so the LLM can manage goals.
             // Each tool needs its own derived key (MasterKey is not Clone).
             registry.register(Box::new(BrainSetGoalTool::new(
-                Arc::clone(&brain_store), derive_brain_key(&master_key),
+                Arc::clone(&brain_store),
+                derive_brain_key(&master_key),
             )));
             registry.register(Box::new(BrainListGoalsTool::new(
-                Arc::clone(&brain_store), derive_brain_key(&master_key),
+                Arc::clone(&brain_store),
+                derive_brain_key(&master_key),
             )));
             registry.register(Box::new(BrainUpdateGoalTool::new(
-                Arc::clone(&brain_store), derive_brain_key(&master_key),
+                Arc::clone(&brain_store),
+                derive_brain_key(&master_key),
             )));
             registry.register(Box::new(BrainReflectTool::new(
-                Arc::clone(&brain_store), derive_brain_key(&master_key),
+                Arc::clone(&brain_store),
+                derive_brain_key(&master_key),
             )));
             // Self-model update tool — closes the self-learning feedback loop
             registry.register(Box::new(BrainUpdateSelfModelTool::new(
-                Arc::clone(&brain_store), derive_brain_key(&master_key),
+                Arc::clone(&brain_store),
+                derive_brain_key(&master_key),
             )));
             (Some(brain), Some(brain_store), first_launch)
         }
@@ -1301,7 +1399,8 @@ pub async fn build_agent(
     }
 
     // Register recipe-based mission creation tool.
-    let recipe_dir = mission_cfg.recipe_dir
+    let recipe_dir = mission_cfg
+        .recipe_dir
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| dirs.recipes_dir());
     registry.register(Box::new(MissionFromRecipeTool::new(
@@ -1318,7 +1417,10 @@ pub async fn build_agent(
         Ok(_) => {}
         Err(e) => tracing::warn!("Failed to seed Nonagon team: {e}"),
     }
-    registry.register(Box::new(aivyx_team::TeamDelegateTool::new(&session, dirs.clone())));
+    registry.register(Box::new(aivyx_team::TeamDelegateTool::new(
+        &session,
+        dirs.clone(),
+    )));
     system_prompt.push_str(crate::config::PA_PROMPT_DELEGATION);
 
     // Key rotation is handled via CLI (`aivyx rotate-key`), not as an LLM tool.
@@ -1326,9 +1428,15 @@ pub async fn build_agent(
 
     // Register schedule management tools (create/edit/delete [[schedules]] in config.toml).
     let config_path = Arc::new(dirs.config_path());
-    registry.register(Box::new(crate::schedule_tools::ScheduleCreateTool::new(Arc::clone(&config_path))));
-    registry.register(Box::new(crate::schedule_tools::ScheduleEditTool::new(Arc::clone(&config_path))));
-    registry.register(Box::new(crate::schedule_tools::ScheduleDeleteTool::new(config_path)));
+    registry.register(Box::new(crate::schedule_tools::ScheduleCreateTool::new(
+        Arc::clone(&config_path),
+    )));
+    registry.register(Box::new(crate::schedule_tools::ScheduleEditTool::new(
+        Arc::clone(&config_path),
+    )));
+    registry.register(Box::new(crate::schedule_tools::ScheduleDeleteTool::new(
+        config_path,
+    )));
     system_prompt.push_str(&crate::config::pa_prompt_schedules(tier));
 
     // Register background task execution tools.
@@ -1353,7 +1461,6 @@ pub async fn build_agent(
     aivyx_actions::bridge::register_monitor_actions(&mut registry);
     system_prompt.push_str(crate::config::PA_PROMPT_MONITOR);
 
-
     // Build capability set — grant all scopes required by registered tools.
     let principal = Principal::Agent(agent_id);
     let mut caps = CapabilitySet::new();
@@ -1372,13 +1479,38 @@ pub async fn build_agent(
         }
     };
 
-    caps.grant(grant(CapabilityScope::Custom("self-improvement".into()), &principal));
+    caps.grant(grant(
+        CapabilityScope::Custom("self-improvement".into()),
+        &principal,
+    ));
     caps.grant(grant(CapabilityScope::Custom("memory".into()), &principal));
-    caps.grant(grant(CapabilityScope::Custom("missions".into()), &principal));
-    caps.grant(grant(CapabilityScope::Custom("coordination".into()), &principal));
-    caps.grant(grant(CapabilityScope::Shell { allowed_commands: vec![] }, &principal));
-    caps.grant(grant(CapabilityScope::Filesystem { root: std::path::PathBuf::from("/") }, &principal));
-    caps.grant(grant(CapabilityScope::Network { hosts: vec![], ports: vec![] }, &principal));
+    caps.grant(grant(
+        CapabilityScope::Custom("missions".into()),
+        &principal,
+    ));
+    caps.grant(grant(
+        CapabilityScope::Custom("coordination".into()),
+        &principal,
+    ));
+    caps.grant(grant(
+        CapabilityScope::Shell {
+            allowed_commands: vec![],
+        },
+        &principal,
+    ));
+    caps.grant(grant(
+        CapabilityScope::Filesystem {
+            root: std::path::PathBuf::from("/"),
+        },
+        &principal,
+    ));
+    caps.grant(grant(
+        CapabilityScope::Network {
+            hosts: vec![],
+            ports: vec![],
+        },
+        &principal,
+    ));
     caps.grant(grant(CapabilityScope::Custom("admin".into()), &principal));
 
     // Grant the "desktop" capability only when desktop tools are actually registered.
@@ -1389,7 +1521,6 @@ pub async fn build_agent(
         caps.grant(grant(CapabilityScope::Custom("desktop".into()), &principal));
         tracing::debug!("Desktop capability scope granted — desktop tools are active");
     }
-
 
     let mut agent = Agent::new(
         agent_id,
@@ -1413,95 +1544,98 @@ pub async fn build_agent(
     // ── Abuse Detection ─────────────────────────────────────────
     // Wire sliding-window anomaly detector if configured.
     if let Some(ref abuse_cfg) = pa_config.abuse_detection
-        && abuse_cfg.enabled {
-            let detector = aivyx_audit::abuse::AbuseDetector::new(abuse_cfg.to_detector_config());
-            agent.set_abuse_detector(Arc::new(detector));
-            tracing::info!(
-                window_secs = abuse_cfg.window_secs,
-                max_calls = abuse_cfg.max_calls_per_window,
-                "Tool abuse detection enabled"
-            );
-        }
+        && abuse_cfg.enabled
+    {
+        let detector = aivyx_audit::abuse::AbuseDetector::new(abuse_cfg.to_detector_config());
+        agent.set_abuse_detector(Arc::new(detector));
+        tracing::info!(
+            window_secs = abuse_cfg.window_secs,
+            max_calls = abuse_cfg.max_calls_per_window,
+            "Tool abuse detection enabled"
+        );
+    }
 
     // ── Tool Discovery ──────────────────────────────────────────
     // When tool_discovery is configured, embed all tool descriptions and
     // attach the index so the agent only sends the most relevant tools per turn.
     if let Some(ref td_config) = pa_config.tool_discovery
-        && td_config.is_enabled() {
-            if let Some(ref embedding_config) = config.embedding {
-                match create_embedding_provider(embedding_config, &store, &master_key) {
-                    Ok(emb_provider) => {
-                        let emb_arc: Arc<dyn aivyx_llm::EmbeddingProvider> =
-                            Arc::from(emb_provider);
+        && td_config.is_enabled()
+    {
+        if let Some(ref embedding_config) = config.embedding {
+            match create_embedding_provider(embedding_config, &store, &master_key) {
+                Ok(emb_provider) => {
+                    let emb_arc: Arc<dyn aivyx_llm::EmbeddingProvider> = Arc::from(emb_provider);
 
-                        // Batch-embed all registered tool descriptions.
-                        let tool_list = agent.tool_list();
-                        let texts: Vec<String> = tool_list.iter()
-                            .map(|t| format!("{}: {}", t.name(), t.description()))
-                            .collect();
-                        let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+                    // Batch-embed all registered tool descriptions.
+                    let tool_list = agent.tool_list();
+                    let texts: Vec<String> = tool_list
+                        .iter()
+                        .map(|t| format!("{}: {}", t.name(), t.description()))
+                        .collect();
+                    let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
 
-                        match emb_arc.embed_batch(&text_refs).await {
-                            Ok(embeddings) => {
-                                let mut index = aivyx_core::ToolEmbeddingIndex::new();
-                                for (tool, (text, emb)) in tool_list.iter()
-                                    .zip(texts.into_iter().zip(embeddings.into_iter()))
-                                {
-                                    index.upsert(tool.id(), emb.vector, text);
-                                }
-                                let mut engine_config = td_config.to_engine_config();
+                    match emb_arc.embed_batch(&text_refs).await {
+                        Ok(embeddings) => {
+                            let mut index = aivyx_core::ToolEmbeddingIndex::new();
+                            for (tool, (text, emb)) in tool_list
+                                .iter()
+                                .zip(texts.into_iter().zip(embeddings.into_iter()))
+                            {
+                                index.upsert(tool.id(), emb.vector, text);
+                            }
+                            let mut engine_config = td_config.to_engine_config();
 
-                                // When desktop tools are registered, ensure the most
-                                // commonly needed ones are always visible to the LLM,
-                                // regardless of how low top_k is set. Without this,
-                                // a message like "open Firefox" may score below the
-                                // threshold and the agent will never see open_application.
-                                if has_desktop {
-                                    let desktop_essentials: &[&str] = &[
-                                        "open_application",
-                                        "clipboard_read",
-                                        "clipboard_write",
-                                        "list_windows",
-                                        "send_notification",
-                                        "ui_inspect",
-                                        "ui_click",
-                                        "ui_find_element",
-                                        "browser_navigate",
-                                        "browser_list_tabs",
-                                        "window_screenshot",
-                                    ];
-                                    for &tool in desktop_essentials {
-                                        let name = tool.to_string();
-                                        if !engine_config.always_include.contains(&name) {
-                                            engine_config.always_include.push(name);
-                                        }
+                            // When desktop tools are registered, ensure the most
+                            // commonly needed ones are always visible to the LLM,
+                            // regardless of how low top_k is set. Without this,
+                            // a message like "open Firefox" may score below the
+                            // threshold and the agent will never see open_application.
+                            if has_desktop {
+                                let desktop_essentials: &[&str] = &[
+                                    "open_application",
+                                    "clipboard_read",
+                                    "clipboard_write",
+                                    "list_windows",
+                                    "send_notification",
+                                    "ui_inspect",
+                                    "ui_click",
+                                    "ui_find_element",
+                                    "browser_navigate",
+                                    "browser_list_tabs",
+                                    "window_screenshot",
+                                ];
+                                for &tool in desktop_essentials {
+                                    let name = tool.to_string();
+                                    if !engine_config.always_include.contains(&name) {
+                                        engine_config.always_include.push(name);
                                     }
                                 }
+                            }
 
-                                tracing::info!(
-                                    mode = ?engine_config.mode,
-                                    top_k = engine_config.top_k,
-                                    threshold = engine_config.threshold,
-                                    always_include = ?engine_config.always_include,
-                                    tools_indexed = tool_list.len(),
-                                    "Tool discovery enabled"
-                                );
-                                agent.enable_tool_discovery(index);
-                                agent.set_tool_discovery(engine_config, emb_arc);
-                            }
-                            Err(e) => {
-                                tracing::warn!("Failed to embed tools for discovery: {e}");
-                            }
+                            tracing::info!(
+                                mode = ?engine_config.mode,
+                                top_k = engine_config.top_k,
+                                threshold = engine_config.threshold,
+                                always_include = ?engine_config.always_include,
+                                tools_indexed = tool_list.len(),
+                                "Tool discovery enabled"
+                            );
+                            agent.enable_tool_discovery(index);
+                            agent.set_tool_discovery(engine_config, emb_arc);
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to embed tools for discovery: {e}");
                         }
                     }
-                    Err(e) => {
-                        tracing::warn!("Tool discovery requires embedding provider: {e}");
-                    }
                 }
-            } else {
-                tracing::warn!("Tool discovery enabled but no [embedding] configured — skipping");
+                Err(e) => {
+                    tracing::warn!("Tool discovery requires embedding provider: {e}");
+                }
             }
+        } else {
+            tracing::warn!("Tool discovery enabled but no [embedding] configured — skipping");
         }
+    }
 
     // Seed config-declared style preferences into the UserProfile so the LLM
     // has them from the first turn (before profile extraction runs).
@@ -1509,26 +1643,28 @@ pub async fn build_agent(
     let config_style_prefs = pa_config.style_preferences();
     if !config_style_prefs.is_empty()
         && let Some(ref mgr) = memory_manager
-            && let Ok(mgr_lock) = mgr.try_lock() {
-                match mgr_lock.get_profile() {
-                    Ok(mut profile) => {
-                        let mut changed = false;
-                        for pref in &config_style_prefs {
-                            let already = profile.style_preferences.iter()
-                                .any(|existing: &String| existing.eq_ignore_ascii_case(pref));
-                            if !already {
-                                profile.style_preferences.push(pref.clone());
-                                changed = true;
-                            }
-                        }
-                        if changed
-                            && let Err(e) = mgr_lock.update_profile(profile) {
-                                tracing::warn!("Failed to seed style preferences: {e}");
-                            }
+        && let Ok(mgr_lock) = mgr.try_lock()
+    {
+        match mgr_lock.get_profile() {
+            Ok(mut profile) => {
+                let mut changed = false;
+                for pref in &config_style_prefs {
+                    let already = profile
+                        .style_preferences
+                        .iter()
+                        .any(|existing: &String| existing.eq_ignore_ascii_case(pref));
+                    if !already {
+                        profile.style_preferences.push(pref.clone());
+                        changed = true;
                     }
-                    Err(e) => tracing::warn!("Failed to read profile for style seeding: {e}"),
+                }
+                if changed && let Err(e) = mgr_lock.update_profile(profile) {
+                    tracing::warn!("Failed to seed style preferences: {e}");
                 }
             }
+            Err(e) => tracing::warn!("Failed to read profile for style seeding: {e}"),
+        }
+    }
 
     // Clone memory manager for the loop before agent consumes it
     let loop_memory_manager = memory_manager.as_ref().map(Arc::clone);
@@ -1537,7 +1673,8 @@ pub async fn build_agent(
     if let Some(mgr) = memory_manager {
         agent.set_memory_manager(mgr);
         // Enable RetrievalRouter if configured
-        agent.use_retrieval_router = pa_config.consolidation
+        agent.use_retrieval_router = pa_config
+            .consolidation
             .as_ref()
             .map(|c| c.retrieval_router)
             .unwrap_or(false);
@@ -1573,7 +1710,8 @@ async fn connect_mcp_plugin(
     client.initialize().await?;
     let tools = client.list_tools().await?;
     let tool_count = tools.len();
-    pool.insert(config.name.clone(), client, config.clone()).await;
+    pool.insert(config.name.clone(), client, config.clone())
+        .await;
     Ok(tool_count)
 }
 /// Create embedding provider + MemoryStore + MemoryManager.
@@ -1628,7 +1766,8 @@ fn wire_brain(
     // `aivyx init` may seed goals before the TUI ever runs. The self-model
     // is only created by our seed_initial_self_model(), making it a reliable
     // "has the PA awakened?" signal.
-    let has_self_model = store.load_self_model(&brain_key_for_model)
+    let has_self_model = store
+        .load_self_model(&brain_key_for_model)
         .ok()
         .flatten()
         .is_some();
@@ -1655,7 +1794,11 @@ fn wire_brain(
     tracing::info!(
         "Brain loaded with {} active goals{}",
         brain.active_goals().map(|g| g.len()).unwrap_or(0),
-        if is_first_launch { " (first launch — seeded)" } else { "" },
+        if is_first_launch {
+            " (first launch — seeded)"
+        } else {
+            ""
+        },
     );
 
     Ok((brain, store, is_first_launch))
@@ -1667,37 +1810,101 @@ fn seed_starter_goals(brain: &Brain, persona: &str) {
 
     let goals: &[(&str, &str, Priority)] = match persona {
         "coder" => &[
-            ("Learn the user's tech stack and coding preferences", "Can accurately suggest code in the user's preferred language and style", Priority::Medium),
-            ("Track and remember ongoing projects", "Maintains awareness of active project names, paths, and current tasks", Priority::Low),
+            (
+                "Learn the user's tech stack and coding preferences",
+                "Can accurately suggest code in the user's preferred language and style",
+                Priority::Medium,
+            ),
+            (
+                "Track and remember ongoing projects",
+                "Maintains awareness of active project names, paths, and current tasks",
+                Priority::Low,
+            ),
         ],
         "researcher" => &[
-            ("Build a knowledge base of the user's research interests", "Can name the user's top 3 research topics and recent papers/sources", Priority::Medium),
-            ("Monitor key sources for new developments", "Proactively alerts user to relevant new publications or news", Priority::Low),
+            (
+                "Build a knowledge base of the user's research interests",
+                "Can name the user's top 3 research topics and recent papers/sources",
+                Priority::Medium,
+            ),
+            (
+                "Monitor key sources for new developments",
+                "Proactively alerts user to relevant new publications or news",
+                Priority::Low,
+            ),
         ],
         "writer" => &[
-            ("Learn the user's writing style and voice", "Can produce drafts that match the user's tone without correction", Priority::Medium),
-            ("Track ongoing writing projects and deadlines", "Maintains awareness of current documents and their status", Priority::Low),
+            (
+                "Learn the user's writing style and voice",
+                "Can produce drafts that match the user's tone without correction",
+                Priority::Medium,
+            ),
+            (
+                "Track ongoing writing projects and deadlines",
+                "Maintains awareness of current documents and their status",
+                Priority::Low,
+            ),
         ],
         "coach" => &[
-            ("Learn the user's personal and professional goals", "Can name the user's top 3 goals and current progress on each", Priority::High),
-            ("Check in on goal progress weekly", "Proactively asks about progress and offers encouragement", Priority::Medium),
+            (
+                "Learn the user's personal and professional goals",
+                "Can name the user's top 3 goals and current progress on each",
+                Priority::High,
+            ),
+            (
+                "Check in on goal progress weekly",
+                "Proactively asks about progress and offers encouragement",
+                Priority::Medium,
+            ),
         ],
         "companion" => &[
-            ("Learn what matters to the user", "Remembers important people, interests, and preferences", Priority::Medium),
-            ("Be attentive to the user's mood and energy", "Adjusts tone and suggestions based on context clues", Priority::Low),
+            (
+                "Learn what matters to the user",
+                "Remembers important people, interests, and preferences",
+                Priority::Medium,
+            ),
+            (
+                "Be attentive to the user's mood and energy",
+                "Adjusts tone and suggestions based on context clues",
+                Priority::Low,
+            ),
         ],
         "ops" => &[
-            ("Learn the user's infrastructure and systems", "Can name servers, services, and typical maintenance tasks", Priority::Medium),
-            ("Monitor for system alerts and issues", "Proactively checks email for alerts and flags urgent items", Priority::High),
+            (
+                "Learn the user's infrastructure and systems",
+                "Can name servers, services, and typical maintenance tasks",
+                Priority::Medium,
+            ),
+            (
+                "Monitor for system alerts and issues",
+                "Proactively checks email for alerts and flags urgent items",
+                Priority::High,
+            ),
         ],
         "analyst" => &[
-            ("Learn the user's data sources and key metrics", "Can name the user's primary dashboards and KPIs", Priority::Medium),
-            ("Track recurring analysis tasks", "Maintains awareness of regular reporting cycles", Priority::Low),
+            (
+                "Learn the user's data sources and key metrics",
+                "Can name the user's primary dashboards and KPIs",
+                Priority::Medium,
+            ),
+            (
+                "Track recurring analysis tasks",
+                "Maintains awareness of regular reporting cycles",
+                Priority::Low,
+            ),
         ],
         // "assistant" and anything else
         _ => &[
-            ("Learn the user's daily routine and preferences", "Can anticipate common requests and suggest proactively", Priority::Medium),
-            ("Monitor inbox for important messages", "Alerts user to emails that need a response", Priority::Low),
+            (
+                "Learn the user's daily routine and preferences",
+                "Can anticipate common requests and suggest proactively",
+                Priority::Medium,
+            ),
+            (
+                "Monitor inbox for important messages",
+                "Alerts user to emails that need a response",
+                Priority::Low,
+            ),
         ],
     };
 
@@ -1884,13 +2091,17 @@ fn seed_initial_self_model(store: &BrainStore, key: &MasterKey, persona: &str) {
             dc.insert("architecture".into(), 0.5);
             dc.insert("documentation".into(), 0.5);
             dc.insert("communication".into(), 0.3);
-            (dc, vec![
-                "Technical problem solving".into(),
-                "Code generation and review".into(),
-            ], vec![
-                "Understanding user's specific codebase (learning)".into(),
-                "Non-technical communication".into(),
-            ])
+            (
+                dc,
+                vec![
+                    "Technical problem solving".into(),
+                    "Code generation and review".into(),
+                ],
+                vec![
+                    "Understanding user's specific codebase (learning)".into(),
+                    "Non-technical communication".into(),
+                ],
+            )
         }
         "researcher" => {
             let mut dc = HashMap::new();
@@ -1899,13 +2110,17 @@ fn seed_initial_self_model(store: &BrainStore, key: &MasterKey, persona: &str) {
             dc.insert("writing".into(), 0.5);
             dc.insert("source-evaluation".into(), 0.5);
             dc.insert("communication".into(), 0.4);
-            (dc, vec![
-                "Information synthesis".into(),
-                "Source discovery and evaluation".into(),
-            ], vec![
-                "Understanding user's specific domain (learning)".into(),
-                "Practical application of findings".into(),
-            ])
+            (
+                dc,
+                vec![
+                    "Information synthesis".into(),
+                    "Source discovery and evaluation".into(),
+                ],
+                vec![
+                    "Understanding user's specific domain (learning)".into(),
+                    "Practical application of findings".into(),
+                ],
+            )
         }
         "writer" => {
             let mut dc = HashMap::new();
@@ -1914,13 +2129,17 @@ fn seed_initial_self_model(store: &BrainStore, key: &MasterKey, persona: &str) {
             dc.insert("communication".into(), 0.6);
             dc.insert("research".into(), 0.4);
             dc.insert("technical".into(), 0.2);
-            (dc, vec![
-                "Clear and structured writing".into(),
-                "Adapting tone for different audiences".into(),
-            ], vec![
-                "Matching user's unique voice (learning)".into(),
-                "Deep domain-specific terminology".into(),
-            ])
+            (
+                dc,
+                vec![
+                    "Clear and structured writing".into(),
+                    "Adapting tone for different audiences".into(),
+                ],
+                vec![
+                    "Matching user's unique voice (learning)".into(),
+                    "Deep domain-specific terminology".into(),
+                ],
+            )
         }
         "coach" => {
             let mut dc = HashMap::new();
@@ -1929,13 +2148,17 @@ fn seed_initial_self_model(store: &BrainStore, key: &MasterKey, persona: &str) {
             dc.insert("motivation".into(), 0.6);
             dc.insert("empathy".into(), 0.5);
             dc.insert("technical".into(), 0.2);
-            (dc, vec![
-                "Structured goal tracking".into(),
-                "Encouraging accountability".into(),
-            ], vec![
-                "Understanding user's specific challenges (learning)".into(),
-                "Knowing when to push vs support".into(),
-            ])
+            (
+                dc,
+                vec![
+                    "Structured goal tracking".into(),
+                    "Encouraging accountability".into(),
+                ],
+                vec![
+                    "Understanding user's specific challenges (learning)".into(),
+                    "Knowing when to push vs support".into(),
+                ],
+            )
         }
         "companion" => {
             let mut dc = HashMap::new();
@@ -1944,13 +2167,17 @@ fn seed_initial_self_model(store: &BrainStore, key: &MasterKey, persona: &str) {
             dc.insert("memory-recall".into(), 0.5);
             dc.insert("emotional-awareness".into(), 0.5);
             dc.insert("technical".into(), 0.2);
-            (dc, vec![
-                "Active listening and engagement".into(),
-                "Remembering personal details".into(),
-            ], vec![
-                "Understanding user's social world (learning)".into(),
-                "Reading subtle emotional cues from text".into(),
-            ])
+            (
+                dc,
+                vec![
+                    "Active listening and engagement".into(),
+                    "Remembering personal details".into(),
+                ],
+                vec![
+                    "Understanding user's social world (learning)".into(),
+                    "Reading subtle emotional cues from text".into(),
+                ],
+            )
         }
         "ops" => {
             let mut dc = HashMap::new();
@@ -1959,13 +2186,17 @@ fn seed_initial_self_model(store: &BrainStore, key: &MasterKey, persona: &str) {
             dc.insert("troubleshooting".into(), 0.5);
             dc.insert("automation".into(), 0.5);
             dc.insert("communication".into(), 0.3);
-            (dc, vec![
-                "Systematic troubleshooting".into(),
-                "Alert triage and prioritization".into(),
-            ], vec![
-                "User's specific infrastructure (learning)".into(),
-                "Non-technical communication".into(),
-            ])
+            (
+                dc,
+                vec![
+                    "Systematic troubleshooting".into(),
+                    "Alert triage and prioritization".into(),
+                ],
+                vec![
+                    "User's specific infrastructure (learning)".into(),
+                    "Non-technical communication".into(),
+                ],
+            )
         }
         "analyst" => {
             let mut dc = HashMap::new();
@@ -1974,13 +2205,17 @@ fn seed_initial_self_model(store: &BrainStore, key: &MasterKey, persona: &str) {
             dc.insert("statistics".into(), 0.5);
             dc.insert("communication".into(), 0.4);
             dc.insert("domain-knowledge".into(), 0.3);
-            (dc, vec![
-                "Pattern recognition in data".into(),
-                "Clear data presentation".into(),
-            ], vec![
-                "User's specific data domains (learning)".into(),
-                "Business context for metrics".into(),
-            ])
+            (
+                dc,
+                vec![
+                    "Pattern recognition in data".into(),
+                    "Clear data presentation".into(),
+                ],
+                vec![
+                    "User's specific data domains (learning)".into(),
+                    "Business context for metrics".into(),
+                ],
+            )
         }
         // "assistant" and all others
         _ => {
@@ -1990,13 +2225,17 @@ fn seed_initial_self_model(store: &BrainStore, key: &MasterKey, persona: &str) {
             dc.insert("research".into(), 0.4);
             dc.insert("writing".into(), 0.4);
             dc.insert("technical".into(), 0.3);
-            (dc, vec![
-                "Versatile task handling".into(),
-                "Clear communication".into(),
-            ], vec![
-                "Specialized domain expertise (learning)".into(),
-                "Anticipating user needs (learning)".into(),
-            ])
+            (
+                dc,
+                vec![
+                    "Versatile task handling".into(),
+                    "Clear communication".into(),
+                ],
+                vec![
+                    "Specialized domain expertise (learning)".into(),
+                    "Anticipating user needs (learning)".into(),
+                ],
+            )
         }
     };
 
@@ -2019,7 +2258,9 @@ fn seed_initial_self_model(store: &BrainStore, key: &MasterKey, persona: &str) {
 /// Shared between `PaMissionCreateTool::build_engine()` and the Missions view.
 pub fn build_task_engine(ctx: &MissionToolContext) -> aivyx_core::Result<TaskEngine> {
     let master_key = {
-        let bytes: [u8; 32] = ctx.master_key_bytes.as_slice()
+        let bytes: [u8; 32] = ctx
+            .master_key_bytes
+            .as_slice()
             .try_into()
             .map_err(|_| aivyx_core::AivyxError::Crypto("invalid master key length".into()))?;
         MasterKey::from_bytes(bytes)

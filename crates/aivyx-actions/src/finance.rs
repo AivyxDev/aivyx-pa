@@ -80,21 +80,13 @@ const BUDGET_PREFIX: &str = "finance-budget:";
 const SCAN_CURSOR_KEY: &str = "finance-scan-cursor";
 
 /// Save a transaction to the encrypted store.
-pub fn save_transaction(
-    store: &EncryptedStore,
-    key: &MasterKey,
-    tx: &Transaction,
-) -> Result<()> {
-    let json = serde_json::to_vec(tx)
-        .map_err(aivyx_core::AivyxError::Serialization)?;
+pub fn save_transaction(store: &EncryptedStore, key: &MasterKey, tx: &Transaction) -> Result<()> {
+    let json = serde_json::to_vec(tx).map_err(aivyx_core::AivyxError::Serialization)?;
     store.put(&format!("{TX_PREFIX}{}", tx.id), &json, key)
 }
 
 /// Load all transactions from the encrypted store.
-pub fn load_all_transactions(
-    store: &EncryptedStore,
-    key: &MasterKey,
-) -> Result<Vec<Transaction>> {
+pub fn load_all_transactions(store: &EncryptedStore, key: &MasterKey) -> Result<Vec<Transaction>> {
     let keys = store.list_keys()?;
     let mut txs = Vec::new();
     for k in &keys {
@@ -122,36 +114,23 @@ pub fn load_transactions_for_month(
     let all = load_all_transactions(store, key)?;
     Ok(all
         .into_iter()
-        .filter(|tx| {
-            tx.transaction_date.year() == year && tx.transaction_date.month() == month
-        })
+        .filter(|tx| tx.transaction_date.year() == year && tx.transaction_date.month() == month)
         .collect())
 }
 
 /// Delete a transaction by ID.
-pub fn delete_transaction(
-    store: &EncryptedStore,
-    id: &str,
-) -> Result<()> {
+pub fn delete_transaction(store: &EncryptedStore, id: &str) -> Result<()> {
     store.delete(&format!("{TX_PREFIX}{id}"))
 }
 
 /// Save a budget rule.
-pub fn save_budget_rule(
-    store: &EncryptedStore,
-    key: &MasterKey,
-    rule: &BudgetRule,
-) -> Result<()> {
-    let json = serde_json::to_vec(rule)
-        .map_err(aivyx_core::AivyxError::Serialization)?;
+pub fn save_budget_rule(store: &EncryptedStore, key: &MasterKey, rule: &BudgetRule) -> Result<()> {
+    let json = serde_json::to_vec(rule).map_err(aivyx_core::AivyxError::Serialization)?;
     store.put(&format!("{BUDGET_PREFIX}{}", rule.id), &json, key)
 }
 
 /// Load all budget rules.
-pub fn load_budget_rules(
-    store: &EncryptedStore,
-    key: &MasterKey,
-) -> Result<Vec<BudgetRule>> {
+pub fn load_budget_rules(store: &EncryptedStore, key: &MasterKey) -> Result<Vec<BudgetRule>> {
     let keys = store.list_keys()?;
     let mut rules = Vec::new();
     for k in &keys {
@@ -220,9 +199,10 @@ fn parse_month(s: Option<&str>) -> (i32, u32) {
         let parts: Vec<&str> = s.split('-').collect();
         if parts.len() == 2
             && let (Ok(y), Ok(m)) = (parts[0].parse::<i32>(), parts[1].parse::<u32>())
-                && (1..=12).contains(&m) {
-                    return (y, m);
-                }
+            && (1..=12).contains(&m)
+        {
+            return (y, m);
+        }
     }
     let now = Utc::now();
     (now.year(), now.month())
@@ -238,7 +218,9 @@ pub struct AddTransaction {
 
 #[async_trait::async_trait]
 impl Action for AddTransaction {
-    fn name(&self) -> &str { "add_transaction" }
+    fn name(&self) -> &str {
+        "add_transaction"
+    }
 
     fn description(&self) -> &str {
         "Record a financial transaction (expense, bill, or income). \
@@ -291,27 +273,27 @@ impl Action for AddTransaction {
         let amount = input["amount"]
             .as_f64()
             .ok_or_else(|| aivyx_core::AivyxError::Validation("'amount' is required".into()))?;
-        let description = input["description"]
-            .as_str()
-            .ok_or_else(|| aivyx_core::AivyxError::Validation("'description' is required".into()))?;
+        let description = input["description"].as_str().ok_or_else(|| {
+            aivyx_core::AivyxError::Validation("'description' is required".into())
+        })?;
 
         let kind = match kind_str {
             "bill" => TransactionKind::Bill,
             "expense" => TransactionKind::Expense,
             "income" => TransactionKind::Income,
-            other => return Err(aivyx_core::AivyxError::Validation(
-                format!("Invalid kind '{other}', expected: bill, expense, income"),
-            )),
+            other => {
+                return Err(aivyx_core::AivyxError::Validation(format!(
+                    "Invalid kind '{other}', expected: bill, expense, income"
+                )));
+            }
         };
 
-        let due_date = input["due_date"]
-            .as_str()
-            .and_then(|s| {
-                chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
-                    .ok()
-                    .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
-                    .map(|dt| DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc))
-            });
+        let due_date = input["due_date"].as_str().and_then(|s| {
+            chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                .ok()
+                .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
+                .map(|dt| DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc))
+        });
 
         let tx = Transaction {
             id: uuid::Uuid::new_v4().to_string(),
@@ -353,7 +335,9 @@ pub struct ListTransactions {
 
 #[async_trait::async_trait]
 impl Action for ListTransactions {
-    fn name(&self) -> &str { "list_transactions" }
+    fn name(&self) -> &str {
+        "list_transactions"
+    }
 
     fn description(&self) -> &str {
         "List financial transactions. Filter by month, category, or type. \
@@ -401,9 +385,11 @@ impl Action for ListTransactions {
                 "bill" => TransactionKind::Bill,
                 "expense" => TransactionKind::Expense,
                 "income" => TransactionKind::Income,
-                _ => return Err(aivyx_core::AivyxError::Validation(
-                    format!("Invalid kind '{kind}'"),
-                )),
+                _ => {
+                    return Err(aivyx_core::AivyxError::Validation(format!(
+                        "Invalid kind '{kind}'"
+                    )));
+                }
             };
             txs.retain(|tx| tx.kind == k);
         }
@@ -447,7 +433,9 @@ pub struct BudgetSummary {
 
 #[async_trait::async_trait]
 impl Action for BudgetSummary {
-    fn name(&self) -> &str { "budget_summary" }
+    fn name(&self) -> &str {
+        "budget_summary"
+    }
 
     fn description(&self) -> &str {
         "Show spending totals by category for a month, compared against \
@@ -520,9 +508,7 @@ impl Action for BudgetSummary {
                 entry
             })
             .collect();
-        categories.sort_by(|a, b| {
-            b["spent_cents"].as_i64().cmp(&a["spent_cents"].as_i64())
-        });
+        categories.sort_by(|a, b| b["spent_cents"].as_i64().cmp(&a["spent_cents"].as_i64()));
 
         Ok(serde_json::json!({
             "month": format!("{year}-{month:02}"),
@@ -544,7 +530,9 @@ pub struct SetBudget {
 
 #[async_trait::async_trait]
 impl Action for SetBudget {
-    fn name(&self) -> &str { "set_budget" }
+    fn name(&self) -> &str {
+        "set_budget"
+    }
 
     fn description(&self) -> &str {
         "Set a monthly spending limit for a category. The budget_summary tool \
@@ -573,9 +561,9 @@ impl Action for SetBudget {
             .as_str()
             .ok_or_else(|| aivyx_core::AivyxError::Validation("'category' is required".into()))?
             .to_lowercase();
-        let limit = input["monthly_limit"]
-            .as_f64()
-            .ok_or_else(|| aivyx_core::AivyxError::Validation("'monthly_limit' is required".into()))?;
+        let limit = input["monthly_limit"].as_f64().ok_or_else(|| {
+            aivyx_core::AivyxError::Validation("'monthly_limit' is required".into())
+        })?;
 
         // Check if a rule already exists for this category and update it.
         let existing = load_budget_rules(&self.store, &self.key)?;
@@ -613,7 +601,9 @@ pub struct MarkBillPaid {
 
 #[async_trait::async_trait]
 impl Action for MarkBillPaid {
-    fn name(&self) -> &str { "mark_bill_paid" }
+    fn name(&self) -> &str {
+        "mark_bill_paid"
+    }
 
     fn description(&self) -> &str {
         "Mark a bill transaction as paid. Use after the user confirms payment."
@@ -633,23 +623,23 @@ impl Action for MarkBillPaid {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let id = input["transaction_id"]
-            .as_str()
-            .ok_or_else(|| aivyx_core::AivyxError::Validation("'transaction_id' is required".into()))?;
+        let id = input["transaction_id"].as_str().ok_or_else(|| {
+            aivyx_core::AivyxError::Validation("'transaction_id' is required".into())
+        })?;
 
         let store_key = format!("{TX_PREFIX}{id}");
-        let bytes = self.store.get(&store_key, &self.key)?
-            .ok_or_else(|| aivyx_core::AivyxError::Other(
-                format!("Transaction '{id}' not found"),
-            ))?;
+        let bytes = self.store.get(&store_key, &self.key)?.ok_or_else(|| {
+            aivyx_core::AivyxError::Other(format!("Transaction '{id}' not found"))
+        })?;
 
         let mut tx: Transaction = serde_json::from_slice(&bytes)
             .map_err(|e| aivyx_core::AivyxError::Other(format!("Corrupt transaction: {e}")))?;
 
         if tx.kind != TransactionKind::Bill {
-            return Err(aivyx_core::AivyxError::Validation(
-                format!("Transaction '{id}' is not a bill (it's a {:?})", tx.kind),
-            ));
+            return Err(aivyx_core::AivyxError::Validation(format!(
+                "Transaction '{id}' is not a bill (it's a {:?})",
+                tx.kind
+            )));
         }
 
         tx.paid = true;
@@ -675,7 +665,9 @@ pub struct FileReceipt {
 
 #[async_trait::async_trait]
 impl Action for FileReceipt {
-    fn name(&self) -> &str { "file_receipt" }
+    fn name(&self) -> &str {
+        "file_receipt"
+    }
 
     fn description(&self) -> &str {
         "Save a receipt email to the document vault for future reference. \
@@ -706,7 +698,8 @@ impl Action for FileReceipt {
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         let seq = input["email_seq"]
             .as_u64()
-            .ok_or_else(|| aivyx_core::AivyxError::Validation("'email_seq' is required".into()))? as u32;
+            .ok_or_else(|| aivyx_core::AivyxError::Validation("'email_seq' is required".into()))?
+            as u32;
         let filename = input["filename"]
             .as_str()
             .ok_or_else(|| aivyx_core::AivyxError::Validation("'filename' is required".into()))?;
@@ -716,18 +709,26 @@ impl Action for FileReceipt {
 
         // Build the receipt directory: vault/receipts/YYYY/MM/
         let now = Utc::now();
-        let receipt_dir = self.vault_path
+        let receipt_dir = self
+            .vault_path
             .join(&self.receipt_folder)
             .join(now.format("%Y").to_string())
             .join(now.format("%m").to_string());
 
-        std::fs::create_dir_all(&receipt_dir)
-            .map_err(|e| aivyx_core::AivyxError::Other(format!("Failed to create receipt dir: {e}")))?;
+        std::fs::create_dir_all(&receipt_dir).map_err(|e| {
+            aivyx_core::AivyxError::Other(format!("Failed to create receipt dir: {e}"))
+        })?;
 
         // Sanitize filename.
         let safe_name: String = filename
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '-'
+                }
+            })
             .collect();
         let file_path = receipt_dir.join(format!("{safe_name}.txt"));
 
@@ -753,10 +754,11 @@ impl Action for FileReceipt {
         if let Some(tx_id) = input["transaction_id"].as_str() {
             let store_key = format!("{TX_PREFIX}{tx_id}");
             if let Ok(Some(bytes)) = self.store.get(&store_key, &self.key)
-                && let Ok(mut tx) = serde_json::from_slice::<Transaction>(&bytes) {
-                    tx.receipt_path = Some(relative_path.clone());
-                    let _ = save_transaction(&self.store, &self.key, &tx);
-                }
+                && let Ok(mut tx) = serde_json::from_slice::<Transaction>(&bytes)
+            {
+                tx.receipt_path = Some(relative_path.clone());
+                let _ = save_transaction(&self.store, &self.key, &tx);
+            }
         }
 
         Ok(serde_json::json!({
@@ -772,9 +774,22 @@ impl Action for FileReceipt {
 
 /// Keywords that suggest an email is financial.
 const FINANCIAL_KEYWORDS: &[&str] = &[
-    "bill", "invoice", "payment", "receipt", "transaction", "statement",
-    "due", "balance", "charge", "refund", "subscription", "renewal",
-    "amount due", "pay now", "autopay", "direct debit",
+    "bill",
+    "invoice",
+    "payment",
+    "receipt",
+    "transaction",
+    "statement",
+    "due",
+    "balance",
+    "charge",
+    "refund",
+    "subscription",
+    "renewal",
+    "amount due",
+    "pay now",
+    "autopay",
+    "direct debit",
 ];
 
 /// Check if an email subject or sender suggests financial content.
@@ -783,15 +798,30 @@ pub fn is_likely_financial(subject: &str, from: &str) -> bool {
     let from_lower = from.to_lowercase();
 
     // Check subject for financial keywords.
-    if FINANCIAL_KEYWORDS.iter().any(|kw| subject_lower.contains(kw)) {
+    if FINANCIAL_KEYWORDS
+        .iter()
+        .any(|kw| subject_lower.contains(kw))
+    {
         return true;
     }
 
     // Check common financial sender patterns.
     let financial_senders = [
-        "noreply@", "billing@", "payments@", "receipts@", "invoices@",
-        "statements@", "accounts@", "paypal", "venmo", "stripe",
-        "square", "bank", "chase", "wells fargo", "amex",
+        "noreply@",
+        "billing@",
+        "payments@",
+        "receipts@",
+        "invoices@",
+        "statements@",
+        "accounts@",
+        "paypal",
+        "venmo",
+        "stripe",
+        "square",
+        "bank",
+        "chase",
+        "wells fargo",
+        "amex",
     ];
     financial_senders.iter().any(|pat| from_lower.contains(pat))
 }
@@ -826,8 +856,7 @@ pub fn over_budget_categories(
     let txs = load_transactions_for_month(store, key, now.year(), now.month())?;
     let rules = load_budget_rules(store, key)?;
 
-    let mut by_category: std::collections::HashMap<String, i64> =
-        std::collections::HashMap::new();
+    let mut by_category: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     for tx in &txs {
         if tx.kind != TransactionKind::Income {
             let cat = tx.category.clone().unwrap_or_else(|| "other".into());
@@ -855,7 +884,9 @@ pub struct DeleteTransactionAction {
 
 #[async_trait::async_trait]
 impl Action for DeleteTransactionAction {
-    fn name(&self) -> &str { "delete_transaction" }
+    fn name(&self) -> &str {
+        "delete_transaction"
+    }
 
     fn description(&self) -> &str {
         "Permanently delete a financial transaction by ID."
@@ -879,7 +910,9 @@ impl Action for DeleteTransactionAction {
         // Verify it exists
         let key_str = format!("{TX_PREFIX}{id}");
         if self.store.get(&key_str, &self.key)?.is_none() {
-            return Err(aivyx_core::AivyxError::Validation(format!("Transaction '{id}' not found")));
+            return Err(aivyx_core::AivyxError::Validation(format!(
+                "Transaction '{id}' not found"
+            )));
         }
 
         delete_transaction(&self.store, id)?;
@@ -899,7 +932,9 @@ pub struct UpdateTransaction {
 
 #[async_trait::async_trait]
 impl Action for UpdateTransaction {
-    fn name(&self) -> &str { "update_transaction" }
+    fn name(&self) -> &str {
+        "update_transaction"
+    }
 
     fn description(&self) -> &str {
         "Update fields on an existing transaction. Only the fields you provide will be changed."
@@ -928,19 +963,35 @@ impl Action for UpdateTransaction {
             .ok_or_else(|| aivyx_core::AivyxError::Validation("'id' is required".into()))?;
 
         let key_str = format!("{TX_PREFIX}{id}");
-        let bytes = self.store.get(&key_str, &self.key)?
-            .ok_or_else(|| aivyx_core::AivyxError::Validation(format!("Transaction '{id}' not found")))?;
+        let bytes = self.store.get(&key_str, &self.key)?.ok_or_else(|| {
+            aivyx_core::AivyxError::Validation(format!("Transaction '{id}' not found"))
+        })?;
         let mut tx: Transaction = serde_json::from_slice(&bytes)
             .map_err(|e| aivyx_core::AivyxError::Other(format!("Corrupt transaction: {e}")))?;
 
-        if let Some(v) = input["description"].as_str() { tx.description = v.into(); }
-        if !input["category"].is_null() { tx.category = input["category"].as_str().map(String::from); }
-        if let Some(v) = input["amount_cents"].as_i64() { tx.amount_cents = v; }
-        if !input["vendor"].is_null() { tx.vendor = input["vendor"].as_str().map(String::from); }
-        if let Some(v) = input["paid"].as_bool() { tx.paid = v; }
-        if let Some(v) = input["confirmed"].as_bool() { tx.confirmed = v; }
+        if let Some(v) = input["description"].as_str() {
+            tx.description = v.into();
+        }
+        if !input["category"].is_null() {
+            tx.category = input["category"].as_str().map(String::from);
+        }
+        if let Some(v) = input["amount_cents"].as_i64() {
+            tx.amount_cents = v;
+        }
+        if !input["vendor"].is_null() {
+            tx.vendor = input["vendor"].as_str().map(String::from);
+        }
+        if let Some(v) = input["paid"].as_bool() {
+            tx.paid = v;
+        }
+        if let Some(v) = input["confirmed"].as_bool() {
+            tx.confirmed = v;
+        }
         if let Some(a) = input["tags"].as_array() {
-            tx.tags = a.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+            tx.tags = a
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect();
         }
 
         save_transaction(&self.store, &self.key, &tx)?;
@@ -959,7 +1010,9 @@ pub struct DeleteBudget {
 
 #[async_trait::async_trait]
 impl Action for DeleteBudget {
-    fn name(&self) -> &str { "delete_budget" }
+    fn name(&self) -> &str {
+        "delete_budget"
+    }
 
     fn description(&self) -> &str {
         "Delete a budget rule by ID. Use budget_summary to see current budget rules."
@@ -1046,10 +1099,22 @@ mod tests {
 
     #[test]
     fn is_financial_by_subject() {
-        assert!(is_likely_financial("Your electric bill is ready", "noreply@utility.com"));
-        assert!(is_likely_financial("Payment receipt for order #123", "shop@example.com"));
-        assert!(is_likely_financial("Monthly statement available", "bank@example.com"));
-        assert!(is_likely_financial("Invoice #INV-2026-04", "billing@vendor.com"));
+        assert!(is_likely_financial(
+            "Your electric bill is ready",
+            "noreply@utility.com"
+        ));
+        assert!(is_likely_financial(
+            "Payment receipt for order #123",
+            "shop@example.com"
+        ));
+        assert!(is_likely_financial(
+            "Monthly statement available",
+            "bank@example.com"
+        ));
+        assert!(is_likely_financial(
+            "Invoice #INV-2026-04",
+            "billing@vendor.com"
+        ));
     }
 
     #[test]
@@ -1061,9 +1126,18 @@ mod tests {
 
     #[test]
     fn not_financial() {
-        assert!(!is_likely_financial("Meeting tomorrow", "colleague@work.com"));
-        assert!(!is_likely_financial("Project update", "manager@company.com"));
-        assert!(!is_likely_financial("Happy birthday!", "friend@personal.com"));
+        assert!(!is_likely_financial(
+            "Meeting tomorrow",
+            "colleague@work.com"
+        ));
+        assert!(!is_likely_financial(
+            "Project update",
+            "manager@company.com"
+        ));
+        assert!(!is_likely_financial(
+            "Happy birthday!",
+            "friend@personal.com"
+        ));
     }
 
     // ── Store round-trips ───────────────────────────────────────
@@ -1408,13 +1482,16 @@ mod tests {
             key: fkey,
         };
 
-        let res = add_tool.execute(serde_json::json!({
-            "kind": "expense",
-            "amount": 42.50,
-            "description": "Lunch with Sarah",
-            "category": "dining",
-            "vendor": "The Grill"
-        })).await.unwrap();
+        let res = add_tool
+            .execute(serde_json::json!({
+                "kind": "expense",
+                "amount": 42.50,
+                "description": "Lunch with Sarah",
+                "category": "dining",
+                "vendor": "The Grill"
+            }))
+            .await
+            .unwrap();
 
         assert_eq!(res["status"], "recorded");
         assert_eq!(res["amount"], "$42.50");
@@ -1489,11 +1566,14 @@ mod tests {
             store: Arc::clone(&store),
             key: aivyx_crypto::derive_domain_key(&master, b"finance"),
         };
-        let res = add_tool.execute(serde_json::json!({
-            "kind": "expense",
-            "amount": 10.00,
-            "description": "Test transaction",
-        })).await.unwrap();
+        let res = add_tool
+            .execute(serde_json::json!({
+                "kind": "expense",
+                "amount": 10.00,
+                "description": "Test transaction",
+            }))
+            .await
+            .unwrap();
         let id = res["id"].as_str().unwrap().to_string();
 
         // Verify it exists
@@ -1505,11 +1585,18 @@ mod tests {
             store: Arc::clone(&store),
             key: aivyx_crypto::derive_domain_key(&master, b"finance"),
         };
-        let result = del_tool.execute(serde_json::json!({ "id": id })).await.unwrap();
+        let result = del_tool
+            .execute(serde_json::json!({ "id": id }))
+            .await
+            .unwrap();
         assert_eq!(result["status"], "deleted");
 
         // Verify it's gone
-        let all = load_all_transactions(&store, &aivyx_crypto::derive_domain_key(&master, b"finance")).unwrap();
+        let all = load_all_transactions(
+            &store,
+            &aivyx_crypto::derive_domain_key(&master, b"finance"),
+        )
+        .unwrap();
         assert!(all.is_empty());
 
         let _ = std::fs::remove_dir_all(dir);

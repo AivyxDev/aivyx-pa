@@ -193,17 +193,41 @@ pub fn detect_display_server() -> DisplayServer {
 /// Apps that are always denied regardless of config.
 const DENIED_APPS: &[&str] = &[
     // Shells (direct shell bypass)
-    "bash", "sh", "zsh", "fish", "dash", "csh", "tcsh",
+    "bash",
+    "sh",
+    "zsh",
+    "fish",
+    "dash",
+    "csh",
+    "tcsh",
     // Package managers
-    "apt", "apt-get", "dnf", "yum", "pacman", "snap", "flatpak", "nix",
+    "apt",
+    "apt-get",
+    "dnf",
+    "yum",
+    "pacman",
+    "snap",
+    "flatpak",
+    "nix",
     // Privilege escalation
-    "sudo", "su", "pkexec", "gksu", "doas",
+    "sudo",
+    "su",
+    "pkexec",
+    "gksu",
+    "doas",
     // System administration
-    "systemctl", "journalctl",
-    "dd", "mkfs", "fdisk", "parted",
-    "rm", "shred",
+    "systemctl",
+    "journalctl",
+    "dd",
+    "mkfs",
+    "fdisk",
+    "parted",
+    "rm",
+    "shred",
     // Network exfiltration
-    "nc", "ncat", "socat",
+    "nc",
+    "ncat",
+    "socat",
 ];
 
 /// Terminal emulators — allowed by default (opening a terminal for the user
@@ -211,8 +235,17 @@ const DENIED_APPS: &[&str] = &[
 /// `run_command` for shell access. Can be re-blocked via config `denied_apps`.
 #[allow(dead_code)]
 const TERMINAL_EMULATORS: &[&str] = &[
-    "xterm", "konsole", "gnome-terminal", "alacritty", "kitty",
-    "foot", "wezterm", "tilix", "terminator", "urxvt", "st",
+    "xterm",
+    "konsole",
+    "gnome-terminal",
+    "alacritty",
+    "kitty",
+    "foot",
+    "wezterm",
+    "tilix",
+    "terminator",
+    "urxvt",
+    "st",
 ];
 
 /// Sensitive path fragments — files that should not be opened.
@@ -257,7 +290,10 @@ pub fn resolve_app_access(app: &str, config: &DesktopConfig) -> AppAccess {
 
     // Legacy allowlist mode
     if !config.allowed_apps.is_empty()
-        && !config.allowed_apps.iter().any(|a| a.eq_ignore_ascii_case(bin_name))
+        && !config
+            .allowed_apps
+            .iter()
+            .any(|a| a.eq_ignore_ascii_case(bin_name))
     {
         return AppAccess::Blocked;
     }
@@ -309,9 +345,7 @@ pub async fn run_desktop_command(
 ) -> Result<CommandOutput> {
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(timeout_secs),
-        tokio::process::Command::new(program)
-            .args(args)
-            .output(),
+        tokio::process::Command::new(program).args(args).output(),
     )
     .await;
 
@@ -321,12 +355,12 @@ pub async fn run_desktop_command(
             stderr: cap_output(&output.stderr),
             exit_code: output.status.code().unwrap_or(-1),
         }),
-        Ok(Err(e)) => Err(aivyx_core::AivyxError::Other(
-            format!("Failed to run {program}: {e}"),
-        )),
-        Err(_) => Err(aivyx_core::AivyxError::Other(
-            format!("{program} timed out after {timeout_secs}s"),
-        )),
+        Ok(Err(e)) => Err(aivyx_core::AivyxError::Other(format!(
+            "Failed to run {program}: {e}"
+        ))),
+        Err(_) => Err(aivyx_core::AivyxError::Other(format!(
+            "{program} timed out after {timeout_secs}s"
+        ))),
     }
 }
 
@@ -436,13 +470,20 @@ mod tests {
     #[test]
     fn app_access_per_app_overrides() {
         let mut config = DesktopConfig::default();
-        config.app_access.insert("firefox".into(), AppAccess::ViewOnly);
+        config
+            .app_access
+            .insert("firefox".into(), AppAccess::ViewOnly);
         config.app_access.insert("gimp".into(), AppAccess::Blocked);
-        config.app_access.insert("alacritty".into(), AppAccess::Interact);
+        config
+            .app_access
+            .insert("alacritty".into(), AppAccess::Interact);
 
         assert_eq!(resolve_app_access("firefox", &config), AppAccess::ViewOnly);
         assert_eq!(resolve_app_access("gimp", &config), AppAccess::Blocked);
-        assert_eq!(resolve_app_access("alacritty", &config), AppAccess::Interact);
+        assert_eq!(
+            resolve_app_access("alacritty", &config),
+            AppAccess::Interact
+        );
         // Not in app_access → default Full
         assert_eq!(resolve_app_access("code", &config), AppAccess::Full);
         // Built-in denylist still overrides
@@ -479,7 +520,9 @@ mod tests {
     #[test]
     fn app_access_view_only_blocks_launch() {
         let mut config = DesktopConfig::default();
-        config.app_access.insert("steam".into(), AppAccess::ViewOnly);
+        config
+            .app_access
+            .insert("steam".into(), AppAccess::ViewOnly);
 
         // is_app_denied returns Some for ViewOnly (can't launch)
         assert!(is_app_denied("steam", &config).is_some());

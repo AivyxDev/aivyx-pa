@@ -29,10 +29,7 @@ const MAX_PDF_READ_BYTES: usize = 50 * 1024 * 1024;
 /// - `.html`, `.htm` → HTML
 /// - `.json`, `.yaml`, `.yml`, `.toml`, `.xml`, `.csv` → Structured text
 /// - Any other → Plain text
-pub async fn create_text_file(
-    path: &str,
-    content: &str,
-) -> Result<String> {
+pub async fn create_text_file(path: &str, content: &str) -> Result<String> {
     validate_output_path(path)?;
     validate_content_size(content)?;
 
@@ -167,10 +164,12 @@ async fn convert_csv_to(csv_path: &str, output_path: &str, ext: &str) -> Result<
         ])
         .output()
         .await
-        .map_err(|e| AivyxError::Other(format!(
-            "Neither ssconvert nor libreoffice available for spreadsheet conversion: {e}. \
+        .map_err(|e| {
+            AivyxError::Other(format!(
+                "Neither ssconvert nor libreoffice available for spreadsheet conversion: {e}. \
              Install gnumeric or libreoffice."
-        )))?;
+            ))
+        })?;
 
     if !lo_result.status.success() {
         return Err(AivyxError::Other(format!(
@@ -182,11 +181,7 @@ async fn convert_csv_to(csv_path: &str, output_path: &str, ext: &str) -> Result<
     // libreoffice puts the output file with the same stem in output_dir.
     // Rename if needed (it uses the CSV's stem, not our target name).
     let lo_output = Path::new(&output_dir)
-        .join(
-            Path::new(csv_path)
-                .file_stem()
-                .unwrap_or_default(),
-        )
+        .join(Path::new(csv_path).file_stem().unwrap_or_default())
         .with_extension(target_format);
 
     if lo_output != Path::new(output_path) {
@@ -203,11 +198,7 @@ async fn convert_csv_to(csv_path: &str, output_path: &str, ext: &str) -> Result<
 /// Create a PDF from markdown or HTML content.
 ///
 /// Tries pandoc first (best for markdown), falls back to weasyprint (best for HTML).
-pub async fn create_pdf(
-    path: &str,
-    content: &str,
-    source_format: &str,
-) -> Result<String> {
+pub async fn create_pdf(path: &str, content: &str, source_format: &str) -> Result<String> {
     validate_output_path(path)?;
     validate_content_size(content)?;
     ensure_parent_dir(path).await?;
@@ -217,9 +208,11 @@ pub async fn create_pdf(
         "html" => "html",
         "latex" | "tex" => "latex",
         "rst" => "rst",
-        other => return Err(AivyxError::Validation(format!(
-            "Unsupported source format: '{other}'. Valid: markdown, html, latex, rst"
-        ))),
+        other => {
+            return Err(AivyxError::Validation(format!(
+                "Unsupported source format: '{other}'. Valid: markdown, html, latex, rst"
+            )));
+        }
     };
 
     // Write content to a temp file.
@@ -296,10 +289,12 @@ async fn try_weasyprint_pdf(input: &str, output: &str) -> Result<()> {
         .args([input, output])
         .output()
         .await
-        .map_err(|e| AivyxError::Other(format!(
-            "Neither pandoc nor weasyprint available for PDF creation: {e}. \
+        .map_err(|e| {
+            AivyxError::Other(format!(
+                "Neither pandoc nor weasyprint available for PDF creation: {e}. \
              Install pandoc (sudo apt install pandoc) or weasyprint (pip install weasyprint)."
-        )))?;
+            ))
+        })?;
 
     if output_result.status.success() {
         Ok(())
@@ -415,14 +410,10 @@ pub async fn edit_text_file(
                 as usize;
 
             if from == 0 || to == 0 {
-                return Err(AivyxError::Validation(
-                    "Line numbers are 1-based".into(),
-                ));
+                return Err(AivyxError::Validation("Line numbers are 1-based".into()));
             }
             if from > to {
-                return Err(AivyxError::Validation(
-                    "from must be <= to".into(),
-                ));
+                return Err(AivyxError::Validation("from must be <= to".into()));
             }
 
             let lines: Vec<&str> = content.lines().collect();
@@ -460,13 +451,22 @@ pub async fn edit_text_file(
 
 /// Supported conversion paths.
 const PANDOC_INPUT_FORMATS: &[&str] = &[
-    "markdown", "md", "html", "latex", "tex", "rst", "docx", "odt",
-    "epub", "textile", "org", "mediawiki",
+    "markdown",
+    "md",
+    "html",
+    "latex",
+    "tex",
+    "rst",
+    "docx",
+    "odt",
+    "epub",
+    "textile",
+    "org",
+    "mediawiki",
 ];
 
 const PANDOC_OUTPUT_FORMATS: &[&str] = &[
-    "pdf", "html", "docx", "odt", "epub", "latex", "rst", "plain",
-    "markdown", "md",
+    "pdf", "html", "docx", "odt", "epub", "latex", "rst", "plain", "markdown", "md",
 ];
 
 /// Convert a document between formats.
@@ -535,12 +535,7 @@ fn is_pandoc_format(fmt: &str) -> bool {
     PANDOC_INPUT_FORMATS.contains(&fmt) || PANDOC_OUTPUT_FORMATS.contains(&fmt)
 }
 
-async fn try_pandoc_convert(
-    input: &str,
-    output: &str,
-    from: &str,
-    to: &str,
-) -> Result<String> {
+async fn try_pandoc_convert(input: &str, output: &str, from: &str, to: &str) -> Result<String> {
     // Normalize format aliases.
     let from_norm = match from {
         "md" => "markdown",
@@ -581,11 +576,7 @@ async fn try_pandoc_convert(
     }
 }
 
-async fn try_libreoffice_convert(
-    input: &str,
-    output: &str,
-    to_format: &str,
-) -> Result<String> {
+async fn try_libreoffice_convert(input: &str, output: &str, to_format: &str) -> Result<String> {
     let output_dir = Path::new(output)
         .parent()
         .map(|p| p.to_string_lossy().to_string())
@@ -602,9 +593,11 @@ async fn try_libreoffice_convert(
         ])
         .output()
         .await
-        .map_err(|e| AivyxError::Other(format!(
-            "Neither pandoc nor libreoffice available for conversion: {e}"
-        )))?;
+        .map_err(|e| {
+            AivyxError::Other(format!(
+                "Neither pandoc nor libreoffice available for conversion: {e}"
+            ))
+        })?;
 
     if !result.status.success() {
         return Err(AivyxError::Other(format!(
@@ -628,7 +621,9 @@ async fn try_libreoffice_convert(
         .await
         .map(|m| m.len())
         .unwrap_or(0);
-    Ok(format!("Converted → {output} ({size} bytes, via libreoffice)"))
+    Ok(format!(
+        "Converted → {output} ({size} bytes, via libreoffice)"
+    ))
 }
 
 // ── PDF Reading ────────────────────────────────────────────────
@@ -793,12 +788,7 @@ mod tests {
         let path = temp.to_string_lossy().to_string();
         tokio::fs::write(&path, "hello").await.unwrap();
 
-        let result = edit_text_file(
-            &path,
-            "explode",
-            &serde_json::json!({}),
-        )
-        .await;
+        let result = edit_text_file(&path, "explode", &serde_json::json!({})).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("Unknown edit operation"), "error: {err}");
@@ -812,12 +802,8 @@ mod tests {
         let path = temp.to_string_lossy().to_string();
         tokio::fs::write(&path, "hello world").await.unwrap();
 
-        let result = edit_text_file(
-            &path,
-            "find_replace",
-            &serde_json::json!({"replace": "x"}),
-        )
-        .await;
+        let result =
+            edit_text_file(&path, "find_replace", &serde_json::json!({"replace": "x"})).await;
         assert!(result.is_err());
 
         let _ = tokio::fs::remove_file(&path).await;
@@ -829,12 +815,7 @@ mod tests {
         let path = temp.to_string_lossy().to_string();
         tokio::fs::write(&path, "line1\n").await.unwrap();
 
-        let result = edit_text_file(
-            &path,
-            "append",
-            &serde_json::json!({"text": "line2"}),
-        )
-        .await;
+        let result = edit_text_file(&path, "append", &serde_json::json!({"text": "line2"})).await;
         assert!(result.is_ok());
 
         let content = tokio::fs::read_to_string(&path).await.unwrap();

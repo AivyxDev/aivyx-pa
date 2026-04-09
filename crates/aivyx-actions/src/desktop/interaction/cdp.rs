@@ -9,8 +9,8 @@
 use aivyx_core::{AivyxError, Result};
 
 use super::{
-    ElementQuery, ScrollDirection, UiBackend, UiElement, UiTreeNode, WindowRef,
-    MAX_JS_INPUT_BYTES, MAX_SCREENSHOT_BYTES,
+    ElementQuery, MAX_JS_INPUT_BYTES, MAX_SCREENSHOT_BYTES, ScrollDirection, UiBackend, UiElement,
+    UiTreeNode, WindowRef,
 };
 
 /// CDP-based browser automation backend.
@@ -35,14 +35,12 @@ impl CdpBackend {
             ))
         })?;
 
-        let tabs: Vec<CdpTab> = resp.json().await.map_err(|e| {
-            AivyxError::Other(format!("Failed to parse Chrome tab list: {e}"))
-        })?;
+        let tabs: Vec<CdpTab> = resp
+            .json()
+            .await
+            .map_err(|e| AivyxError::Other(format!("Failed to parse Chrome tab list: {e}")))?;
 
-        Ok(tabs
-            .into_iter()
-            .filter(|t| t.tab_type == "page")
-            .collect())
+        Ok(tabs.into_iter().filter(|t| t.tab_type == "page").collect())
     }
 
     /// Get the WebSocket debugger URL for a tab by index.
@@ -55,10 +53,7 @@ impl CdpBackend {
             ))
         })?;
         tab.web_socket_debugger_url.clone().ok_or_else(|| {
-            AivyxError::Other(format!(
-                "Tab '{}' has no WebSocket debugger URL",
-                tab.title
-            ))
+            AivyxError::Other(format!("Tab '{}' has no WebSocket debugger URL", tab.title))
         })
     }
 
@@ -68,7 +63,9 @@ impl CdpBackend {
         let ws_url = self.tab_ws_url(tab_index).await?;
         // Send Page.navigate via CDP WebSocket.
         let result = cdp_send(&ws_url, "Page.navigate", &serde_json::json!({"url": url})).await?;
-        Ok(format!("Navigated tab {tab_index} to {url}. Frame: {result}"))
+        Ok(format!(
+            "Navigated tab {tab_index} to {url}. Frame: {result}"
+        ))
     }
 
     /// Query DOM elements by CSS selector.
@@ -93,10 +90,7 @@ impl CdpBackend {
         )
         .await?;
 
-        let node_ids = result["nodeIds"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
+        let node_ids = result["nodeIds"].as_array().cloned().unwrap_or_default();
 
         // Resolve each node to get its outer HTML and text.
         let mut elements = Vec::new();
@@ -126,11 +120,7 @@ impl CdpBackend {
     }
 
     /// Click a DOM element by CSS selector.
-    pub async fn click_selector(
-        &self,
-        selector: &str,
-        tab_index: usize,
-    ) -> Result<String> {
+    pub async fn click_selector(&self, selector: &str, tab_index: usize) -> Result<String> {
         let ws_url = self.tab_ws_url(tab_index).await?;
 
         // Use Runtime.evaluate to click via JS (most reliable cross-browser).
@@ -160,12 +150,7 @@ impl CdpBackend {
     }
 
     /// Type text into a focused element or one matched by selector.
-    pub async fn type_text(
-        &self,
-        selector: &str,
-        text: &str,
-        tab_index: usize,
-    ) -> Result<String> {
+    pub async fn type_text(&self, selector: &str, text: &str, tab_index: usize) -> Result<String> {
         let ws_url = self.tab_ws_url(tab_index).await?;
 
         // Focus the element first.
@@ -187,9 +172,7 @@ impl CdpBackend {
         .await?;
 
         if focus_result["result"]["value"].as_str() == Some("not_found") {
-            return Err(AivyxError::Other(format!(
-                "Element not found: {selector}"
-            )));
+            return Err(AivyxError::Other(format!("Element not found: {selector}")));
         }
 
         // Type each character via Input.dispatchKeyEvent.
@@ -218,11 +201,7 @@ impl CdpBackend {
     }
 
     /// Read visible text from the page or a specific element.
-    pub async fn read_page(
-        &self,
-        selector: Option<&str>,
-        tab_index: usize,
-    ) -> Result<String> {
+    pub async fn read_page(&self, selector: Option<&str>, tab_index: usize) -> Result<String> {
         let ws_url = self.tab_ws_url(tab_index).await?;
 
         let js = if let Some(sel) = selector {
@@ -245,21 +224,14 @@ impl CdpBackend {
         )
         .await?;
 
-        let text = result["result"]["value"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
+        let text = result["result"]["value"].as_str().unwrap_or("").to_string();
 
         // Cap at 64KB.
         Ok(truncate_str(&text, 64 * 1024).to_string())
     }
 
     /// Take a screenshot of the page.
-    pub async fn screenshot(
-        &self,
-        format: &str,
-        tab_index: usize,
-    ) -> Result<String> {
+    pub async fn screenshot(&self, format: &str, tab_index: usize) -> Result<String> {
         let ws_url = self.tab_ws_url(tab_index).await?;
 
         let result = cdp_send(
@@ -340,11 +312,7 @@ impl CdpBackend {
     }
 
     /// Right-click an element by CSS selector.
-    pub async fn right_click_selector(
-        &self,
-        selector: &str,
-        tab_index: usize,
-    ) -> Result<String> {
+    pub async fn right_click_selector(&self, selector: &str, tab_index: usize) -> Result<String> {
         let ws_url = self.tab_ws_url(tab_index).await?;
 
         // Get element position via JS.
@@ -407,11 +375,7 @@ impl CdpBackend {
     }
 
     /// Hover over an element by CSS selector.
-    pub async fn hover_selector(
-        &self,
-        selector: &str,
-        tab_index: usize,
-    ) -> Result<String> {
+    pub async fn hover_selector(&self, selector: &str, tab_index: usize) -> Result<String> {
         let ws_url = self.tab_ws_url(tab_index).await?;
 
         let js = format!(
@@ -490,7 +454,10 @@ impl CdpBackend {
             return Err(AivyxError::Other(format!("JS error: {msg}")));
         }
 
-        Ok(result.get("result").cloned().unwrap_or(serde_json::Value::Null))
+        Ok(result
+            .get("result")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null))
     }
 
     /// List all open browser tabs with their titles and URLs.
@@ -513,16 +480,14 @@ impl CdpBackend {
     /// Open a new browser tab with the given URL.
     pub async fn new_tab(&self, url: &str) -> Result<String> {
         // Chrome's /json/new endpoint creates a tab.
-        let endpoint = format!(
-            "http://127.0.0.1:{}/json/new?{}",
-            self.debug_port, url
-        );
-        let resp = reqwest::get(&endpoint).await.map_err(|e| {
-            AivyxError::Other(format!("Failed to create new tab: {e}"))
-        })?;
-        let tab: CdpTab = resp.json().await.map_err(|e| {
-            AivyxError::Other(format!("Failed to parse new tab response: {e}"))
-        })?;
+        let endpoint = format!("http://127.0.0.1:{}/json/new?{}", self.debug_port, url);
+        let resp = reqwest::get(&endpoint)
+            .await
+            .map_err(|e| AivyxError::Other(format!("Failed to create new tab: {e}")))?;
+        let tab: CdpTab = resp
+            .json()
+            .await
+            .map_err(|e| AivyxError::Other(format!("Failed to parse new tab response: {e}")))?;
         Ok(format!("Opened new tab: {}", tab.title))
     }
 
@@ -536,13 +501,10 @@ impl CdpBackend {
             ))
         })?;
 
-        let endpoint = format!(
-            "http://127.0.0.1:{}/json/close/{}",
-            self.debug_port, tab.id
-        );
-        reqwest::get(&endpoint).await.map_err(|e| {
-            AivyxError::Other(format!("Failed to close tab: {e}"))
-        })?;
+        let endpoint = format!("http://127.0.0.1:{}/json/close/{}", self.debug_port, tab.id);
+        reqwest::get(&endpoint)
+            .await
+            .map_err(|e| AivyxError::Other(format!("Failed to close tab: {e}")))?;
         Ok(())
     }
 
@@ -554,8 +516,7 @@ impl CdpBackend {
         tab_index: usize,
     ) -> Result<bool> {
         let ws_url = self.tab_ws_url(tab_index).await?;
-        let deadline =
-            tokio::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
 
         let js = format!(
             r#"!!document.querySelector({sel})"#,
@@ -632,9 +593,7 @@ impl CdpBackend {
         )
         .await?;
 
-        let val = result["result"]["value"]
-            .as_str()
-            .unwrap_or("unknown");
+        let val = result["result"]["value"].as_str().unwrap_or("unknown");
 
         if val == "not_a_select" {
             return Err(AivyxError::Other(format!(
@@ -642,20 +601,14 @@ impl CdpBackend {
             )));
         }
         if val == "option_not_found" {
-            return Err(AivyxError::Other(
-                "Option not found in dropdown".into(),
-            ));
+            return Err(AivyxError::Other("Option not found in dropdown".into()));
         }
 
         Ok(val.to_string())
     }
 
     /// Clear a form field (select all + delete via JS).
-    pub async fn clear_field(
-        &self,
-        selector: &str,
-        tab_index: usize,
-    ) -> Result<String> {
+    pub async fn clear_field(&self, selector: &str, tab_index: usize) -> Result<String> {
         let ws_url = self.tab_ws_url(tab_index).await?;
 
         let js = format!(
@@ -686,25 +639,17 @@ impl CdpBackend {
         )
         .await?;
 
-        let val = result["result"]["value"]
-            .as_str()
-            .unwrap_or("unknown");
+        let val = result["result"]["value"].as_str().unwrap_or("unknown");
 
         if val == "not_found" {
-            return Err(AivyxError::Other(format!(
-                "Element not found: {selector}"
-            )));
+            return Err(AivyxError::Other(format!("Element not found: {selector}")));
         }
 
         Ok(val.to_string())
     }
 
     /// Save the current page as PDF. Returns base64-encoded PDF data.
-    pub async fn print_to_pdf(
-        &self,
-        tab_index: usize,
-        landscape: bool,
-    ) -> Result<String> {
+    pub async fn print_to_pdf(&self, tab_index: usize, landscape: bool) -> Result<String> {
         let ws_url = self.tab_ws_url(tab_index).await?;
 
         let result = cdp_send(
@@ -778,8 +723,8 @@ impl CdpBackend {
             .as_str()
             .unwrap_or(r#"{"count":0,"matches":[]}"#);
 
-        let parsed: serde_json::Value = serde_json::from_str(val_str)
-            .unwrap_or(serde_json::json!({"count": 0, "matches": []}));
+        let parsed: serde_json::Value =
+            serde_json::from_str(val_str).unwrap_or(serde_json::json!({"count": 0, "matches": []}));
 
         Ok(parsed)
     }
@@ -791,11 +736,7 @@ impl UiBackend for CdpBackend {
         "cdp"
     }
 
-    async fn inspect(
-        &self,
-        _window: &WindowRef,
-        _max_depth: u32,
-    ) -> Result<Vec<UiTreeNode>> {
+    async fn inspect(&self, _window: &WindowRef, _max_depth: u32) -> Result<Vec<UiTreeNode>> {
         Err(AivyxError::Other(
             "CDP inspect: use browser_query with a CSS selector instead".into(),
         ))
@@ -818,10 +759,7 @@ impl UiBackend for CdpBackend {
         };
 
         let result = self.query_selector(&selector, 0).await?;
-        let elements = result["elements"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
+        let elements = result["elements"].as_array().cloned().unwrap_or_default();
 
         Ok(elements
             .iter()
@@ -853,17 +791,10 @@ impl UiBackend for CdpBackend {
         Ok(())
     }
 
-    async fn type_text(
-        &self,
-        element: Option<&UiElement>,
-        text: &str,
-    ) -> Result<()> {
+    async fn type_text(&self, element: Option<&UiElement>, text: &str) -> Result<()> {
         let selector = if let Some(el) = element {
             if !el.name.is_empty() {
-                format!(
-                    "[aria-label*='{}'], [name*='{}']",
-                    el.name, el.name
-                )
+                format!("[aria-label*='{}'], [name*='{}']", el.name, el.name)
             } else {
                 ":focus".to_string()
             }
@@ -925,13 +856,11 @@ async fn cdp_send(
 ) -> Result<serde_json::Value> {
     use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-    let (mut ws, _) = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        connect_async(ws_url),
-    )
-    .await
-    .map_err(|_| AivyxError::Other("CDP WebSocket connect timed out".into()))?
-    .map_err(|e| AivyxError::Other(format!("CDP WebSocket connect failed: {e}")))?;
+    let (mut ws, _) =
+        tokio::time::timeout(std::time::Duration::from_secs(5), connect_async(ws_url))
+            .await
+            .map_err(|_| AivyxError::Other("CDP WebSocket connect timed out".into()))?
+            .map_err(|e| AivyxError::Other(format!("CDP WebSocket connect failed: {e}")))?;
 
     use futures_util::{SinkExt, StreamExt};
 
@@ -965,7 +894,10 @@ async fn cdp_send(
                         error["message"].as_str().unwrap_or("unknown")
                     )));
                 }
-                return Ok(resp.get("result").cloned().unwrap_or(serde_json::Value::Null));
+                return Ok(resp
+                    .get("result")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null));
             }
             // Otherwise it's an event — skip it.
         }
@@ -990,7 +922,10 @@ async fn cdp_send(
 
 /// Validate a URL for browser navigation.
 fn validate_url(url: &str) -> Result<()> {
-    if super::ALLOWED_URL_SCHEMES.iter().any(|s| url.starts_with(s)) {
+    if super::ALLOWED_URL_SCHEMES
+        .iter()
+        .any(|s| url.starts_with(s))
+    {
         Ok(())
     } else {
         Err(AivyxError::Other(format!(

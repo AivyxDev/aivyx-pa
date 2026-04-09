@@ -67,7 +67,11 @@ pub struct IntegrationField {
 }
 
 /// Kind of value accepted in a TextInput popup.
-pub enum InputKind { String, UInt, Float }
+pub enum InputKind {
+    String,
+    UInt,
+    Float,
+}
 
 /// Action to execute when a Confirm dialog is accepted.
 pub enum ConfirmAction {
@@ -85,7 +89,7 @@ pub enum GoalPopup {
     Create {
         description: String,
         criteria: String,
-        priority: usize, // index into PRIORITIES
+        priority: usize,      // index into PRIORITIES
         focused_field: usize, // 0=desc, 1=criteria, 2=priority
     },
     /// Edit an existing goal.
@@ -94,14 +98,11 @@ pub enum GoalPopup {
         description: String,
         criteria: String,
         priority: usize,
-        deadline: String, // YYYY-MM-DD or empty
+        deadline: String,     // YYYY-MM-DD or empty
         focused_field: usize, // 0=desc, 1=criteria, 2=priority, 3=deadline
     },
     /// Confirm a goal action.
-    Confirm {
-        message: String,
-        action: GoalAction,
-    },
+    Confirm { message: String, action: GoalAction },
 }
 
 pub enum GoalAction {
@@ -131,7 +132,10 @@ pub enum HistoryMode {
     /// Confirming deletion of the selected session.
     ConfirmDelete,
     /// Previewing messages in the selected session.
-    Preview { lines: Vec<(String, String)>, scroll: usize },
+    Preview {
+        lines: Vec<(String, String)>,
+        scroll: usize,
+    },
 }
 
 /// Modal popup state for the Chat view.
@@ -145,14 +149,9 @@ pub enum ChatPopup {
         mode: HistoryMode,
     },
     /// System prompt preview (scrollable).
-    SystemPrompt {
-        lines: Vec<String>,
-        scroll: usize,
-    },
+    SystemPrompt { lines: Vec<String>, scroll: usize },
     /// Export confirmation (shows path after export).
-    ExportDone {
-        path: String,
-    },
+    ExportDone { path: String },
     /// Snapshot / branch manager.
     BranchManager {
         snapshots: Vec<SnapshotEntry>,
@@ -387,15 +386,15 @@ pub struct App {
     // ── Settings state (cached SettingsSnapshot) ───────────────
     pub settings: Option<SettingsSnapshot>,
     pub settings_error: Option<String>,
-    pub settings_card_index: usize,  // 0-7: which card is focused
-    pub settings_item_index: usize,  // row within the focused card
+    pub settings_card_index: usize, // 0-7: which card is focused
+    pub settings_item_index: usize, // row within the focused card
     pub settings_popup: Option<SettingsPopup>,
 
     // ── Tools / Extensions ──────────────────────────────────────
     pub tool_count: usize,
 
     // ── Health status ───────────────────────────────────────────
-    pub health_provider: String,   // "healthy" | "degraded" | "n/a"
+    pub health_provider: String, // "healthy" | "degraded" | "n/a"
     pub health_email: String,
     pub health_config: String,
     pub health_disk: String,
@@ -410,13 +409,14 @@ impl App {
     /// Create a new app wired to the live PA backend.
     pub fn new_live(state: Arc<AppState>) -> Self {
         let agent_name = state.agent_name.clone();
-        let (settings, settings_error) = match aivyx_pa::settings::reload_settings_snapshot(&state.config_path) {
-            Ok(s) => (Some(s), None),
-            Err(e) => {
-                tracing::warn!("Settings load failed: {e}");
-                (None, Some(e))
-            }
-        };
+        let (settings, settings_error) =
+            match aivyx_pa::settings::reload_settings_snapshot(&state.config_path) {
+                Ok(s) => (Some(s), None),
+                Err(e) => {
+                    tracing::warn!("Settings load failed: {e}");
+                    (None, Some(e))
+                }
+            };
 
         let (provider_label, model_name, autonomy_tier, heartbeat_interval) =
             if let Some(ref s) = settings {
@@ -583,22 +583,31 @@ impl App {
 
     /// Filtered notifications for the current activity filter.
     pub fn filtered_notifications(&self) -> Vec<&Notification> {
-        self.notifications.iter().filter(|n| match self.activity_filter {
-            1 => n.source == "schedule" || n.source == "briefing",
-            2 => n.source.contains("heartbeat"),
-            3 => n.source == "triage" || n.source == "email",
-            _ => true,
-        }).collect()
+        self.notifications
+            .iter()
+            .filter(|n| match self.activity_filter {
+                1 => n.source == "schedule" || n.source == "briefing",
+                2 => n.source.contains("heartbeat"),
+                3 => n.source == "triage" || n.source == "email",
+                _ => true,
+            })
+            .collect()
     }
 
     /// Filtered missions for the current filter.
     pub fn filtered_missions(&self) -> Vec<&TaskMetadata> {
-        self.missions.iter().filter(|m| match self.mission_filter {
-            1 => !m.status.is_terminal(), // active
-            2 => matches!(m.status, MissionStatus::Completed),
-            3 => matches!(m.status, MissionStatus::Failed { .. } | MissionStatus::Cancelled),
-            _ => true,
-        }).collect()
+        self.missions
+            .iter()
+            .filter(|m| match self.mission_filter {
+                1 => !m.status.is_terminal(), // active
+                2 => matches!(m.status, MissionStatus::Completed),
+                3 => matches!(
+                    m.status,
+                    MissionStatus::Failed { .. } | MissionStatus::Cancelled
+                ),
+                _ => true,
+            })
+            .collect()
     }
 
     /// Load full mission detail for the currently selected mission.
@@ -622,10 +631,16 @@ impl App {
     /// Cancel the currently selected mission.
     pub fn cancel_mission(&mut self) {
         let Some(ref state) = self.state else { return };
-        let Some(ref ctx) = state.mission_ctx else { return };
+        let Some(ref ctx) = state.mission_ctx else {
+            return;
+        };
         let missions = self.filtered_missions();
-        let Some(meta) = missions.get(self.mission_selected) else { return };
-        if meta.status.is_terminal() { return; }
+        let Some(meta) = missions.get(self.mission_selected) else {
+            return;
+        };
+        if meta.status.is_terminal() {
+            return;
+        }
         if let Ok(engine) = aivyx_pa::agent::build_task_engine(ctx) {
             let _ = engine.cancel(&meta.id);
         }
@@ -634,17 +649,30 @@ impl App {
     /// Approve the currently selected mission's approval gate.
     pub fn approve_mission(&mut self) {
         let Some(ref state) = self.state else { return };
-        let Some(ref ctx) = state.mission_ctx else { return };
+        let Some(ref ctx) = state.mission_ctx else {
+            return;
+        };
         let missions = self.filtered_missions();
-        let Some(meta) = missions.get(self.mission_selected) else { return };
-        if !meta.status.is_awaiting_approval() { return; }
+        let Some(meta) = missions.get(self.mission_selected) else {
+            return;
+        };
+        if !meta.status.is_awaiting_approval() {
+            return;
+        }
 
         if let Ok(engine) = aivyx_pa::agent::build_task_engine(ctx) {
             // Extract the step index from the mission status
             if let Ok(Some(mission)) = engine.get_mission(&meta.id) {
-                if let aivyx_task_engine::TaskStatus::AwaitingApproval { step_index, .. } = &mission.status {
+                if let aivyx_task_engine::TaskStatus::AwaitingApproval { step_index, .. } =
+                    &mission.status
+                {
                     let step_idx = *step_index;
-                    let _ = engine.resolve_approval(&meta.id, step_idx, true, Some("approved via TUI".into()));
+                    let _ = engine.resolve_approval(
+                        &meta.id,
+                        step_idx,
+                        true,
+                        Some("approved via TUI".into()),
+                    );
                     // Auto-resume after approval
                     self.resume_mission();
                 }
@@ -655,15 +683,28 @@ impl App {
     /// Deny the currently selected mission's approval gate.
     pub fn deny_mission(&mut self) {
         let Some(ref state) = self.state else { return };
-        let Some(ref ctx) = state.mission_ctx else { return };
+        let Some(ref ctx) = state.mission_ctx else {
+            return;
+        };
         let missions = self.filtered_missions();
-        let Some(meta) = missions.get(self.mission_selected) else { return };
-        if !meta.status.is_awaiting_approval() { return; }
+        let Some(meta) = missions.get(self.mission_selected) else {
+            return;
+        };
+        if !meta.status.is_awaiting_approval() {
+            return;
+        }
 
         if let Ok(engine) = aivyx_pa::agent::build_task_engine(ctx) {
             if let Ok(Some(mission)) = engine.get_mission(&meta.id) {
-                if let aivyx_task_engine::TaskStatus::AwaitingApproval { step_index, .. } = &mission.status {
-                    let _ = engine.resolve_approval(&meta.id, *step_index, false, Some("denied via TUI".into()));
+                if let aivyx_task_engine::TaskStatus::AwaitingApproval { step_index, .. } =
+                    &mission.status
+                {
+                    let _ = engine.resolve_approval(
+                        &meta.id,
+                        *step_index,
+                        false,
+                        Some("denied via TUI".into()),
+                    );
                 }
             }
         }
@@ -672,12 +713,20 @@ impl App {
     /// Resume the currently selected mission (if resumable).
     pub fn resume_mission(&mut self) {
         let Some(ref state) = self.state else { return };
-        let Some(ref ctx) = state.mission_ctx else { return };
+        let Some(ref ctx) = state.mission_ctx else {
+            return;
+        };
         let missions = self.filtered_missions();
-        let Some(meta) = missions.get(self.mission_selected) else { return };
+        let Some(meta) = missions.get(self.mission_selected) else {
+            return;
+        };
         // Can only resume non-terminal, non-planning missions
-        if meta.status.is_terminal() { return; }
-        if matches!(meta.status, aivyx_task_engine::TaskStatus::Planning) { return; }
+        if meta.status.is_terminal() {
+            return;
+        }
+        if matches!(meta.status, aivyx_task_engine::TaskStatus::Planning) {
+            return;
+        }
 
         if let Ok(bg_engine) = aivyx_pa::agent::build_task_engine(ctx) {
             let task_id = meta.id;
@@ -695,15 +744,25 @@ impl App {
     /// Toggle the enabled state of the selected schedule.
     pub fn toggle_schedule(&mut self) {
         let Some(ref state) = self.state else { return };
-        let Some(ref settings) = self.settings else { return };
+        let Some(ref settings) = self.settings else {
+            return;
+        };
         let idx = self.settings_item_index;
-        if idx >= settings.schedules.len() { return; }
+        if idx >= settings.schedules.len() {
+            return;
+        }
 
         let (ref name, _, enabled) = settings.schedules[idx];
         let _ = aivyx_pa::settings::toggle_schedule_enabled(&state.config_path, name, !enabled);
         match aivyx_pa::settings::reload_settings_snapshot(&state.config_path) {
-            Ok(s) => { self.settings = Some(s); self.settings_error = None; }
-            Err(e) => { self.settings = None; self.settings_error = Some(e); }
+            Ok(s) => {
+                self.settings = Some(s);
+                self.settings_error = None;
+            }
+            Err(e) => {
+                self.settings = None;
+                self.settings_error = Some(e);
+            }
         }
     }
 
@@ -728,7 +787,10 @@ impl App {
         if let (Some(brain_store), Some(brain_key)) = (&state.brain_store, &state.brain_key) {
             if let Ok(goals) = brain_store.list_goals(&GoalFilter::default(), brain_key) {
                 self.goal_count = goals.len() as u64;
-                self.active_goals = goals.iter().filter(|g| g.status == GoalStatus::Active).count();
+                self.active_goals = goals
+                    .iter()
+                    .filter(|g| g.status == GoalStatus::Active)
+                    .count();
                 self.goals = goals;
             }
         }
@@ -736,7 +798,8 @@ impl App {
         // Approvals
         {
             let approvals = state.approvals.lock().await;
-            self.pending_approvals = approvals.iter()
+            self.pending_approvals = approvals
+                .iter()
                 .filter(|a| a.status == ApprovalStatus::Pending)
                 .count();
             self.approvals = approvals.clone();
@@ -762,10 +825,13 @@ impl App {
                     list.sort_by(|a, b| {
                         let a_active = !a.status.is_terminal();
                         let b_active = !b.status.is_terminal();
-                        b_active.cmp(&a_active).then(b.updated_at.cmp(&a.updated_at))
+                        b_active
+                            .cmp(&a_active)
+                            .then(b.updated_at.cmp(&a.updated_at))
                     });
                     // Include missions awaiting approval in the approval count
-                    let mission_approvals = list.iter()
+                    let mission_approvals = list
+                        .iter()
                         .filter(|m| m.status.is_awaiting_approval())
                         .count();
                     self.pending_approvals += mission_approvals;
@@ -798,8 +864,14 @@ impl App {
 
         // Settings
         match aivyx_pa::settings::reload_settings_snapshot(&state.config_path) {
-            Ok(s) => { self.settings = Some(s); self.settings_error = None; }
-            Err(e) => { self.settings = None; self.settings_error = Some(e); }
+            Ok(s) => {
+                self.settings = Some(s);
+                self.settings_error = None;
+            }
+            Err(e) => {
+                self.settings = None;
+                self.settings_error = Some(e);
+            }
         }
 
         // Health status (non-blocking read — written by background task)
@@ -830,7 +902,14 @@ impl App {
     }
 
     pub fn start_voice_recording(&mut self) {
-        if self.chat_streaming || self.voice_recording || !self.settings.as_ref().map(|s| s.voice_enabled).unwrap_or(true) {
+        if self.chat_streaming
+            || self.voice_recording
+            || !self
+                .settings
+                .as_ref()
+                .map(|s| s.voice_enabled)
+                .unwrap_or(true)
+        {
             return;
         }
 
@@ -842,10 +921,11 @@ impl App {
         }
 
         self.voice_recording = true;
-        
+
         // Spawn arecord standard sync child process
         match std::process::Command::new("arecord")
-            .arg("-f").arg("S16_LE")
+            .arg("-f")
+            .arg("S16_LE")
             .arg("-c1")
             .arg("-r16000")
             .arg("/tmp/aivyx-voice.wav")
@@ -864,7 +944,9 @@ impl App {
     }
 
     pub fn stop_voice_recording(&mut self) {
-        if !self.voice_recording { return; }
+        if !self.voice_recording {
+            return;
+        }
         self.voice_recording = false;
         self.voice_transcribing = true;
 
@@ -873,7 +955,9 @@ impl App {
             let _ = child.wait();
         }
 
-        let stt_model = self.settings.as_ref()
+        let stt_model = self
+            .settings
+            .as_ref()
             .and_then(|s| s.stt_model_path.clone())
             .unwrap_or_else(|| "/home/julian/.local/share/aivyx-pa/models/ggml-base.en.bin".into());
 
@@ -881,13 +965,15 @@ impl App {
             let tx_clone = tx.clone();
             tokio::spawn(async move {
                 let out = tokio::process::Command::new("whisper-cli")
-                    .arg("-m").arg(&stt_model)
-                    .arg("-f").arg("/tmp/aivyx-voice.wav")
+                    .arg("-m")
+                    .arg(&stt_model)
+                    .arg("-f")
+                    .arg("/tmp/aivyx-voice.wav")
                     .arg("-nt") // no timestamps
                     .arg("-np") // no prints (only results)
                     .output()
                     .await;
-                
+
                 if let Ok(output) = out {
                     let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
                     if !text.is_empty() {
@@ -949,7 +1035,8 @@ impl App {
             let result = tokio::time::timeout(
                 std::time::Duration::from_secs(300),
                 agent.turn_stream(&message, None, token_tx.clone(), Some(cancel)),
-            ).await;
+            )
+            .await;
 
             match result {
                 Ok(Ok(_)) => {
@@ -960,7 +1047,11 @@ impl App {
                     let _ = token_tx.send("\n[[DONE]]".into()).await;
                 }
                 Err(_) => {
-                    let _ = token_tx.send("\n\n⚠ Response timed out (5 min). Partial response preserved.".into()).await;
+                    let _ = token_tx
+                        .send(
+                            "\n\n⚠ Response timed out (5 min). Partial response preserved.".into(),
+                        )
+                        .await;
                     let _ = token_tx.send("\n[[DONE]]".into()).await;
                 }
             }
@@ -1046,19 +1137,53 @@ impl App {
 
     /// Canonical list of all integrations shown in the Settings Integrations card.
     /// Returns `(label, configured, kind)` for each.
-    pub fn integrations_list(settings: &SettingsSnapshot) -> Vec<(&'static str, bool, IntegrationKind)> {
+    pub fn integrations_list(
+        settings: &SettingsSnapshot,
+    ) -> Vec<(&'static str, bool, IntegrationKind)> {
         vec![
-            ("Email",     settings.email_configured,     IntegrationKind::Email),
-            ("Telegram",  settings.telegram_configured,  IntegrationKind::Telegram),
-            ("Matrix",    settings.matrix_configured,    IntegrationKind::Matrix),
-            ("Calendar",  settings.calendar_configured,  IntegrationKind::Calendar),
-            ("Contacts",  settings.contacts_configured,  IntegrationKind::Contacts),
-            ("Vault",     settings.vault_configured,     IntegrationKind::Vault),
-            ("Signal",    settings.signal_configured,    IntegrationKind::Signal),
-            ("SMS",       settings.sms_configured,       IntegrationKind::Sms),
-            ("Finance",   settings.finance_configured,   IntegrationKind::Finance),
-            ("Desktop",   settings.desktop_configured,   IntegrationKind::Desktop),
-            ("DevTools",  settings.devtools_configured,  IntegrationKind::DevTools),
+            ("Email", settings.email_configured, IntegrationKind::Email),
+            (
+                "Telegram",
+                settings.telegram_configured,
+                IntegrationKind::Telegram,
+            ),
+            (
+                "Matrix",
+                settings.matrix_configured,
+                IntegrationKind::Matrix,
+            ),
+            (
+                "Calendar",
+                settings.calendar_configured,
+                IntegrationKind::Calendar,
+            ),
+            (
+                "Contacts",
+                settings.contacts_configured,
+                IntegrationKind::Contacts,
+            ),
+            ("Vault", settings.vault_configured, IntegrationKind::Vault),
+            (
+                "Signal",
+                settings.signal_configured,
+                IntegrationKind::Signal,
+            ),
+            ("SMS", settings.sms_configured, IntegrationKind::Sms),
+            (
+                "Finance",
+                settings.finance_configured,
+                IntegrationKind::Finance,
+            ),
+            (
+                "Desktop",
+                settings.desktop_configured,
+                IntegrationKind::Desktop,
+            ),
+            (
+                "DevTools",
+                settings.devtools_configured,
+                IntegrationKind::DevTools,
+            ),
         ]
     }
 
@@ -1067,59 +1192,255 @@ impl App {
     pub fn integration_fields(kind: IntegrationKind) -> Vec<IntegrationField> {
         match kind {
             IntegrationKind::Email => vec![
-                IntegrationField { label: "Address".into(),   toml_key: "address".into(),   value: String::new(), is_secret: false, store_key: "" },
-                IntegrationField { label: "IMAP Host".into(), toml_key: "imap_host".into(), value: String::new(), is_secret: false, store_key: "" },
-                IntegrationField { label: "IMAP Port".into(), toml_key: "imap_port".into(), value: "993".into(),  is_secret: false, store_key: "" },
-                IntegrationField { label: "SMTP Host".into(), toml_key: "smtp_host".into(), value: String::new(), is_secret: false, store_key: "" },
-                IntegrationField { label: "SMTP Port".into(), toml_key: "smtp_port".into(), value: "587".into(),  is_secret: false, store_key: "" },
-                IntegrationField { label: "Username".into(),  toml_key: "username".into(),  value: String::new(), is_secret: false, store_key: "" },
-                IntegrationField { label: "Password".into(),  toml_key: "".into(),          value: String::new(), is_secret: true,  store_key: "EMAIL_PASSWORD" },
+                IntegrationField {
+                    label: "Address".into(),
+                    toml_key: "address".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "IMAP Host".into(),
+                    toml_key: "imap_host".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "IMAP Port".into(),
+                    toml_key: "imap_port".into(),
+                    value: "993".into(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "SMTP Host".into(),
+                    toml_key: "smtp_host".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "SMTP Port".into(),
+                    toml_key: "smtp_port".into(),
+                    value: "587".into(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "Username".into(),
+                    toml_key: "username".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "Password".into(),
+                    toml_key: "".into(),
+                    value: String::new(),
+                    is_secret: true,
+                    store_key: "EMAIL_PASSWORD",
+                },
             ],
             IntegrationKind::Telegram => vec![
-                IntegrationField { label: "Chat ID".into(),   toml_key: "default_chat_id".into(), value: String::new(), is_secret: false, store_key: "" },
-                IntegrationField { label: "Bot Token".into(), toml_key: "".into(),                value: String::new(), is_secret: true,  store_key: "TELEGRAM_BOT_TOKEN" },
+                IntegrationField {
+                    label: "Chat ID".into(),
+                    toml_key: "default_chat_id".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "Bot Token".into(),
+                    toml_key: "".into(),
+                    value: String::new(),
+                    is_secret: true,
+                    store_key: "TELEGRAM_BOT_TOKEN",
+                },
             ],
             IntegrationKind::Matrix => vec![
-                IntegrationField { label: "Homeserver".into(),   toml_key: "homeserver".into(),      value: String::new(), is_secret: false, store_key: "" },
-                IntegrationField { label: "Room ID".into(),      toml_key: "default_room_id".into(), value: String::new(), is_secret: false, store_key: "" },
-                IntegrationField { label: "Access Token".into(), toml_key: "".into(),                value: String::new(), is_secret: true,  store_key: "MATRIX_ACCESS_TOKEN" },
+                IntegrationField {
+                    label: "Homeserver".into(),
+                    toml_key: "homeserver".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "Room ID".into(),
+                    toml_key: "default_room_id".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "Access Token".into(),
+                    toml_key: "".into(),
+                    value: String::new(),
+                    is_secret: true,
+                    store_key: "MATRIX_ACCESS_TOKEN",
+                },
             ],
             IntegrationKind::Calendar => vec![
-                IntegrationField { label: "CalDAV URL".into(), toml_key: "url".into(),      value: String::new(), is_secret: false, store_key: "" },
-                IntegrationField { label: "Username".into(),   toml_key: "username".into(),  value: String::new(), is_secret: false, store_key: "" },
-                IntegrationField { label: "Password".into(),   toml_key: "".into(),          value: String::new(), is_secret: true,  store_key: "CALENDAR_PASSWORD" },
+                IntegrationField {
+                    label: "CalDAV URL".into(),
+                    toml_key: "url".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "Username".into(),
+                    toml_key: "username".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "Password".into(),
+                    toml_key: "".into(),
+                    value: String::new(),
+                    is_secret: true,
+                    store_key: "CALENDAR_PASSWORD",
+                },
             ],
             IntegrationKind::Contacts => vec![
-                IntegrationField { label: "CardDAV URL".into(), toml_key: "url".into(),      value: String::new(), is_secret: false, store_key: "" },
-                IntegrationField { label: "Username".into(),    toml_key: "username".into(),  value: String::new(), is_secret: false, store_key: "" },
-                IntegrationField { label: "Password".into(),    toml_key: "".into(),          value: String::new(), is_secret: true,  store_key: "CONTACTS_PASSWORD" },
+                IntegrationField {
+                    label: "CardDAV URL".into(),
+                    toml_key: "url".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "Username".into(),
+                    toml_key: "username".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "Password".into(),
+                    toml_key: "".into(),
+                    value: String::new(),
+                    is_secret: true,
+                    store_key: "CONTACTS_PASSWORD",
+                },
             ],
             IntegrationKind::Vault => vec![
-                IntegrationField { label: "Path".into(),       toml_key: "path".into(),       value: String::new(), is_secret: false, store_key: "" },
-                IntegrationField { label: "Extensions".into(), toml_key: "extensions".into(), value: "md,txt,pdf".into(), is_secret: false, store_key: "" },
+                IntegrationField {
+                    label: "Path".into(),
+                    toml_key: "path".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "Extensions".into(),
+                    toml_key: "extensions".into(),
+                    value: "md,txt,pdf".into(),
+                    is_secret: false,
+                    store_key: "",
+                },
             ],
             IntegrationKind::Signal => vec![
-                IntegrationField { label: "Account".into(),     toml_key: "account".into(),     value: String::new(), is_secret: false, store_key: "" },
-                IntegrationField { label: "Socket Path".into(), toml_key: "socket_path".into(), value: String::new(), is_secret: false, store_key: "" },
+                IntegrationField {
+                    label: "Account".into(),
+                    toml_key: "account".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "Socket Path".into(),
+                    toml_key: "socket_path".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
             ],
             IntegrationKind::Sms => vec![
-                IntegrationField { label: "Provider".into(),    toml_key: "provider".into(),   value: String::new(), is_secret: false, store_key: "" },
-                IntegrationField { label: "Account ID".into(),  toml_key: "account_id".into(), value: String::new(), is_secret: false, store_key: "" },
-                IntegrationField { label: "From Number".into(), toml_key: "from_number".into(), value: String::new(), is_secret: false, store_key: "" },
+                IntegrationField {
+                    label: "Provider".into(),
+                    toml_key: "provider".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "Account ID".into(),
+                    toml_key: "account_id".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "From Number".into(),
+                    toml_key: "from_number".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
             ],
-            IntegrationKind::Finance => vec![
-                IntegrationField { label: "Receipt Folder".into(), toml_key: "receipt_folder".into(), value: String::new(), is_secret: false, store_key: "" },
-            ],
+            IntegrationKind::Finance => vec![IntegrationField {
+                label: "Receipt Folder".into(),
+                toml_key: "receipt_folder".into(),
+                value: String::new(),
+                is_secret: false,
+                store_key: "",
+            }],
             IntegrationKind::Desktop => vec![
-                IntegrationField { label: "Clipboard".into(),     toml_key: "clipboard".into(),     value: "true".into(),  is_secret: false, store_key: "" },
-                IntegrationField { label: "Windows".into(),       toml_key: "windows".into(),       value: "true".into(),  is_secret: false, store_key: "" },
-                IntegrationField { label: "Notifications".into(), toml_key: "notifications".into(), value: "true".into(),  is_secret: false, store_key: "" },
+                IntegrationField {
+                    label: "Clipboard".into(),
+                    toml_key: "clipboard".into(),
+                    value: "true".into(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "Windows".into(),
+                    toml_key: "windows".into(),
+                    value: "true".into(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "Notifications".into(),
+                    toml_key: "notifications".into(),
+                    value: "true".into(),
+                    is_secret: false,
+                    store_key: "",
+                },
             ],
             IntegrationKind::DevTools => vec![
-                IntegrationField { label: "Repo Path".into(),  toml_key: "repo_path".into(),  value: String::new(), is_secret: false, store_key: "" },
-                IntegrationField { label: "Forge".into(),      toml_key: "forge".into(),      value: "github".into(), is_secret: false, store_key: "" },
-                IntegrationField { label: "Repo Owner".into(), toml_key: "repo_owner".into(), value: String::new(), is_secret: false, store_key: "" },
-                IntegrationField { label: "Repo Name".into(),  toml_key: "repo_name".into(),  value: String::new(), is_secret: false, store_key: "" },
+                IntegrationField {
+                    label: "Repo Path".into(),
+                    toml_key: "repo_path".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "Forge".into(),
+                    toml_key: "forge".into(),
+                    value: "github".into(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "Repo Owner".into(),
+                    toml_key: "repo_owner".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
+                IntegrationField {
+                    label: "Repo Name".into(),
+                    toml_key: "repo_name".into(),
+                    value: String::new(),
+                    is_secret: false,
+                    store_key: "",
+                },
             ],
         }
     }
@@ -1130,12 +1451,20 @@ impl App {
             0 => 2,  // provider: model, base_url
             1 => 3,  // autonomy: tier, rate_limit, max_cost
             2 => 11, // heartbeat: enabled + 10 flags
-            3 => self.settings.as_ref().map(|s| s.schedules.len()).unwrap_or(0),
+            3 => self
+                .settings
+                .as_ref()
+                .map(|s| s.schedules.len())
+                .unwrap_or(0),
             4 => 3,  // agent: name, soul, skills
             5 => 11, // integrations: all 11 types
             7 => 5,  // persona: formality, verbosity, warmth, humor, confidence
             8 => 1,  // tools & extensions: discovery mode toggle
-            9 => self.settings.as_ref().map(|s| s.desktop_app_access.len().max(1)).unwrap_or(1), // applications
+            9 => self
+                .settings
+                .as_ref()
+                .map(|s| s.desktop_app_access.len().max(1))
+                .unwrap_or(1), // applications
             _ => 0,
         }
     }
@@ -1164,26 +1493,38 @@ impl App {
         };
 
         // Read current value from snapshot and toggle it
-        let current = self.settings.as_ref().map(|s| match (self.settings_card_index, self.settings_item_index) {
-            (2, 0) => s.heartbeat_enabled,
-            (2, 1) => s.heartbeat_can_reflect,
-            (2, 2) => s.heartbeat_can_consolidate,
-            (2, 3) => s.heartbeat_can_analyze_failures,
-            (2, 4) => s.heartbeat_can_extract_knowledge,
-            (2, 5) => s.heartbeat_can_plan_review,
-            (2, 6) => s.heartbeat_can_strategy_review,
-            (2, 7) => s.heartbeat_can_track_mood,
-            (2, 8) => s.heartbeat_can_encourage,
-            (2, 9) => s.heartbeat_can_track_milestones,
-            (2, 10) => s.heartbeat_notification_pacing,
-            _ => false,
-        }).unwrap_or(false);
+        let current = self
+            .settings
+            .as_ref()
+            .map(
+                |s| match (self.settings_card_index, self.settings_item_index) {
+                    (2, 0) => s.heartbeat_enabled,
+                    (2, 1) => s.heartbeat_can_reflect,
+                    (2, 2) => s.heartbeat_can_consolidate,
+                    (2, 3) => s.heartbeat_can_analyze_failures,
+                    (2, 4) => s.heartbeat_can_extract_knowledge,
+                    (2, 5) => s.heartbeat_can_plan_review,
+                    (2, 6) => s.heartbeat_can_strategy_review,
+                    (2, 7) => s.heartbeat_can_track_mood,
+                    (2, 8) => s.heartbeat_can_encourage,
+                    (2, 9) => s.heartbeat_can_track_milestones,
+                    (2, 10) => s.heartbeat_notification_pacing,
+                    _ => false,
+                },
+            )
+            .unwrap_or(false);
 
         let _ = aivyx_pa::settings::toggle_config_bool(&config_path, section, key, !current);
         // Reload the snapshot to reflect the change
         match aivyx_pa::settings::reload_settings_snapshot(&config_path) {
-            Ok(s) => { self.settings = Some(s); self.settings_error = None; }
-            Err(e) => { self.settings = None; self.settings_error = Some(e); }
+            Ok(s) => {
+                self.settings = Some(s);
+                self.settings_error = None;
+            }
+            Err(e) => {
+                self.settings = None;
+                self.settings_error = Some(e);
+            }
         }
     }
 
@@ -1193,16 +1534,23 @@ impl App {
     /// `forward` = false cycles in reverse.
     pub fn settings_cycle_app_access(&mut self, forward: bool) {
         let Some(ref state) = self.state else { return };
-        let Some(ref settings) = self.settings else { return };
+        let Some(ref settings) = self.settings else {
+            return;
+        };
         let idx = self.settings_item_index;
-        if idx >= settings.desktop_app_access.len() { return; }
+        if idx >= settings.desktop_app_access.len() {
+            return;
+        }
 
         let (ref binary, _, ref current_level) = settings.desktop_app_access[idx];
 
         // Cycle through access levels without depending on aivyx_actions.
         // Order: Blocked → View Only → Interact → Full → (wraps)
         const LEVELS: [&str; 4] = ["Blocked", "View Only", "Interact", "Full"];
-        let cur = LEVELS.iter().position(|l| *l == current_level.as_str()).unwrap_or(3);
+        let cur = LEVELS
+            .iter()
+            .position(|l| *l == current_level.as_str())
+            .unwrap_or(3);
         let next = if forward {
             LEVELS[(cur + 1) % 4]
         } else {
@@ -1212,8 +1560,14 @@ impl App {
         let config_path = state.config_path.clone();
         let _ = aivyx_pa::settings::write_app_access(&config_path, binary, next);
         match aivyx_pa::settings::reload_settings_snapshot(&config_path) {
-            Ok(s) => { self.settings = Some(s); self.settings_error = None; }
-            Err(e) => { self.settings = None; self.settings_error = Some(e); }
+            Ok(s) => {
+                self.settings = Some(s);
+                self.settings_error = None;
+            }
+            Err(e) => {
+                self.settings = None;
+                self.settings_error = Some(e);
+            }
         }
     }
 
@@ -1222,21 +1576,27 @@ impl App {
     /// Opens a popup for editable fields, cycles values for enums,
     /// or delegates to `settings_toggle_current` for heartbeat bools.
     pub fn settings_activate_current(&mut self) {
-        let Some(ref settings) = self.settings else { return };
+        let Some(ref settings) = self.settings else {
+            return;
+        };
         match (self.settings_card_index, self.settings_item_index) {
             // Card 0: Provider
             (0, 0) => {
                 self.settings_popup = Some(SettingsPopup::TextInput {
                     title: "Model Name".into(),
                     value: settings.model_name.clone(),
-                    section: "[provider]", key: "model", kind: InputKind::String,
+                    section: "[provider]",
+                    key: "model",
+                    kind: InputKind::String,
                 });
             }
             (0, 1) => {
                 self.settings_popup = Some(SettingsPopup::TextInput {
                     title: "Base URL".into(),
                     value: settings.provider_base_url.clone().unwrap_or_default(),
-                    section: "[provider]", key: "base_url", kind: InputKind::String,
+                    section: "[provider]",
+                    key: "base_url",
+                    kind: InputKind::String,
                 });
             }
             // Card 1: Autonomy — tier cycles inline
@@ -1244,26 +1604,44 @@ impl App {
                 let Some(ref state) = self.state else { return };
                 let tiers = ["Locked", "Leash", "Trust", "Free"];
                 let cur = &settings.autonomy_tier;
-                let idx = tiers.iter().position(|t| t.eq_ignore_ascii_case(cur)).unwrap_or(0);
+                let idx = tiers
+                    .iter()
+                    .position(|t| t.eq_ignore_ascii_case(cur))
+                    .unwrap_or(0);
                 let next = tiers[(idx + 1) % 4];
-                let _ = aivyx_pa::settings::write_toml_string(&state.config_path, "[autonomy]", "default_tier", next);
+                let _ = aivyx_pa::settings::write_toml_string(
+                    &state.config_path,
+                    "[autonomy]",
+                    "default_tier",
+                    next,
+                );
                 match aivyx_pa::settings::reload_settings_snapshot(&state.config_path) {
-            Ok(s) => { self.settings = Some(s); self.settings_error = None; }
-            Err(e) => { self.settings = None; self.settings_error = Some(e); }
-        }
+                    Ok(s) => {
+                        self.settings = Some(s);
+                        self.settings_error = None;
+                    }
+                    Err(e) => {
+                        self.settings = None;
+                        self.settings_error = Some(e);
+                    }
+                }
             }
             (1, 1) => {
                 self.settings_popup = Some(SettingsPopup::TextInput {
                     title: "Rate Limit (calls/min)".into(),
                     value: settings.max_tool_calls_per_min.to_string(),
-                    section: "[autonomy]", key: "max_tool_calls_per_min", kind: InputKind::UInt,
+                    section: "[autonomy]",
+                    key: "max_tool_calls_per_min",
+                    kind: InputKind::UInt,
                 });
             }
             (1, 2) => {
                 self.settings_popup = Some(SettingsPopup::TextInput {
                     title: "Max Cost (USD)".into(),
                     value: format!("{:.2}", settings.max_cost_usd),
-                    section: "[autonomy]", key: "max_cost_usd", kind: InputKind::Float,
+                    section: "[autonomy]",
+                    key: "max_cost_usd",
+                    kind: InputKind::Float,
                 });
             }
             // Card 2: Heartbeat — delegate to toggle
@@ -1275,13 +1653,16 @@ impl App {
                 self.settings_popup = Some(SettingsPopup::TextInput {
                     title: "Agent Name".into(),
                     value: settings.agent_name.clone(),
-                    section: "[agent]", key: "name", kind: InputKind::String,
+                    section: "[agent]",
+                    key: "name",
+                    kind: InputKind::String,
                 });
             }
             (4, 1) => {
                 let soul_text = if settings.has_custom_soul {
                     // Read current soul from config
-                    self.state.as_ref()
+                    self.state
+                        .as_ref()
                         .and_then(|s| {
                             let pa = aivyx_pa::config::PaConfig::load(&s.config_path);
                             pa.agent.and_then(|a| a.soul)
@@ -1291,12 +1672,18 @@ impl App {
                     String::new()
                 };
                 let lines: Vec<String> = soul_text.lines().map(String::from).collect();
-                let lines = if lines.is_empty() { vec![String::new()] } else { lines };
+                let lines = if lines.is_empty() {
+                    vec![String::new()]
+                } else {
+                    lines
+                };
                 self.settings_popup = Some(SettingsPopup::MultiLineInput {
                     title: "Soul (system prompt)".into(),
                     lines,
-                    cursor_row: 0, cursor_col: 0,
-                    section: "[agent]", key: "soul",
+                    cursor_row: 0,
+                    cursor_col: 0,
+                    section: "[agent]",
+                    key: "soul",
                 });
             }
             (4, 2) => {
@@ -1309,7 +1696,9 @@ impl App {
             // Card 5: Integrations — open setup popup (works for both new and reconfigure)
             (5, idx) => {
                 let list = Self::integrations_list(settings);
-                if idx >= list.len() { return; }
+                if idx >= list.len() {
+                    return;
+                }
                 let (_, configured, kind) = list[idx];
                 let mut fields = Self::integration_fields(kind);
                 // Pre-fill non-secret TOML values when reconfiguring
@@ -1321,8 +1710,16 @@ impl App {
                             let mut in_section = false;
                             for line in content.lines() {
                                 let trimmed = line.trim();
-                                if trimmed == header { in_section = true; continue; }
-                                if trimmed.starts_with('[') { if in_section { break; } continue; }
+                                if trimmed == header {
+                                    in_section = true;
+                                    continue;
+                                }
+                                if trimmed.starts_with('[') {
+                                    if in_section {
+                                        break;
+                                    }
+                                    continue;
+                                }
                                 if in_section {
                                     if let Some((k, v)) = trimmed.split_once('=') {
                                         let k = k.trim();
@@ -1338,7 +1735,12 @@ impl App {
                         }
                     }
                 }
-                self.settings_popup = Some(SettingsPopup::IntegrationSetup { kind, fields, focused: 0, is_configured: configured });
+                self.settings_popup = Some(SettingsPopup::IntegrationSetup {
+                    kind,
+                    fields,
+                    focused: 0,
+                    is_configured: configured,
+                });
             }
             // Card 7: Persona — no-op (uses Left/Right slider)
             // Card 8: Tools & Extensions — cycle discovery mode
@@ -1346,14 +1748,26 @@ impl App {
                 let Some(ref state) = self.state else { return };
                 let modes = ["Off", "Embedding", "Hybrid"];
                 let cur = settings.tool_discovery_mode.as_deref().unwrap_or("Off");
-                let idx = modes.iter().position(|m| m.eq_ignore_ascii_case(cur)).unwrap_or(0);
+                let idx = modes
+                    .iter()
+                    .position(|m| m.eq_ignore_ascii_case(cur))
+                    .unwrap_or(0);
                 let next = modes[(idx + 1) % 3];
                 let _ = aivyx_pa::settings::write_toml_string_create(
-                    &state.config_path, "[tool_discovery]", "mode", next,
+                    &state.config_path,
+                    "[tool_discovery]",
+                    "mode",
+                    next,
                 );
                 match aivyx_pa::settings::reload_settings_snapshot(&state.config_path) {
-                    Ok(s) => { self.settings = Some(s); self.settings_error = None; }
-                    Err(e) => { self.settings = None; self.settings_error = Some(e); }
+                    Ok(s) => {
+                        self.settings = Some(s);
+                        self.settings_error = None;
+                    }
+                    Err(e) => {
+                        self.settings = None;
+                        self.settings_error = Some(e);
+                    }
                 }
             }
             // Card 9: Applications — trigger scan if empty, otherwise no-op as Left/Right cycles access
@@ -1362,12 +1776,18 @@ impl App {
                     let Some(ref state) = self.state else { return };
                     let path = state.config_path.clone();
                     // Must write the empty table first so [desktop] block knows it's configured
-                    let _ = aivyx_pa::settings::write_toml_string_create(&path, "[desktop.app_access]", "dummy", "Interact");
-                    
+                    let _ = aivyx_pa::settings::write_toml_string_create(
+                        &path,
+                        "[desktop.app_access]",
+                        "dummy",
+                        "Interact",
+                    );
+
                     tokio::spawn(async move {
                         let apps = aivyx_actions::desktop::scanner::scan_applications();
                         for (bin_name, _) in apps {
-                            let _ = aivyx_pa::settings::write_app_access(&path, &bin_name, "Interact");
+                            let _ =
+                                aivyx_pa::settings::write_app_access(&path, &bin_name, "Interact");
                         }
                     });
                 }
@@ -1379,21 +1799,42 @@ impl App {
     /// Adjust a persona dimension by delta (±0.1), clamped to [0.0, 1.0].
     pub fn settings_adjust_persona(&mut self, delta: f32) {
         let Some(ref state) = self.state else { return };
-        let Some(ref settings) = self.settings else { return };
-        let Some(ref persona) = settings.persona_dimensions else { return };
+        let Some(ref settings) = self.settings else {
+            return;
+        };
+        let Some(ref persona) = settings.persona_dimensions else {
+            return;
+        };
 
         let dims = ["formality", "verbosity", "warmth", "humor", "confidence"];
-        let vals = [persona.formality, persona.verbosity, persona.warmth, persona.humor, persona.confidence];
+        let vals = [
+            persona.formality,
+            persona.verbosity,
+            persona.warmth,
+            persona.humor,
+            persona.confidence,
+        ];
         let idx = self.settings_item_index;
-        if idx >= dims.len() { return; }
+        if idx >= dims.len() {
+            return;
+        }
 
         let new_val = (vals[idx] + delta).clamp(0.0, 1.0);
         let _ = aivyx_pa::settings::write_toml_number(
-            &state.config_path, "[persona]", dims[idx], &format!("{:.1}", new_val),
+            &state.config_path,
+            "[persona]",
+            dims[idx],
+            &format!("{:.1}", new_val),
         );
         match aivyx_pa::settings::reload_settings_snapshot(&state.config_path) {
-            Ok(s) => { self.settings = Some(s); self.settings_error = None; }
-            Err(e) => { self.settings = None; self.settings_error = Some(e); }
+            Ok(s) => {
+                self.settings = Some(s);
+                self.settings_error = None;
+            }
+            Err(e) => {
+                self.settings = None;
+                self.settings_error = Some(e);
+            }
         }
     }
 
@@ -1405,58 +1846,131 @@ impl App {
         let config_path = state.config_path.clone();
 
         match self.settings_popup.take() {
-            Some(SettingsPopup::TextInput { title, mut value, section, key: toml_key, kind }) => {
+            Some(SettingsPopup::TextInput {
+                title,
+                mut value,
+                section,
+                key: toml_key,
+                kind,
+            }) => {
                 match key.code {
                     KeyCode::Esc => {} // closed — popup already taken
                     KeyCode::Enter => {
                         match kind {
                             InputKind::String => {
-                                let _ = aivyx_pa::settings::write_toml_string(&config_path, section, toml_key, &value);
+                                let _ = aivyx_pa::settings::write_toml_string(
+                                    &config_path,
+                                    section,
+                                    toml_key,
+                                    &value,
+                                );
                             }
                             InputKind::UInt | InputKind::Float => {
-                                let _ = aivyx_pa::settings::write_toml_number(&config_path, section, toml_key, &value);
+                                let _ = aivyx_pa::settings::write_toml_number(
+                                    &config_path,
+                                    section,
+                                    toml_key,
+                                    &value,
+                                );
                             }
                         }
                         match aivyx_pa::settings::reload_settings_snapshot(&config_path) {
-            Ok(s) => { self.settings = Some(s); self.settings_error = None; }
-            Err(e) => { self.settings = None; self.settings_error = Some(e); }
-        }
+                            Ok(s) => {
+                                self.settings = Some(s);
+                                self.settings_error = None;
+                            }
+                            Err(e) => {
+                                self.settings = None;
+                                self.settings_error = Some(e);
+                            }
+                        }
                     }
                     KeyCode::Backspace => {
                         value.pop();
-                        self.settings_popup = Some(SettingsPopup::TextInput { title, value, section, key: toml_key, kind });
+                        self.settings_popup = Some(SettingsPopup::TextInput {
+                            title,
+                            value,
+                            section,
+                            key: toml_key,
+                            kind,
+                        });
                     }
                     KeyCode::Char(c) => {
                         let accept = match kind {
                             InputKind::String => true,
                             InputKind::UInt => c.is_ascii_digit(),
-                            InputKind::Float => c.is_ascii_digit() || (c == '.' && !value.contains('.')),
+                            InputKind::Float => {
+                                c.is_ascii_digit() || (c == '.' && !value.contains('.'))
+                            }
                         };
-                        if accept { value.push(c); }
-                        self.settings_popup = Some(SettingsPopup::TextInput { title, value, section, key: toml_key, kind });
+                        if accept {
+                            value.push(c);
+                        }
+                        self.settings_popup = Some(SettingsPopup::TextInput {
+                            title,
+                            value,
+                            section,
+                            key: toml_key,
+                            kind,
+                        });
                     }
                     _ => {
-                        self.settings_popup = Some(SettingsPopup::TextInput { title, value, section, key: toml_key, kind });
+                        self.settings_popup = Some(SettingsPopup::TextInput {
+                            title,
+                            value,
+                            section,
+                            key: toml_key,
+                            kind,
+                        });
                     }
                 }
             }
-            Some(SettingsPopup::MultiLineInput { title, mut lines, mut cursor_row, mut cursor_col, section, key: toml_key }) => {
+            Some(SettingsPopup::MultiLineInput {
+                title,
+                mut lines,
+                mut cursor_row,
+                mut cursor_col,
+                section,
+                key: toml_key,
+            }) => {
                 match key.code {
                     KeyCode::Esc => {} // close without saving
-                    KeyCode::Char('s') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
+                    KeyCode::Char('s')
+                        if key
+                            .modifiers
+                            .contains(crossterm::event::KeyModifiers::CONTROL) =>
+                    {
                         let text = lines.join("\n");
-                        let _ = aivyx_pa::settings::write_toml_multiline_string(&config_path, section, toml_key, &text);
+                        let _ = aivyx_pa::settings::write_toml_multiline_string(
+                            &config_path,
+                            section,
+                            toml_key,
+                            &text,
+                        );
                         match aivyx_pa::settings::reload_settings_snapshot(&config_path) {
-            Ok(s) => { self.settings = Some(s); self.settings_error = None; }
-            Err(e) => { self.settings = None; self.settings_error = Some(e); }
-        }
+                            Ok(s) => {
+                                self.settings = Some(s);
+                                self.settings_error = None;
+                            }
+                            Err(e) => {
+                                self.settings = None;
+                                self.settings_error = Some(e);
+                            }
+                        }
                     }
                     KeyCode::Enter => {
                         let rest = lines[cursor_row].split_off(cursor_col);
                         cursor_row += 1;
                         lines.insert(cursor_row, rest);
                         cursor_col = 0;
-                        self.settings_popup = Some(SettingsPopup::MultiLineInput { title, lines, cursor_row, cursor_col, section, key: toml_key });
+                        self.settings_popup = Some(SettingsPopup::MultiLineInput {
+                            title,
+                            lines,
+                            cursor_row,
+                            cursor_col,
+                            section,
+                            key: toml_key,
+                        });
                     }
                     KeyCode::Backspace => {
                         if cursor_col > 0 {
@@ -1468,37 +1982,90 @@ impl App {
                             cursor_col = lines[cursor_row].len();
                             lines[cursor_row].push_str(&removed);
                         }
-                        self.settings_popup = Some(SettingsPopup::MultiLineInput { title, lines, cursor_row, cursor_col, section, key: toml_key });
+                        self.settings_popup = Some(SettingsPopup::MultiLineInput {
+                            title,
+                            lines,
+                            cursor_row,
+                            cursor_col,
+                            section,
+                            key: toml_key,
+                        });
                     }
                     KeyCode::Left => {
-                        if cursor_col > 0 { cursor_col -= 1; }
-                        self.settings_popup = Some(SettingsPopup::MultiLineInput { title, lines, cursor_row, cursor_col, section, key: toml_key });
+                        if cursor_col > 0 {
+                            cursor_col -= 1;
+                        }
+                        self.settings_popup = Some(SettingsPopup::MultiLineInput {
+                            title,
+                            lines,
+                            cursor_row,
+                            cursor_col,
+                            section,
+                            key: toml_key,
+                        });
                     }
                     KeyCode::Right => {
-                        if cursor_col < lines[cursor_row].len() { cursor_col += 1; }
-                        self.settings_popup = Some(SettingsPopup::MultiLineInput { title, lines, cursor_row, cursor_col, section, key: toml_key });
+                        if cursor_col < lines[cursor_row].len() {
+                            cursor_col += 1;
+                        }
+                        self.settings_popup = Some(SettingsPopup::MultiLineInput {
+                            title,
+                            lines,
+                            cursor_row,
+                            cursor_col,
+                            section,
+                            key: toml_key,
+                        });
                     }
                     KeyCode::Up => {
                         if cursor_row > 0 {
                             cursor_row -= 1;
                             cursor_col = cursor_col.min(lines[cursor_row].len());
                         }
-                        self.settings_popup = Some(SettingsPopup::MultiLineInput { title, lines, cursor_row, cursor_col, section, key: toml_key });
+                        self.settings_popup = Some(SettingsPopup::MultiLineInput {
+                            title,
+                            lines,
+                            cursor_row,
+                            cursor_col,
+                            section,
+                            key: toml_key,
+                        });
                     }
                     KeyCode::Down => {
                         if cursor_row + 1 < lines.len() {
                             cursor_row += 1;
                             cursor_col = cursor_col.min(lines[cursor_row].len());
                         }
-                        self.settings_popup = Some(SettingsPopup::MultiLineInput { title, lines, cursor_row, cursor_col, section, key: toml_key });
+                        self.settings_popup = Some(SettingsPopup::MultiLineInput {
+                            title,
+                            lines,
+                            cursor_row,
+                            cursor_col,
+                            section,
+                            key: toml_key,
+                        });
                     }
                     KeyCode::Char(c) => {
                         lines[cursor_row].insert(cursor_col, c);
                         cursor_col += 1;
-                        self.settings_popup = Some(SettingsPopup::MultiLineInput { title, lines, cursor_row, cursor_col, section, key: toml_key });
+                        self.settings_popup = Some(SettingsPopup::MultiLineInput {
+                            title,
+                            lines,
+                            cursor_row,
+                            cursor_col,
+                            section,
+                            key: toml_key,
+                        });
                     }
                     _ => {
-                        self.settings_popup = Some(SettingsPopup::MultiLineInput { title, lines, cursor_row, cursor_col, section, key: toml_key });
+                        self.settings_popup = Some(SettingsPopup::MultiLineInput {
+                            title,
+                            lines,
+                            cursor_row,
+                            cursor_col,
+                            section,
+                            key: toml_key,
+                        });
                     }
                 }
             }
@@ -1511,22 +2078,38 @@ impl App {
                                     let mut skills = s.agent_skills.clone();
                                     if idx < skills.len() {
                                         skills.remove(idx);
-                                        aivyx_pa::settings::write_toml_string_array(&config_path, "[agent]", "skills", &skills);
-                                        match aivyx_pa::settings::reload_settings_snapshot(&config_path) {
-            Ok(s) => { self.settings = Some(s); self.settings_error = None; }
-            Err(e) => { self.settings = None; self.settings_error = Some(e); }
-        }
+                                        aivyx_pa::settings::write_toml_string_array(
+                                            &config_path,
+                                            "[agent]",
+                                            "skills",
+                                            &skills,
+                                        );
+                                        match aivyx_pa::settings::reload_settings_snapshot(
+                                            &config_path,
+                                        ) {
+                                            Ok(s) => {
+                                                self.settings = Some(s);
+                                                self.settings_error = None;
+                                            }
+                                            Err(e) => {
+                                                self.settings = None;
+                                                self.settings_error = Some(e);
+                                            }
+                                        }
                                     }
                                 }
                             }
                             ConfirmAction::RemoveIntegration(kind) => {
-                                let _ = aivyx_pa::settings::remove_integration_config(&config_path, kind);
+                                let _ = aivyx_pa::settings::remove_integration_config(
+                                    &config_path,
+                                    kind,
+                                );
                                 // Delete associated secrets
                                 if let Some(ref state) = self.state {
                                     let secret_keys: &[&str] = match kind {
-                                        IntegrationKind::Email    => &["EMAIL_PASSWORD"],
+                                        IntegrationKind::Email => &["EMAIL_PASSWORD"],
                                         IntegrationKind::Telegram => &["TELEGRAM_BOT_TOKEN"],
-                                        IntegrationKind::Matrix   => &["MATRIX_ACCESS_TOKEN"],
+                                        IntegrationKind::Matrix => &["MATRIX_ACCESS_TOKEN"],
                                         IntegrationKind::Calendar => &["CALENDAR_PASSWORD"],
                                         IntegrationKind::Contacts => &["CONTACTS_PASSWORD"],
                                         _ => &[],
@@ -1536,9 +2119,15 @@ impl App {
                                     }
                                 }
                                 match aivyx_pa::settings::reload_settings_snapshot(&config_path) {
-            Ok(s) => { self.settings = Some(s); self.settings_error = None; }
-            Err(e) => { self.settings = None; self.settings_error = Some(e); }
-        }
+                                    Ok(s) => {
+                                        self.settings = Some(s);
+                                        self.settings_error = None;
+                                    }
+                                    Err(e) => {
+                                        self.settings = None;
+                                        self.settings_error = Some(e);
+                                    }
+                                }
                             }
                         }
                     }
@@ -1548,19 +2137,38 @@ impl App {
                     }
                 }
             }
-            Some(SettingsPopup::SkillManager { mut input, mut selected, mut skills }) => {
+            Some(SettingsPopup::SkillManager {
+                mut input,
+                mut selected,
+                mut skills,
+            }) => {
                 match key.code {
-                    KeyCode::Esc => {} // close
+                    KeyCode::Esc => {}                       // close
                     KeyCode::Enter if input.is_empty() => {} // done — close popup
                     KeyCode::Enter => {
                         skills.push(input.clone());
-                        aivyx_pa::settings::write_toml_string_array(&config_path, "[agent]", "skills", &skills);
+                        aivyx_pa::settings::write_toml_string_array(
+                            &config_path,
+                            "[agent]",
+                            "skills",
+                            &skills,
+                        );
                         match aivyx_pa::settings::reload_settings_snapshot(&config_path) {
-            Ok(s) => { self.settings = Some(s); self.settings_error = None; }
-            Err(e) => { self.settings = None; self.settings_error = Some(e); }
-        }
+                            Ok(s) => {
+                                self.settings = Some(s);
+                                self.settings_error = None;
+                            }
+                            Err(e) => {
+                                self.settings = None;
+                                self.settings_error = Some(e);
+                            }
+                        }
                         input.clear();
-                        self.settings_popup = Some(SettingsPopup::SkillManager { input, selected, skills });
+                        self.settings_popup = Some(SettingsPopup::SkillManager {
+                            input,
+                            selected,
+                            skills,
+                        });
                     }
                     KeyCode::Char('d') if input.is_empty() && !skills.is_empty() => {
                         let name = skills[selected].clone();
@@ -1572,66 +2180,137 @@ impl App {
                     }
                     KeyCode::Up => {
                         selected = selected.saturating_sub(1);
-                        self.settings_popup = Some(SettingsPopup::SkillManager { input, selected, skills });
+                        self.settings_popup = Some(SettingsPopup::SkillManager {
+                            input,
+                            selected,
+                            skills,
+                        });
                     }
                     KeyCode::Down => {
-                        if selected + 1 < skills.len() { selected += 1; }
-                        self.settings_popup = Some(SettingsPopup::SkillManager { input, selected, skills });
+                        if selected + 1 < skills.len() {
+                            selected += 1;
+                        }
+                        self.settings_popup = Some(SettingsPopup::SkillManager {
+                            input,
+                            selected,
+                            skills,
+                        });
                     }
                     KeyCode::Backspace => {
                         input.pop();
-                        self.settings_popup = Some(SettingsPopup::SkillManager { input, selected, skills });
+                        self.settings_popup = Some(SettingsPopup::SkillManager {
+                            input,
+                            selected,
+                            skills,
+                        });
                     }
                     KeyCode::Char(c) => {
                         input.push(c);
-                        self.settings_popup = Some(SettingsPopup::SkillManager { input, selected, skills });
+                        self.settings_popup = Some(SettingsPopup::SkillManager {
+                            input,
+                            selected,
+                            skills,
+                        });
                     }
                     _ => {
-                        self.settings_popup = Some(SettingsPopup::SkillManager { input, selected, skills });
+                        self.settings_popup = Some(SettingsPopup::SkillManager {
+                            input,
+                            selected,
+                            skills,
+                        });
                     }
                 }
             }
-            Some(SettingsPopup::IntegrationSetup { kind, mut fields, mut focused, is_configured }) => {
+            Some(SettingsPopup::IntegrationSetup {
+                kind,
+                mut fields,
+                mut focused,
+                is_configured,
+            }) => {
                 match key.code {
                     KeyCode::Esc => {} // close
                     KeyCode::Tab => {
                         focused = (focused + 1) % fields.len();
-                        self.settings_popup = Some(SettingsPopup::IntegrationSetup { kind, fields, focused, is_configured });
+                        self.settings_popup = Some(SettingsPopup::IntegrationSetup {
+                            kind,
+                            fields,
+                            focused,
+                            is_configured,
+                        });
                     }
                     KeyCode::BackTab => {
-                        focused = if focused == 0 { fields.len() - 1 } else { focused - 1 };
-                        self.settings_popup = Some(SettingsPopup::IntegrationSetup { kind, fields, focused, is_configured });
+                        focused = if focused == 0 {
+                            fields.len() - 1
+                        } else {
+                            focused - 1
+                        };
+                        self.settings_popup = Some(SettingsPopup::IntegrationSetup {
+                            kind,
+                            fields,
+                            focused,
+                            is_configured,
+                        });
                     }
                     KeyCode::Enter => {
                         // Collect TOML fields (non-secret, non-empty toml_key)
-                        let toml_fields: Vec<(String, String)> = fields.iter()
+                        let toml_fields: Vec<(String, String)> = fields
+                            .iter()
                             .filter(|f| !f.is_secret && !f.toml_key.is_empty())
                             .map(|f| (f.toml_key.clone(), f.value.clone()))
                             .collect();
-                        let _ = aivyx_pa::settings::write_integration_config(&config_path, kind, &toml_fields);
+                        let _ = aivyx_pa::settings::write_integration_config(
+                            &config_path,
+                            kind,
+                            &toml_fields,
+                        );
                         // Store secrets in EncryptedStore
                         if let Some(ref state) = self.state {
                             for f in &fields {
                                 if f.is_secret && !f.value.is_empty() {
-                                    let _ = state.store.put(f.store_key, f.value.as_bytes(), &state.master_key);
+                                    let _ = state.store.put(
+                                        f.store_key,
+                                        f.value.as_bytes(),
+                                        &state.master_key,
+                                    );
                                 }
                             }
                         }
                         match aivyx_pa::settings::reload_settings_snapshot(&config_path) {
-            Ok(s) => { self.settings = Some(s); self.settings_error = None; }
-            Err(e) => { self.settings = None; self.settings_error = Some(e); }
-        }
+                            Ok(s) => {
+                                self.settings = Some(s);
+                                self.settings_error = None;
+                            }
+                            Err(e) => {
+                                self.settings = None;
+                                self.settings_error = Some(e);
+                            }
+                        }
                     }
                     KeyCode::Backspace => {
                         fields[focused].value.pop();
-                        self.settings_popup = Some(SettingsPopup::IntegrationSetup { kind, fields, focused, is_configured });
+                        self.settings_popup = Some(SettingsPopup::IntegrationSetup {
+                            kind,
+                            fields,
+                            focused,
+                            is_configured,
+                        });
                     }
                     KeyCode::Char(c) => {
                         fields[focused].value.push(c);
-                        self.settings_popup = Some(SettingsPopup::IntegrationSetup { kind, fields, focused, is_configured });
+                        self.settings_popup = Some(SettingsPopup::IntegrationSetup {
+                            kind,
+                            fields,
+                            focused,
+                            is_configured,
+                        });
                     }
                     _ => {
-                        self.settings_popup = Some(SettingsPopup::IntegrationSetup { kind, fields, focused, is_configured });
+                        self.settings_popup = Some(SettingsPopup::IntegrationSetup {
+                            kind,
+                            fields,
+                            focused,
+                            is_configured,
+                        });
                     }
                 }
             }
@@ -1641,17 +2320,29 @@ impl App {
 
     /// Poll for streamed chat tokens. Call from the event loop.
     pub fn poll_chat_tokens(&mut self) {
-        let Some(ref mut rx) = self.chat_token_rx else { return };
+        let Some(ref mut rx) = self.chat_token_rx else {
+            return;
+        };
 
         while let Ok(token) = rx.try_recv() {
             if token.starts_with("\n[[DONE") {
                 // If Voice is enabled, pass the fully generated response to Piper TTS
-                if self.settings.as_ref().map(|s| s.voice_enabled).unwrap_or(true) {
+                if self
+                    .settings
+                    .as_ref()
+                    .map(|s| s.voice_enabled)
+                    .unwrap_or(true)
+                {
                     if let Some(last) = self.chat_messages.last() {
                         let text = last.content.clone();
-                        let tts_model = self.settings.as_ref()
+                        let tts_model = self
+                            .settings
+                            .as_ref()
                             .and_then(|s| s.tts_model_path.clone())
-                            .unwrap_or_else(|| "/home/julian/.local/share/aivyx-pa/models/en_US-lessac-medium.onnx".into());
+                            .unwrap_or_else(|| {
+                                "/home/julian/.local/share/aivyx-pa/models/en_US-lessac-medium.onnx"
+                                    .into()
+                            });
 
                         tokio::spawn(async move {
                             // Write response to temp file
@@ -1660,7 +2351,10 @@ impl App {
                             // Spawn piper process to generate wav audio using File IO
                             let out = tokio::process::Command::new("sh")
                                 .arg("-c")
-                                .arg(format!("cat /tmp/aivyx-tts.txt | piper -m '{}' -f /tmp/aivyx-tts.wav", tts_model))
+                                .arg(format!(
+                                    "cat /tmp/aivyx-tts.txt | piper -m '{}' -f /tmp/aivyx-tts.wav",
+                                    tts_model
+                                ))
                                 .output()
                                 .await;
 
@@ -1681,9 +2375,10 @@ impl App {
                 // to the encrypted store so sessions survive restarts.
                 if let Some(ref state) = self.state {
                     // Ensure we have a stable session ID for this conversation
-                    let sid = self.chat_session_id.get_or_insert_with(|| {
-                        format!("{}", chrono::Utc::now().timestamp_millis())
-                    }).clone();
+                    let sid = self
+                        .chat_session_id
+                        .get_or_insert_with(|| format!("{}", chrono::Utc::now().timestamp_millis()))
+                        .clone();
 
                     let agent = state.agent.clone();
                     let store = state.store.clone();
@@ -1695,13 +2390,15 @@ impl App {
                         let conversation = agent.conversation();
 
                         // Extract the full conversation from the agent
-                        let session_msgs = aivyx_pa::sessions::conversation_to_session(conversation);
+                        let session_msgs =
+                            aivyx_pa::sessions::conversation_to_session(conversation);
                         if session_msgs.is_empty() {
                             return;
                         }
 
                         // Derive title from first user message in chat view
-                        let title = chat_msgs.first()
+                        let title = chat_msgs
+                            .first()
                             .filter(|m| m.role == "user")
                             .map(|m| aivyx_pa::sessions::auto_title(&m.content))
                             .unwrap_or_else(|| {
@@ -1718,7 +2415,10 @@ impl App {
                         meta.turn_count = aivyx_pa::sessions::count_turns(&session_msgs);
                         meta.updated_at = chrono::Utc::now();
                         aivyx_pa::sessions::save_chat_session(
-                            &store, &conv_key, &meta, &session_msgs,
+                            &store,
+                            &conv_key,
+                            &meta,
+                            &session_msgs,
                         );
                     });
                 }
@@ -1762,7 +2462,9 @@ impl App {
     /// Poll for agent lifecycle events. Call from the event loop alongside
     /// `poll_chat_tokens`.
     pub fn poll_agent_events(&mut self) {
-        let Some(ref mut rx) = self.chat_event_rx else { return };
+        let Some(ref mut rx) = self.chat_event_rx else {
+            return;
+        };
 
         while let Ok(event) = rx.try_recv() {
             match event {
@@ -1888,12 +2590,22 @@ impl App {
         use crossterm::event::KeyCode;
 
         match self.goal_popup.take() {
-            Some(GoalPopup::Create { mut description, mut criteria, mut priority, mut focused_field }) => {
+            Some(GoalPopup::Create {
+                mut description,
+                mut criteria,
+                mut priority,
+                mut focused_field,
+            }) => {
                 match key.code {
                     KeyCode::Esc => {} // close
                     KeyCode::Tab => {
                         focused_field = (focused_field + 1) % 3;
-                        self.goal_popup = Some(GoalPopup::Create { description, criteria, priority, focused_field });
+                        self.goal_popup = Some(GoalPopup::Create {
+                            description,
+                            criteria,
+                            priority,
+                            focused_field,
+                        });
                     }
                     KeyCode::Enter if !description.is_empty() => {
                         // Create the goal
@@ -1901,7 +2613,11 @@ impl App {
                             self.state.as_ref().and_then(|s| s.brain_store.as_ref()),
                             self.state.as_ref().and_then(|s| s.brain_key.as_ref()),
                         ) {
-                            let crit = if criteria.is_empty() { description.clone() } else { criteria };
+                            let crit = if criteria.is_empty() {
+                                description.clone()
+                            } else {
+                                criteria
+                            };
                             let goal = Goal::new(description, crit)
                                 .with_priority(Self::priority_from_index(priority));
                             let _ = store.upsert_goal(&goal, bk);
@@ -1909,19 +2625,40 @@ impl App {
                     }
                     KeyCode::Left if focused_field == 2 => {
                         priority = priority.saturating_sub(1);
-                        self.goal_popup = Some(GoalPopup::Create { description, criteria, priority, focused_field });
+                        self.goal_popup = Some(GoalPopup::Create {
+                            description,
+                            criteria,
+                            priority,
+                            focused_field,
+                        });
                     }
                     KeyCode::Right if focused_field == 2 => {
-                        if priority < 4 { priority += 1; }
-                        self.goal_popup = Some(GoalPopup::Create { description, criteria, priority, focused_field });
+                        if priority < 4 {
+                            priority += 1;
+                        }
+                        self.goal_popup = Some(GoalPopup::Create {
+                            description,
+                            criteria,
+                            priority,
+                            focused_field,
+                        });
                     }
                     KeyCode::Backspace => {
                         match focused_field {
-                            0 => { description.pop(); }
-                            1 => { criteria.pop(); }
+                            0 => {
+                                description.pop();
+                            }
+                            1 => {
+                                criteria.pop();
+                            }
                             _ => {}
                         }
-                        self.goal_popup = Some(GoalPopup::Create { description, criteria, priority, focused_field });
+                        self.goal_popup = Some(GoalPopup::Create {
+                            description,
+                            criteria,
+                            priority,
+                            focused_field,
+                        });
                     }
                     KeyCode::Char(c) if focused_field < 2 => {
                         match focused_field {
@@ -1929,19 +2666,43 @@ impl App {
                             1 => criteria.push(c),
                             _ => {}
                         }
-                        self.goal_popup = Some(GoalPopup::Create { description, criteria, priority, focused_field });
+                        self.goal_popup = Some(GoalPopup::Create {
+                            description,
+                            criteria,
+                            priority,
+                            focused_field,
+                        });
                     }
                     _ => {
-                        self.goal_popup = Some(GoalPopup::Create { description, criteria, priority, focused_field });
+                        self.goal_popup = Some(GoalPopup::Create {
+                            description,
+                            criteria,
+                            priority,
+                            focused_field,
+                        });
                     }
                 }
             }
-            Some(GoalPopup::Edit { goal_id, mut description, mut criteria, mut priority, mut deadline, mut focused_field }) => {
+            Some(GoalPopup::Edit {
+                goal_id,
+                mut description,
+                mut criteria,
+                mut priority,
+                mut deadline,
+                mut focused_field,
+            }) => {
                 match key.code {
                     KeyCode::Esc => {} // close
                     KeyCode::Tab => {
                         focused_field = (focused_field + 1) % 4;
-                        self.goal_popup = Some(GoalPopup::Edit { goal_id, description, criteria, priority, deadline, focused_field });
+                        self.goal_popup = Some(GoalPopup::Edit {
+                            goal_id,
+                            description,
+                            criteria,
+                            priority,
+                            deadline,
+                            focused_field,
+                        });
                     }
                     KeyCode::Enter if !description.is_empty() => {
                         if let (Some(ref store), Some(ref bk)) = (
@@ -1950,12 +2711,17 @@ impl App {
                         ) {
                             if let Ok(Some(mut goal)) = store.get_goal(goal_id, bk) {
                                 goal.description = description;
-                                goal.success_criteria = if criteria.is_empty() { goal.success_criteria } else { criteria };
+                                goal.success_criteria = if criteria.is_empty() {
+                                    goal.success_criteria
+                                } else {
+                                    criteria
+                                };
                                 goal.priority = Self::priority_from_index(priority);
-                                goal.deadline = chrono::NaiveDate::parse_from_str(&deadline, "%Y-%m-%d")
-                                    .ok()
-                                    .and_then(|d| d.and_hms_opt(23, 59, 59))
-                                    .map(|dt| dt.and_utc());
+                                goal.deadline =
+                                    chrono::NaiveDate::parse_from_str(&deadline, "%Y-%m-%d")
+                                        .ok()
+                                        .and_then(|d| d.and_hms_opt(23, 59, 59))
+                                        .map(|dt| dt.and_utc());
                                 goal.updated_at = chrono::Utc::now();
                                 let _ = store.upsert_goal(&goal, bk);
                             }
@@ -1963,20 +2729,49 @@ impl App {
                     }
                     KeyCode::Left if focused_field == 2 => {
                         priority = priority.saturating_sub(1);
-                        self.goal_popup = Some(GoalPopup::Edit { goal_id, description, criteria, priority, deadline, focused_field });
+                        self.goal_popup = Some(GoalPopup::Edit {
+                            goal_id,
+                            description,
+                            criteria,
+                            priority,
+                            deadline,
+                            focused_field,
+                        });
                     }
                     KeyCode::Right if focused_field == 2 => {
-                        if priority < 4 { priority += 1; }
-                        self.goal_popup = Some(GoalPopup::Edit { goal_id, description, criteria, priority, deadline, focused_field });
+                        if priority < 4 {
+                            priority += 1;
+                        }
+                        self.goal_popup = Some(GoalPopup::Edit {
+                            goal_id,
+                            description,
+                            criteria,
+                            priority,
+                            deadline,
+                            focused_field,
+                        });
                     }
                     KeyCode::Backspace => {
                         match focused_field {
-                            0 => { description.pop(); }
-                            1 => { criteria.pop(); }
-                            3 => { deadline.pop(); }
+                            0 => {
+                                description.pop();
+                            }
+                            1 => {
+                                criteria.pop();
+                            }
+                            3 => {
+                                deadline.pop();
+                            }
                             _ => {}
                         }
-                        self.goal_popup = Some(GoalPopup::Edit { goal_id, description, criteria, priority, deadline, focused_field });
+                        self.goal_popup = Some(GoalPopup::Edit {
+                            goal_id,
+                            description,
+                            criteria,
+                            priority,
+                            deadline,
+                            focused_field,
+                        });
                     }
                     KeyCode::Char(c) => {
                         match focused_field {
@@ -1985,10 +2780,24 @@ impl App {
                             3 if c.is_ascii_digit() || c == '-' => deadline.push(c),
                             _ => {}
                         }
-                        self.goal_popup = Some(GoalPopup::Edit { goal_id, description, criteria, priority, deadline, focused_field });
+                        self.goal_popup = Some(GoalPopup::Edit {
+                            goal_id,
+                            description,
+                            criteria,
+                            priority,
+                            deadline,
+                            focused_field,
+                        });
                     }
                     _ => {
-                        self.goal_popup = Some(GoalPopup::Edit { goal_id, description, criteria, priority, deadline, focused_field });
+                        self.goal_popup = Some(GoalPopup::Edit {
+                            goal_id,
+                            description,
+                            criteria,
+                            priority,
+                            deadline,
+                            focused_field,
+                        });
                     }
                 }
             }
@@ -2004,8 +2813,12 @@ impl App {
                             };
                             if let Ok(Some(mut goal)) = store.get_goal(goal_id, bk) {
                                 match action {
-                                    GoalAction::Complete(_) => goal.set_status(GoalStatus::Completed),
-                                    GoalAction::Abandon(_) => goal.set_status(GoalStatus::Abandoned),
+                                    GoalAction::Complete(_) => {
+                                        goal.set_status(GoalStatus::Completed)
+                                    }
+                                    GoalAction::Abandon(_) => {
+                                        goal.set_status(GoalStatus::Abandoned)
+                                    }
                                 }
                                 let _ = store.upsert_goal(&goal, bk);
                             }
@@ -2026,23 +2839,40 @@ impl App {
     /// Handle key events when a chat popup is open.
     pub fn handle_chat_popup(&mut self, key: KeyEvent) {
         match self.chat_popup.take() {
-            Some(ChatPopup::ConversationHistory { sessions, mut selected, mut scroll_offset, mode }) => {
+            Some(ChatPopup::ConversationHistory {
+                sessions,
+                mut selected,
+                mut scroll_offset,
+                mode,
+            }) => {
                 match mode {
                     HistoryMode::List => {
                         match key.code {
                             KeyCode::Esc => {} // close popup
                             KeyCode::Up | KeyCode::Char('k') => {
-                                if selected > 0 { selected -= 1; }
+                                if selected > 0 {
+                                    selected -= 1;
+                                }
                                 // Keep selection visible
-                                if selected < scroll_offset { scroll_offset = selected; }
+                                if selected < scroll_offset {
+                                    scroll_offset = selected;
+                                }
                                 self.chat_popup = Some(ChatPopup::ConversationHistory {
-                                    sessions, selected, scroll_offset, mode: HistoryMode::List,
+                                    sessions,
+                                    selected,
+                                    scroll_offset,
+                                    mode: HistoryMode::List,
                                 });
                             }
                             KeyCode::Down | KeyCode::Char('j') => {
-                                if selected < sessions.len() { selected += 1; }
+                                if selected < sessions.len() {
+                                    selected += 1;
+                                }
                                 self.chat_popup = Some(ChatPopup::ConversationHistory {
-                                    sessions, selected, scroll_offset, mode: HistoryMode::List,
+                                    sessions,
+                                    selected,
+                                    scroll_offset,
+                                    mode: HistoryMode::List,
                                 });
                             }
                             KeyCode::Enter => {
@@ -2065,40 +2895,61 @@ impl App {
                             KeyCode::Char('d') if selected > 0 => {
                                 // Ask for confirmation before deleting
                                 self.chat_popup = Some(ChatPopup::ConversationHistory {
-                                    sessions, selected, scroll_offset, mode: HistoryMode::ConfirmDelete,
+                                    sessions,
+                                    selected,
+                                    scroll_offset,
+                                    mode: HistoryMode::ConfirmDelete,
                                 });
                             }
                             KeyCode::Char('r') if selected > 0 => {
                                 // Enter rename mode with current title pre-filled
-                                let input = sessions.get(selected - 1)
+                                let input = sessions
+                                    .get(selected - 1)
                                     .map(|e| e.title.clone())
                                     .unwrap_or_default();
                                 self.chat_popup = Some(ChatPopup::ConversationHistory {
-                                    sessions, selected, scroll_offset, mode: HistoryMode::Rename { input },
+                                    sessions,
+                                    selected,
+                                    scroll_offset,
+                                    mode: HistoryMode::Rename { input },
                                 });
                             }
                             KeyCode::Char('p') if selected > 0 => {
                                 // Preview session messages (display pairs only)
                                 if let Some(entry) = sessions.get(selected - 1) {
-                                    let lines = self.state.as_ref()
-                                        .and_then(|s| aivyx_pa::sessions::load_chat_messages(
-                                            &s.store, &s.conversation_key, &entry.id,
-                                        ))
+                                    let lines = self
+                                        .state
+                                        .as_ref()
+                                        .and_then(|s| {
+                                            aivyx_pa::sessions::load_chat_messages(
+                                                &s.store,
+                                                &s.conversation_key,
+                                                &entry.id,
+                                            )
+                                        })
                                         .map(|msgs| aivyx_pa::sessions::to_display_pairs(&msgs))
                                         .unwrap_or_default();
                                     self.chat_popup = Some(ChatPopup::ConversationHistory {
-                                        sessions, selected, scroll_offset,
+                                        sessions,
+                                        selected,
+                                        scroll_offset,
                                         mode: HistoryMode::Preview { lines, scroll: 0 },
                                     });
                                 } else {
                                     self.chat_popup = Some(ChatPopup::ConversationHistory {
-                                        sessions, selected, scroll_offset, mode: HistoryMode::List,
+                                        sessions,
+                                        selected,
+                                        scroll_offset,
+                                        mode: HistoryMode::List,
                                     });
                                 }
                             }
                             _ => {
                                 self.chat_popup = Some(ChatPopup::ConversationHistory {
-                                    sessions, selected, scroll_offset, mode: HistoryMode::List,
+                                    sessions,
+                                    selected,
+                                    scroll_offset,
+                                    mode: HistoryMode::List,
                                 });
                             }
                         }
@@ -2108,7 +2959,10 @@ impl App {
                             KeyCode::Esc => {
                                 // Cancel rename, back to list
                                 self.chat_popup = Some(ChatPopup::ConversationHistory {
-                                    sessions, selected, scroll_offset, mode: HistoryMode::List,
+                                    sessions,
+                                    selected,
+                                    scroll_offset,
+                                    mode: HistoryMode::List,
                                 });
                             }
                             KeyCode::Enter => {
@@ -2117,7 +2971,10 @@ impl App {
                                     if let Some(entry) = sessions.get(selected - 1) {
                                         if let Some(ref state) = self.state {
                                             aivyx_pa::sessions::rename_chat_session(
-                                                &state.store, &state.conversation_key, &entry.id, &new_title,
+                                                &state.store,
+                                                &state.conversation_key,
+                                                &entry.id,
+                                                &new_title,
                                             );
                                         }
                                     }
@@ -2128,18 +2985,27 @@ impl App {
                             KeyCode::Backspace => {
                                 input.pop();
                                 self.chat_popup = Some(ChatPopup::ConversationHistory {
-                                    sessions, selected, scroll_offset, mode: HistoryMode::Rename { input },
+                                    sessions,
+                                    selected,
+                                    scroll_offset,
+                                    mode: HistoryMode::Rename { input },
                                 });
                             }
                             KeyCode::Char(c) if input.len() < 80 => {
                                 input.push(c);
                                 self.chat_popup = Some(ChatPopup::ConversationHistory {
-                                    sessions, selected, scroll_offset, mode: HistoryMode::Rename { input },
+                                    sessions,
+                                    selected,
+                                    scroll_offset,
+                                    mode: HistoryMode::Rename { input },
                                 });
                             }
                             _ => {
                                 self.chat_popup = Some(ChatPopup::ConversationHistory {
-                                    sessions, selected, scroll_offset, mode: HistoryMode::Rename { input },
+                                    sessions,
+                                    selected,
+                                    scroll_offset,
+                                    mode: HistoryMode::Rename { input },
                                 });
                             }
                         }
@@ -2149,7 +3015,10 @@ impl App {
                             KeyCode::Char('y') | KeyCode::Enter => {
                                 if let Some(entry) = sessions.get(selected - 1) {
                                     if let Some(ref state) = self.state {
-                                        aivyx_pa::sessions::delete_chat_session(&state.store, &entry.id);
+                                        aivyx_pa::sessions::delete_chat_session(
+                                            &state.store,
+                                            &entry.id,
+                                        );
                                     }
                                     // If deleting the active session, clear the chat
                                     if self.chat_session_id.as_deref() == Some(&entry.id) {
@@ -2163,7 +3032,10 @@ impl App {
                             _ => {
                                 // Any other key cancels
                                 self.chat_popup = Some(ChatPopup::ConversationHistory {
-                                    sessions, selected, scroll_offset, mode: HistoryMode::List,
+                                    sessions,
+                                    selected,
+                                    scroll_offset,
+                                    mode: HistoryMode::List,
                                 });
                             }
                         }
@@ -2172,19 +3044,28 @@ impl App {
                         match key.code {
                             KeyCode::Esc | KeyCode::Char('q') => {
                                 self.chat_popup = Some(ChatPopup::ConversationHistory {
-                                    sessions, selected, scroll_offset, mode: HistoryMode::List,
+                                    sessions,
+                                    selected,
+                                    scroll_offset,
+                                    mode: HistoryMode::List,
                                 });
                             }
                             KeyCode::Up | KeyCode::Char('k') => {
                                 scroll = scroll.saturating_sub(1);
                                 self.chat_popup = Some(ChatPopup::ConversationHistory {
-                                    sessions, selected, scroll_offset, mode: HistoryMode::Preview { lines, scroll },
+                                    sessions,
+                                    selected,
+                                    scroll_offset,
+                                    mode: HistoryMode::Preview { lines, scroll },
                                 });
                             }
                             KeyCode::Down | KeyCode::Char('j') => {
                                 scroll += 1;
                                 self.chat_popup = Some(ChatPopup::ConversationHistory {
-                                    sessions, selected, scroll_offset, mode: HistoryMode::Preview { lines, scroll },
+                                    sessions,
+                                    selected,
+                                    scroll_offset,
+                                    mode: HistoryMode::Preview { lines, scroll },
                                 });
                             }
                             KeyCode::Enter => {
@@ -2195,7 +3076,10 @@ impl App {
                             }
                             _ => {
                                 self.chat_popup = Some(ChatPopup::ConversationHistory {
-                                    sessions, selected, scroll_offset, mode: HistoryMode::Preview { lines, scroll },
+                                    sessions,
+                                    selected,
+                                    scroll_offset,
+                                    mode: HistoryMode::Preview { lines, scroll },
                                 });
                             }
                         }
@@ -2229,19 +3113,31 @@ impl App {
             Some(ChatPopup::ExportDone { .. }) => {
                 // Any key closes it
             }
-            Some(ChatPopup::BranchManager { snapshots, mut selected, mut label_input, creating }) => {
+            Some(ChatPopup::BranchManager {
+                snapshots,
+                mut selected,
+                mut label_input,
+                creating,
+            }) => {
                 if creating {
                     // Label input mode
                     match key.code {
                         KeyCode::Esc => {
                             // Cancel creation, go back to list
                             self.chat_popup = Some(ChatPopup::BranchManager {
-                                snapshots, selected, label_input: String::new(), creating: false,
+                                snapshots,
+                                selected,
+                                label_input: String::new(),
+                                creating: false,
                             });
                         }
                         KeyCode::Enter => {
                             // Create snapshot with label
-                            let label = if label_input.is_empty() { None } else { Some(label_input) };
+                            let label = if label_input.is_empty() {
+                                None
+                            } else {
+                                Some(label_input)
+                            };
                             self.create_branch_snapshot(label);
                             // Re-open with updated list
                             self.open_branch_manager();
@@ -2249,18 +3145,27 @@ impl App {
                         KeyCode::Backspace => {
                             label_input.pop();
                             self.chat_popup = Some(ChatPopup::BranchManager {
-                                snapshots, selected, label_input, creating: true,
+                                snapshots,
+                                selected,
+                                label_input,
+                                creating: true,
                             });
                         }
                         KeyCode::Char(c) => {
                             label_input.push(c);
                             self.chat_popup = Some(ChatPopup::BranchManager {
-                                snapshots, selected, label_input, creating: true,
+                                snapshots,
+                                selected,
+                                label_input,
+                                creating: true,
                             });
                         }
                         _ => {
                             self.chat_popup = Some(ChatPopup::BranchManager {
-                                snapshots, selected, label_input, creating: true,
+                                snapshots,
+                                selected,
+                                label_input,
+                                creating: true,
                             });
                         }
                     }
@@ -2269,21 +3174,34 @@ impl App {
                     match key.code {
                         KeyCode::Esc => {} // close
                         KeyCode::Up | KeyCode::Char('k') => {
-                            if selected > 0 { selected -= 1; }
+                            if selected > 0 {
+                                selected -= 1;
+                            }
                             self.chat_popup = Some(ChatPopup::BranchManager {
-                                snapshots, selected, label_input, creating: false,
+                                snapshots,
+                                selected,
+                                label_input,
+                                creating: false,
                             });
                         }
                         KeyCode::Down | KeyCode::Char('j') => {
-                            if selected < snapshots.len() { selected += 1; }
+                            if selected < snapshots.len() {
+                                selected += 1;
+                            }
                             self.chat_popup = Some(ChatPopup::BranchManager {
-                                snapshots, selected, label_input, creating: false,
+                                snapshots,
+                                selected,
+                                label_input,
+                                creating: false,
                             });
                         }
                         KeyCode::Char('n') => {
                             // New snapshot — switch to label input
                             self.chat_popup = Some(ChatPopup::BranchManager {
-                                snapshots, selected, label_input: String::new(), creating: true,
+                                snapshots,
+                                selected,
+                                label_input: String::new(),
+                                creating: true,
                             });
                         }
                         KeyCode::Enter => {
@@ -2299,13 +3217,19 @@ impl App {
                                 self.open_branch_manager();
                             } else {
                                 self.chat_popup = Some(ChatPopup::BranchManager {
-                                    snapshots, selected, label_input, creating: false,
+                                    snapshots,
+                                    selected,
+                                    label_input,
+                                    creating: false,
                                 });
                             }
                         }
                         _ => {
                             self.chat_popup = Some(ChatPopup::BranchManager {
-                                snapshots, selected, label_input, creating: false,
+                                snapshots,
+                                selected,
+                                label_input,
+                                creating: false,
                             });
                         }
                     }
@@ -2318,16 +3242,17 @@ impl App {
     /// Open the conversation history popup.
     pub fn open_session_list(&mut self) {
         let Some(ref state) = self.state else { return };
-        let sessions: Vec<SessionEntry> = aivyx_pa::sessions::list_chat_sessions(&state.store, &state.conversation_key)
-            .into_iter()
-            .map(|s| SessionEntry {
-                id: s.id,
-                title: s.title,
-                turn_count: s.turn_count,
-                updated_at: s.updated_at.format("%Y-%m-%d %H:%M").to_string(),
-                created_at: s.created_at.format("%Y-%m-%d %H:%M").to_string(),
-            })
-            .collect();
+        let sessions: Vec<SessionEntry> =
+            aivyx_pa::sessions::list_chat_sessions(&state.store, &state.conversation_key)
+                .into_iter()
+                .map(|s| SessionEntry {
+                    id: s.id,
+                    title: s.title,
+                    turn_count: s.turn_count,
+                    updated_at: s.updated_at.format("%Y-%m-%d %H:%M").to_string(),
+                    created_at: s.created_at.format("%Y-%m-%d %H:%M").to_string(),
+                })
+                .collect();
         self.chat_popup = Some(ChatPopup::ConversationHistory {
             sessions,
             selected: 0,
@@ -2340,7 +3265,11 @@ impl App {
     /// the agent's conversation so subsequent turns have full context.
     fn load_session(&mut self, session_id: &str) {
         let Some(ref state) = self.state else { return };
-        if let Some(messages) = aivyx_pa::sessions::load_chat_messages(&state.store, &state.conversation_key, session_id) {
+        if let Some(messages) = aivyx_pa::sessions::load_chat_messages(
+            &state.store,
+            &state.conversation_key,
+            session_id,
+        ) {
             // Restore agent conversation history (includes tool results)
             let agent = state.agent.clone();
             let history = aivyx_pa::sessions::to_chat_messages(&messages);
@@ -2351,13 +3280,16 @@ impl App {
 
             // Display only user/assistant messages in the chat view
             let display_pairs = aivyx_pa::sessions::to_display_pairs(&messages);
-            self.chat_messages = display_pairs.into_iter().map(|(role, content)| {
-                ChatMessage {
-                    role: if role == "you" { "user".into() } else { role },
-                    content,
-                    timestamp: String::new(), // historical messages don't have timestamps
-                }
-            }).collect();
+            self.chat_messages = display_pairs
+                .into_iter()
+                .map(|(role, content)| {
+                    ChatMessage {
+                        role: if role == "you" { "user".into() } else { role },
+                        content,
+                        timestamp: String::new(), // historical messages don't have timestamps
+                    }
+                })
+                .collect();
             self.chat_session_id = Some(session_id.to_string());
             self.chat_scroll = 0;
         }
@@ -2373,14 +3305,22 @@ impl App {
 
     /// Export the current chat as a markdown file.
     pub fn export_chat_markdown(&mut self) {
-        if self.chat_messages.is_empty() { return; }
+        if self.chat_messages.is_empty() {
+            return;
+        }
 
         let mut md = String::from("# Chat Export\n\n");
-        md.push_str(&format!("_Exported: {}_\n\n---\n\n",
-            chrono::Local::now().format("%Y-%m-%d %H:%M:%S")));
+        md.push_str(&format!(
+            "_Exported: {}_\n\n---\n\n",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+        ));
 
         for msg in &self.chat_messages {
-            let role = if msg.role == "user" || msg.role == "you" { "You" } else { "Assistant" };
+            let role = if msg.role == "user" || msg.role == "you" {
+                "You"
+            } else {
+                "Assistant"
+            };
             md.push_str(&format!("### {role}"));
             if !msg.timestamp.is_empty() {
                 md.push_str(&format!(" _{}_", msg.timestamp));
@@ -2390,7 +3330,10 @@ impl App {
             md.push_str("\n\n---\n\n");
         }
 
-        let filename = format!("chat-export-{}.md", chrono::Local::now().format("%Y%m%d-%H%M%S"));
+        let filename = format!(
+            "chat-export-{}.md",
+            chrono::Local::now().format("%Y%m%d-%H%M%S")
+        );
         let path = std::env::current_dir()
             .unwrap_or_else(|_| std::path::PathBuf::from("."))
             .join(&filename);
@@ -2424,11 +3367,17 @@ impl App {
                     if key.starts_with(&prefix) {
                         if let Ok(data) = state.store.get(&key, &state.conversation_key) {
                             if let Some(data) = data {
-                                if let Ok(snap) = serde_json::from_slice::<aivyx_agent::ConversationSnapshot>(&data) {
+                                if let Ok(snap) = serde_json::from_slice::<
+                                    aivyx_agent::ConversationSnapshot,
+                                >(&data)
+                                {
                                     entries.push(SnapshotEntry {
                                         message_index: snap.message_index,
                                         label: snap.label,
-                                        created_at: snap.created_at.format("%Y-%m-%d %H:%M").to_string(),
+                                        created_at: snap
+                                            .created_at
+                                            .format("%Y-%m-%d %H:%M")
+                                            .to_string(),
                                     });
                                 }
                             }
@@ -2484,7 +3433,9 @@ impl App {
             let session_id = agent.session_id();
             let key = format!("snapshot:{session_id}:{message_index}");
             if let Ok(Some(data)) = store.get(&key, &conv_key) {
-                if let Ok(snapshot) = serde_json::from_slice::<aivyx_agent::ConversationSnapshot>(&data) {
+                if let Ok(snapshot) =
+                    serde_json::from_slice::<aivyx_agent::ConversationSnapshot>(&data)
+                {
                     let _parent_id = agent.branch_from_snapshot(&snapshot);
                 }
             }
@@ -2629,8 +3580,7 @@ pub fn audit_event_type(event: &aivyx_audit::AuditEvent) -> &'static str {
         AuditEvent::HeartbeatFired { .. }
         | AuditEvent::HeartbeatCompleted { .. }
         | AuditEvent::HeartbeatSkipped { .. } => "heartbeat",
-        AuditEvent::CapabilityGranted { .. }
-        | AuditEvent::CapabilityRevoked { .. } => "security",
+        AuditEvent::CapabilityGranted { .. } | AuditEvent::CapabilityRevoked { .. } => "security",
         _ => "other",
     }
 }
@@ -2642,19 +3592,31 @@ pub fn format_audit_event(event: &aivyx_audit::AuditEvent) -> String {
         AuditEvent::SystemInit { .. } => "System initialized".into(),
         AuditEvent::ToolExecuted { action, .. } => format!("Tool: {action}"),
         AuditEvent::ToolDenied { action, reason, .. } => format!("Denied: {action} ({reason})"),
-        AuditEvent::ToolExecutionFailed { action, error, .. } => format!("Failed: {action} ({error})"),
+        AuditEvent::ToolExecutionFailed { action, error, .. } => {
+            format!("Failed: {action} ({error})")
+        }
         AuditEvent::AgentTurnStarted { .. } => "Turn started".into(),
         AuditEvent::AgentTurnCompleted { .. } => "Turn completed".into(),
         AuditEvent::ScheduleFired { schedule_name, .. } => format!("Schedule: {schedule_name}"),
-        AuditEvent::ScheduleCompleted { schedule_name, .. } => format!("Schedule done: {schedule_name}"),
+        AuditEvent::ScheduleCompleted { schedule_name, .. } => {
+            format!("Schedule done: {schedule_name}")
+        }
         AuditEvent::MemoryStored { .. } => "Memory stored".into(),
-        AuditEvent::CapabilityGranted { scope_summary, .. } => format!("Cap granted: {scope_summary}"),
+        AuditEvent::CapabilityGranted { scope_summary, .. } => {
+            format!("Cap granted: {scope_summary}")
+        }
         AuditEvent::CapabilityRevoked { .. } => "Cap revoked".into(),
         AuditEvent::ConfigChanged { key, .. } => format!("Config: {key}"),
-        AuditEvent::HeartbeatFired { context_sections, .. } => format!("Heartbeat ({context_sections} ctx)"),
-        AuditEvent::HeartbeatCompleted { actions_dispatched, .. } => format!("Heartbeat done ({actions_dispatched} actions)"),
+        AuditEvent::HeartbeatFired {
+            context_sections, ..
+        } => format!("Heartbeat ({context_sections} ctx)"),
+        AuditEvent::HeartbeatCompleted {
+            actions_dispatched, ..
+        } => format!("Heartbeat done ({actions_dispatched} actions)"),
         AuditEvent::HeartbeatSkipped { reason } => format!("Heartbeat skip: {reason}"),
-        AuditEvent::BriefingGenerated { item_count, .. } => format!("Briefing ({item_count} items)"),
+        AuditEvent::BriefingGenerated { item_count, .. } => {
+            format!("Briefing ({item_count} items)")
+        }
         other => {
             let debug = format!("{other:?}");
             let variant = debug.split(['{', '(']).next().unwrap_or(&debug);
@@ -2806,15 +3768,15 @@ mod tests {
     #[test]
     fn settings_item_count_cards() {
         let app = App::new_test();
-        assert_eq!(app.settings_item_count(0), 2);  // provider
-        assert_eq!(app.settings_item_count(1), 3);  // autonomy
+        assert_eq!(app.settings_item_count(0), 2); // provider
+        assert_eq!(app.settings_item_count(1), 3); // autonomy
         assert_eq!(app.settings_item_count(2), 11); // heartbeat
-        assert_eq!(app.settings_item_count(3), 0);  // schedules — no settings loaded
-        assert_eq!(app.settings_item_count(4), 3);  // agent
+        assert_eq!(app.settings_item_count(3), 0); // schedules — no settings loaded
+        assert_eq!(app.settings_item_count(4), 3); // agent
         assert_eq!(app.settings_item_count(5), 11); // integrations
-        assert_eq!(app.settings_item_count(7), 5);  // persona
-        assert_eq!(app.settings_item_count(8), 1);  // tools & extensions: discovery
-        assert_eq!(app.settings_item_count(6), 0);  // unknown card
+        assert_eq!(app.settings_item_count(7), 5); // persona
+        assert_eq!(app.settings_item_count(8), 1); // tools & extensions: discovery
+        assert_eq!(app.settings_item_count(6), 0); // unknown card
         assert_eq!(app.settings_item_count(99), 0); // out of range
     }
 
@@ -2833,14 +3795,24 @@ mod tests {
     fn integration_fields_all_kinds_have_fields() {
         use aivyx_pa::settings::IntegrationKind;
         let kinds = [
-            IntegrationKind::Email, IntegrationKind::Telegram, IntegrationKind::Matrix,
-            IntegrationKind::Calendar, IntegrationKind::Contacts, IntegrationKind::Vault,
-            IntegrationKind::Signal, IntegrationKind::Sms, IntegrationKind::Finance,
-            IntegrationKind::Desktop, IntegrationKind::DevTools,
+            IntegrationKind::Email,
+            IntegrationKind::Telegram,
+            IntegrationKind::Matrix,
+            IntegrationKind::Calendar,
+            IntegrationKind::Contacts,
+            IntegrationKind::Vault,
+            IntegrationKind::Signal,
+            IntegrationKind::Sms,
+            IntegrationKind::Finance,
+            IntegrationKind::Desktop,
+            IntegrationKind::DevTools,
         ];
         for kind in kinds {
             let fields = App::integration_fields(kind);
-            assert!(!fields.is_empty(), "integration_fields({kind:?}) returned empty");
+            assert!(
+                !fields.is_empty(),
+                "integration_fields({kind:?}) returned empty"
+            );
         }
     }
 
@@ -2869,15 +3841,11 @@ mod tests {
     #[test]
     fn filtered_goals_by_status() {
         let mut app = App::new_test();
-        app.goals = vec![
-            Goal::new("active1", "c"),
-            Goal::new("active2", "c"),
-            {
-                let mut g = Goal::new("done", "c");
-                g.set_status(GoalStatus::Completed);
-                g
-            },
-        ];
+        app.goals = vec![Goal::new("active1", "c"), Goal::new("active2", "c"), {
+            let mut g = Goal::new("done", "c");
+            g.set_status(GoalStatus::Completed);
+            g
+        }];
 
         app.goal_filter = 1; // Active
         assert_eq!(app.filtered_goals().len(), 2);
@@ -2911,7 +3879,11 @@ mod tests {
         app.activity_filter = 1;
         let filtered = app.filtered_notifications();
         assert_eq!(filtered.len(), 2);
-        assert!(filtered.iter().all(|n| n.source == "schedule" || n.source == "briefing"));
+        assert!(
+            filtered
+                .iter()
+                .all(|n| n.source == "schedule" || n.source == "briefing")
+        );
     }
 
     #[test]
@@ -2932,14 +3904,20 @@ mod tests {
 
     fn test_session_entry(id: &str, title: &str) -> SessionEntry {
         SessionEntry {
-            id: id.into(), title: title.into(), turn_count: 1,
-            updated_at: "2026-01-01".into(), created_at: "2026-01-01".into(),
+            id: id.into(),
+            title: title.into(),
+            turn_count: 1,
+            updated_at: "2026-01-01".into(),
+            created_at: "2026-01-01".into(),
         }
     }
 
     fn history_popup(sessions: Vec<SessionEntry>, selected: usize) -> ChatPopup {
         ChatPopup::ConversationHistory {
-            sessions, selected, scroll_offset: 0, mode: HistoryMode::List,
+            sessions,
+            selected,
+            scroll_offset: 0,
+            mode: HistoryMode::List,
         }
     }
 
@@ -3024,7 +4002,10 @@ mod tests {
 
         app.handle_chat_popup(char_key('d'));
         match &app.chat_popup {
-            Some(ChatPopup::ConversationHistory { mode: HistoryMode::ConfirmDelete, .. }) => {}
+            Some(ChatPopup::ConversationHistory {
+                mode: HistoryMode::ConfirmDelete,
+                ..
+            }) => {}
             other => panic!("Expected ConfirmDelete mode, got {other:?}"),
         }
     }
@@ -3034,12 +4015,18 @@ mod tests {
         let mut app = App::new_test();
         let sessions = vec![test_session_entry("s1", "Keep me")];
         app.chat_popup = Some(ChatPopup::ConversationHistory {
-            sessions, selected: 1, scroll_offset: 0, mode: HistoryMode::ConfirmDelete,
+            sessions,
+            selected: 1,
+            scroll_offset: 0,
+            mode: HistoryMode::ConfirmDelete,
         });
 
         app.handle_chat_popup(key(KeyCode::Esc)); // cancel
         match &app.chat_popup {
-            Some(ChatPopup::ConversationHistory { mode: HistoryMode::List, .. }) => {}
+            Some(ChatPopup::ConversationHistory {
+                mode: HistoryMode::List,
+                ..
+            }) => {}
             other => panic!("Expected List mode after cancel, got {other:?}"),
         }
     }
@@ -3052,7 +4039,10 @@ mod tests {
 
         app.handle_chat_popup(char_key('r'));
         match &app.chat_popup {
-            Some(ChatPopup::ConversationHistory { mode: HistoryMode::Rename { input }, .. }) => {
+            Some(ChatPopup::ConversationHistory {
+                mode: HistoryMode::Rename { input },
+                ..
+            }) => {
                 assert_eq!(input, "Original");
             }
             other => panic!("Expected Rename mode, got {other:?}"),
@@ -3064,13 +4054,20 @@ mod tests {
         let mut app = App::new_test();
         let sessions = vec![test_session_entry("s1", "Orig")];
         app.chat_popup = Some(ChatPopup::ConversationHistory {
-            sessions, selected: 1, scroll_offset: 0,
-            mode: HistoryMode::Rename { input: "New name".into() },
+            sessions,
+            selected: 1,
+            scroll_offset: 0,
+            mode: HistoryMode::Rename {
+                input: "New name".into(),
+            },
         });
 
         app.handle_chat_popup(key(KeyCode::Esc));
         match &app.chat_popup {
-            Some(ChatPopup::ConversationHistory { mode: HistoryMode::List, .. }) => {}
+            Some(ChatPopup::ConversationHistory {
+                mode: HistoryMode::List,
+                ..
+            }) => {}
             other => panic!("Expected List mode after rename cancel, got {other:?}"),
         }
     }
@@ -3144,15 +4141,21 @@ mod tests {
     #[test]
     fn chat_popup_export_done_any_key_closes() {
         let mut app = App::new_test();
-        app.chat_popup = Some(ChatPopup::ExportDone { path: "/tmp/test.md".into() });
+        app.chat_popup = Some(ChatPopup::ExportDone {
+            path: "/tmp/test.md".into(),
+        });
         app.handle_chat_popup(key(KeyCode::Enter));
         assert!(app.chat_popup.is_none());
 
-        app.chat_popup = Some(ChatPopup::ExportDone { path: "/tmp/test.md".into() });
+        app.chat_popup = Some(ChatPopup::ExportDone {
+            path: "/tmp/test.md".into(),
+        });
         app.handle_chat_popup(char_key('x'));
         assert!(app.chat_popup.is_none());
 
-        app.chat_popup = Some(ChatPopup::ExportDone { path: "/tmp/test.md".into() });
+        app.chat_popup = Some(ChatPopup::ExportDone {
+            path: "/tmp/test.md".into(),
+        });
         app.handle_chat_popup(key(KeyCode::Esc));
         assert!(app.chat_popup.is_none());
     }
@@ -3288,7 +4291,10 @@ mod tests {
         // Enter with empty description — does NOT match the `Enter if !description.is_empty()` arm,
         // falls to catch-all which keeps popup open
         app.handle_goal_popup(key(KeyCode::Enter));
-        assert!(app.goal_popup.is_some(), "Popup should stay open with empty description");
+        assert!(
+            app.goal_popup.is_some(),
+            "Popup should stay open with empty description"
+        );
     }
 
     #[test]
@@ -3425,7 +4431,10 @@ mod tests {
         // not re-inserted — it's None now because .take() happened then early return.
         // Wait, let me re-check: the method does `let Some(ref state) = self.state` BEFORE
         // the `match self.settings_popup.take()`. So it returns before take(). Popup stays.
-        assert!(app.settings_popup.is_some(), "Settings popup untouched because state is None");
+        assert!(
+            app.settings_popup.is_some(),
+            "Settings popup untouched because state is None"
+        );
     }
 
     // ── Chat export ──────────────────────────────────────────
@@ -3441,8 +4450,16 @@ mod tests {
     fn export_chat_markdown_creates_file() {
         let mut app = App::new_test();
         app.chat_messages = vec![
-            ChatMessage { role: "user".into(), content: "Hello".into(), timestamp: "10:00".into() },
-            ChatMessage { role: "assistant".into(), content: "Hi there!".into(), timestamp: "10:01".into() },
+            ChatMessage {
+                role: "user".into(),
+                content: "Hello".into(),
+                timestamp: "10:00".into(),
+            },
+            ChatMessage {
+                role: "assistant".into(),
+                content: "Hi there!".into(),
+                timestamp: "10:01".into(),
+            },
         ];
         app.export_chat_markdown();
 
@@ -3525,28 +4542,36 @@ mod tests {
     #[test]
     fn audit_event_type_heartbeat() {
         use aivyx_audit::AuditEvent;
-        let event = AuditEvent::HeartbeatSkipped { reason: "quiet hours".into() };
+        let event = AuditEvent::HeartbeatSkipped {
+            reason: "quiet hours".into(),
+        };
         assert_eq!(audit_event_type(&event), "heartbeat");
     }
 
     #[test]
     fn audit_event_type_other() {
         use aivyx_audit::AuditEvent;
-        let event = AuditEvent::SystemInit { timestamp: chrono::Utc::now() };
+        let event = AuditEvent::SystemInit {
+            timestamp: chrono::Utc::now(),
+        };
         assert_eq!(audit_event_type(&event), "other");
     }
 
     #[test]
     fn format_audit_event_heartbeat_skip() {
         use aivyx_audit::AuditEvent;
-        let event = AuditEvent::HeartbeatSkipped { reason: "quiet hours".into() };
+        let event = AuditEvent::HeartbeatSkipped {
+            reason: "quiet hours".into(),
+        };
         assert_eq!(format_audit_event(&event), "Heartbeat skip: quiet hours");
     }
 
     #[test]
     fn format_audit_event_system_init() {
         use aivyx_audit::AuditEvent;
-        let event = AuditEvent::SystemInit { timestamp: chrono::Utc::now() };
+        let event = AuditEvent::SystemInit {
+            timestamp: chrono::Utc::now(),
+        };
         assert_eq!(format_audit_event(&event), "System initialized");
     }
 
@@ -3616,7 +4641,7 @@ mod tests {
         let mut app = App::new_test();
         app.settings_card_index = 9;
         app.settings_item_index = 0;
-        app.settings_cycle_app_access(true);  // no state → returns early
+        app.settings_cycle_app_access(true); // no state → returns early
         app.settings_cycle_app_access(false); // same
     }
 
@@ -3629,8 +4654,12 @@ mod tests {
         app.settings_item_index = 0; // Email
         app.settings_activate_current();
         assert!(
-            matches!(app.settings_popup, Some(SettingsPopup::IntegrationSetup { .. })),
-            "Expected IntegrationSetup popup, got {:?}", app.settings_popup.is_some(),
+            matches!(
+                app.settings_popup,
+                Some(SettingsPopup::IntegrationSetup { .. })
+            ),
+            "Expected IntegrationSetup popup, got {:?}",
+            app.settings_popup.is_some(),
         );
     }
 
@@ -3655,7 +4684,9 @@ mod tests {
         app.missions = vec![
             test_mission_meta(MissionStatus::Executing),
             test_mission_meta(MissionStatus::Completed),
-            test_mission_meta(MissionStatus::Failed { reason: "oom".into() }),
+            test_mission_meta(MissionStatus::Failed {
+                reason: "oom".into(),
+            }),
         ];
         app.mission_filter = 0;
         assert_eq!(app.filtered_missions().len(), 3);

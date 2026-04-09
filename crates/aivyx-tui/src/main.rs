@@ -10,18 +10,15 @@ mod theme;
 mod views;
 mod widgets;
 
-use app::{App, View};
 use aivyx_pa::api::ApprovalStatus;
+use app::{App, View};
 use crossterm::{
-    event::{self, Event, KeyCode, KeyModifiers},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
+    event::{self, Event, KeyCode, KeyModifiers},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{
-    prelude::*,
-    widgets::Block,
-};
-use std::io::{self, stdout, BufRead, Write as _};
+use ratatui::{prelude::*, widgets::Block};
+use std::io::{self, BufRead, Write as _, stdout};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -139,7 +136,8 @@ async fn main() -> anyhow::Result<()> {
     let master_key_bytes: [u8; 32] = master_key.expose_secret().try_into().unwrap();
 
     let mut keys = runtime::derive_all_keys(
-        &master_key, &pa_config,
+        &master_key,
+        &pa_config,
         services.vault.is_some(),
         services.contacts.is_some(),
     );
@@ -151,9 +149,16 @@ async fn main() -> anyhow::Result<()> {
     let api_audit_log = aivyx_audit::AuditLog::new(dirs.audit_path(), &keys.ui_audit_key);
 
     let mut built = agent::build_agent(
-        &dirs, &config, &pa_config, services,
-        Arc::clone(&store), master_key, provider, Some(agent_audit_log),
-    ).await?;
+        &dirs,
+        &config,
+        &pa_config,
+        services,
+        Arc::clone(&store),
+        master_key,
+        provider,
+        Some(agent_audit_log),
+    )
+    .await?;
 
     // Clone brain store for UI before loop takes it
     let brain_store_for_ui = built.brain_store.as_ref().map(Arc::clone);
@@ -161,18 +166,28 @@ async fn main() -> anyhow::Result<()> {
     // Build loop
     let schedule_tools = runtime::build_schedule_tools(&loop_inputs, built.imap_pool.clone());
     let loop_context = runtime::build_loop_context(
-        &mut built, &mut keys, loop_inputs,
-        loop_provider, schedule_tools, Arc::clone(&store), &dirs, &pa_config,
+        &mut built,
+        &mut keys,
+        loop_inputs,
+        loop_provider,
+        schedule_tools,
+        Arc::clone(&store),
+        &dirs,
+        &pa_config,
     );
     let loop_config = runtime::build_loop_config(&pa_config);
 
     let mission_ctx_for_ui = built.mission_ctx.clone();
     let memory_manager_for_ui = built.memory_manager.as_ref().map(Arc::clone);
     let is_first_launch = built.is_first_launch;
-    let agent_name = pa_config.agent.as_ref()
+    let agent_name = pa_config
+        .agent
+        .as_ref()
         .map(|a| a.name.clone())
         .unwrap_or_else(|| "assistant".into());
-    let persona = pa_config.agent.as_ref()
+    let persona = pa_config
+        .agent
+        .as_ref()
         .map(|a| a.persona.clone())
         .unwrap_or_else(|| "assistant".into());
 
@@ -196,7 +211,9 @@ async fn main() -> anyhow::Result<()> {
         while let Some(notif) = notification_rx.recv().await {
             if notif.requires_approval {
                 bridge_approvals.lock().await.push(api::ApprovalItem {
-                    expires_at: Some(notif.timestamp + chrono::TimeDelta::try_seconds(120).unwrap()),
+                    expires_at: Some(
+                        notif.timestamp + chrono::TimeDelta::try_seconds(120).unwrap(),
+                    ),
                     notification: notif.clone(),
                     status: api::ApprovalStatus::Pending,
                     resolved_at: None,
@@ -225,7 +242,8 @@ async fn main() -> anyhow::Result<()> {
             email_config_for_health.as_ref(),
             &health_config_path,
             &health_data_dir,
-        ).await;
+        )
+        .await;
         tracing::info!(
             provider = %result.provider.label(),
             email = %result.email.label(),
@@ -273,7 +291,8 @@ async fn main() -> anyhow::Result<()> {
 
     // First launch onboarding — agent introduces itself
     if is_first_launch {
-        let greeting = aivyx_pa::config::onboarding_message(&agent_name, &persona, &app_state.pa_config);
+        let greeting =
+            aivyx_pa::config::onboarding_message(&agent_name, &persona, &app_state.pa_config);
         app.chat_messages.push(app::ChatMessage {
             role: "assistant".into(),
             content: greeting,
@@ -300,7 +319,9 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// Initialize logging to a file so it doesn't interfere with the TUI.
-fn init_logging(dirs: &AivyxDirs) -> anyhow::Result<Option<tracing_appender::non_blocking::WorkerGuard>> {
+fn init_logging(
+    dirs: &AivyxDirs,
+) -> anyhow::Result<Option<tracing_appender::non_blocking::WorkerGuard>> {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
 
@@ -356,32 +377,20 @@ fn render(app: &App, frame: &mut Frame) {
     let area = frame.area();
 
     // Background fill
-    frame.render_widget(
-        Block::default().style(Style::default().bg(theme::BG)),
-        area,
-    );
+    frame.render_widget(Block::default().style(Style::default().bg(theme::BG)), area);
 
     // ── Authenticated: shell layout ────────────────────────────
     // Sidebar (22 cols) | Header + Content + StatusBar
     let sidebar_width = 22u16.min(area.width / 4);
 
-    let [sidebar_area, main_area] = Layout::horizontal([
-        Constraint::Length(sidebar_width),
-        Constraint::Min(30),
-    ])
-    .areas(area);
+    let [sidebar_area, main_area] =
+        Layout::horizontal([Constraint::Length(sidebar_width), Constraint::Min(30)]).areas(area);
 
-    let [header_area, content_area] = Layout::vertical([
-        Constraint::Length(2),
-        Constraint::Min(10),
-    ])
-    .areas(main_area);
+    let [header_area, content_area] =
+        Layout::vertical([Constraint::Length(2), Constraint::Min(10)]).areas(main_area);
 
     // Sidebar
-    frame.render_widget(
-        widgets::sidebar::Sidebar::new(app),
-        sidebar_area,
-    );
+    frame.render_widget(widgets::sidebar::Sidebar::new(app), sidebar_area);
 
     // Header
     frame.render_widget(widgets::header::Header::new(app), header_area);
@@ -440,8 +449,12 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
             return;
         }
         match app.focus {
-            Focus::Content => { app.focus = Focus::Sidebar; }
-            Focus::Sidebar => { app.go_to_view(0); } // Home
+            Focus::Content => {
+                app.focus = Focus::Sidebar;
+            }
+            Focus::Sidebar => {
+                app.go_to_view(0);
+            } // Home
         }
         return;
     }
@@ -451,17 +464,34 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
         // Ctrl+key shortcuts (must check before generic Char handler)
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             match key.code {
-                KeyCode::Char('s') => { app.open_session_list(); return; }
-                KeyCode::Char('p') => { app.open_system_prompt_preview(); return; }
-                KeyCode::Char('e') => { app.export_chat_markdown(); return; }
-                KeyCode::Char('b') => { app.open_branch_manager(); return; }
-                KeyCode::Char('r') => { app.toggle_voice_recording(); return; }
+                KeyCode::Char('s') => {
+                    app.open_session_list();
+                    return;
+                }
+                KeyCode::Char('p') => {
+                    app.open_system_prompt_preview();
+                    return;
+                }
+                KeyCode::Char('e') => {
+                    app.export_chat_markdown();
+                    return;
+                }
+                KeyCode::Char('b') => {
+                    app.open_branch_manager();
+                    return;
+                }
+                KeyCode::Char('r') => {
+                    app.toggle_voice_recording();
+                    return;
+                }
                 _ => {}
             }
         }
         match key.code {
             KeyCode::Char(c) => app.chat_input.push(c),
-            KeyCode::Backspace => { app.chat_input.pop(); }
+            KeyCode::Backspace => {
+                app.chat_input.pop();
+            }
             KeyCode::Enter => app.send_chat_message(),
             KeyCode::Up => {
                 app.chat_scroll = app.chat_scroll.saturating_add(1);
@@ -475,7 +505,9 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
             KeyCode::PageDown => {
                 app.chat_scroll = app.chat_scroll.saturating_sub(10);
             }
-            KeyCode::Tab => { app.focus = Focus::Sidebar; }
+            KeyCode::Tab => {
+                app.focus = Focus::Sidebar;
+            }
             _ => {}
         }
         return;
@@ -529,14 +561,14 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
 
     match app.focus {
         // ── Sidebar focused: Up/Down navigate views ──────────
-        Focus::Sidebar => {
-            match key.code {
-                KeyCode::Up | KeyCode::Char('k') => app.nav_up(),
-                KeyCode::Down | KeyCode::Char('j') => app.nav_down(),
-                KeyCode::Enter => { app.focus = Focus::Content; }
-                _ => {}
+        Focus::Sidebar => match key.code {
+            KeyCode::Up | KeyCode::Char('k') => app.nav_up(),
+            KeyCode::Down | KeyCode::Char('j') => app.nav_down(),
+            KeyCode::Enter => {
+                app.focus = Focus::Content;
             }
-        }
+            _ => {}
+        },
 
         // ── Content focused: per-view navigation ─────────────
         Focus::Content => {
@@ -567,28 +599,26 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                         _ => {}
                     }
                 }
-                KeyCode::Char(']') => {
-                    match app.view {
-                        View::Goals => {
-                            app.goal_filter = (app.goal_filter + 1) % 4;
-                            app.goal_selected = 0;
-                        }
-                        View::Missions => {
-                            app.mission_filter = (app.mission_filter + 1) % 4;
-                            app.mission_selected = 0;
-                            app.load_mission_detail();
-                        }
-                        View::Audit => {
-                            app.audit_filter = (app.audit_filter + 1) % 4;
-                            app.audit_selected = 0;
-                        }
-                        View::Activity => {
-                            app.activity_filter = (app.activity_filter + 1) % 3;
-                            app.activity_selected = 0;
-                        }
-                        _ => {}
+                KeyCode::Char(']') => match app.view {
+                    View::Goals => {
+                        app.goal_filter = (app.goal_filter + 1) % 4;
+                        app.goal_selected = 0;
                     }
-                }
+                    View::Missions => {
+                        app.mission_filter = (app.mission_filter + 1) % 4;
+                        app.mission_selected = 0;
+                        app.load_mission_detail();
+                    }
+                    View::Audit => {
+                        app.audit_filter = (app.audit_filter + 1) % 4;
+                        app.audit_selected = 0;
+                    }
+                    View::Activity => {
+                        app.activity_filter = (app.activity_filter + 1) % 3;
+                        app.activity_selected = 0;
+                    }
+                    _ => {}
+                },
 
                 // Approve / Deny / Detail in Approvals view
                 KeyCode::Char('a') if app.view == View::Approvals => {
@@ -615,7 +645,10 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                 KeyCode::Char('e') if app.view == View::Goals => {
                     let goals = app.filtered_goals();
                     if let Some(goal) = goals.get(app.goal_selected) {
-                        let dl = goal.deadline.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default();
+                        let dl = goal
+                            .deadline
+                            .map(|d| d.format("%Y-%m-%d").to_string())
+                            .unwrap_or_default();
                         app.goal_popup = Some(crate::app::GoalPopup::Edit {
                             goal_id: goal.id,
                             description: goal.description.clone(),
@@ -629,7 +662,10 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                 KeyCode::Char('c') if app.view == View::Goals => {
                     let goals = app.filtered_goals();
                     if let Some(goal) = goals.get(app.goal_selected) {
-                        if matches!(goal.status, aivyx_brain::GoalStatus::Active | aivyx_brain::GoalStatus::Dormant) {
+                        if matches!(
+                            goal.status,
+                            aivyx_brain::GoalStatus::Active | aivyx_brain::GoalStatus::Dormant
+                        ) {
                             let msg = format!("Complete \"{}\"?", truncate(&goal.description, 35));
                             app.goal_popup = Some(crate::app::GoalPopup::Confirm {
                                 message: msg,
@@ -653,7 +689,10 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                 KeyCode::Char('x') if app.view == View::Goals => {
                     let goals = app.filtered_goals();
                     if let Some(goal) = goals.get(app.goal_selected) {
-                        if matches!(goal.status, aivyx_brain::GoalStatus::Active | aivyx_brain::GoalStatus::Dormant) {
+                        if matches!(
+                            goal.status,
+                            aivyx_brain::GoalStatus::Active | aivyx_brain::GoalStatus::Dormant
+                        ) {
                             let msg = format!("Abandon \"{}\"?", truncate(&goal.description, 35));
                             app.goal_popup = Some(crate::app::GoalPopup::Confirm {
                                 message: msg,
@@ -670,28 +709,50 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                         let path = state.config_path.clone();
                         // Suspend TUI, open editor, resume
                         let _ = crossterm::terminal::disable_raw_mode();
-                        let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen);
+                        let _ = crossterm::execute!(
+                            std::io::stdout(),
+                            crossterm::terminal::LeaveAlternateScreen
+                        );
                         let _ = std::process::Command::new(&editor).arg(&path).status();
                         let _ = crossterm::terminal::enable_raw_mode();
-                        let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen);
+                        let _ = crossterm::execute!(
+                            std::io::stdout(),
+                            crossterm::terminal::EnterAlternateScreen
+                        );
                         // Reload after editing
                         match aivyx_pa::settings::reload_settings_snapshot(&path) {
-                            Ok(s) => { app.settings = Some(s); app.settings_error = None; }
-                            Err(e) => { app.settings = None; app.settings_error = Some(e); }
+                            Ok(s) => {
+                                app.settings = Some(s);
+                                app.settings_error = None;
+                            }
+                            Err(e) => {
+                                app.settings = None;
+                                app.settings_error = Some(e);
+                            }
                         }
                     }
                 }
                 KeyCode::Char('r') if app.view == View::Settings && app.settings.is_none() => {
                     if let Some(ref state) = app.state {
                         match aivyx_pa::settings::reload_settings_snapshot(&state.config_path) {
-                            Ok(s) => { app.settings = Some(s); app.settings_error = None; }
-                            Err(e) => { app.settings = None; app.settings_error = Some(e); }
+                            Ok(s) => {
+                                app.settings = Some(s);
+                                app.settings_error = None;
+                            }
+                            Err(e) => {
+                                app.settings = None;
+                                app.settings_error = Some(e);
+                            }
                         }
                     }
                 }
 
                 // Settings: 'd' to remove a configured integration
-                KeyCode::Char('d') if app.view == View::Settings && app.settings_card_index == 5 && app.settings_popup.is_none() => {
+                KeyCode::Char('d')
+                    if app.view == View::Settings
+                        && app.settings_card_index == 5
+                        && app.settings_popup.is_none() =>
+                {
                     if let Some(ref settings) = app.settings {
                         let list = crate::app::App::integrations_list(settings);
                         let idx = app.settings_item_index;
@@ -742,9 +803,16 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
 /// Move content selection up for the current view.
 fn content_up(app: &mut App) {
     match app.view {
-        View::Goals => { if app.goal_selected > 0 { app.goal_selected -= 1; } }
+        View::Goals => {
+            if app.goal_selected > 0 {
+                app.goal_selected -= 1;
+            }
+        }
         View::Missions => {
-            if app.mission_selected > 0 { app.mission_selected -= 1; app.load_mission_detail(); }
+            if app.mission_selected > 0 {
+                app.mission_selected -= 1;
+                app.load_mission_detail();
+            }
         }
         View::Approvals => {
             if app.approval_detail_open {
@@ -754,18 +822,36 @@ fn content_up(app: &mut App) {
                 app.approval_selected -= 1;
             }
         }
-        View::Activity => { if app.activity_selected > 0 { app.activity_selected -= 1; } }
-        View::Audit => { if app.audit_selected > 0 { app.audit_selected -= 1; } }
-        View::Memory => { if app.memory_selected > 0 { app.memory_selected -= 1; } }
-        View::Help => { app.help_scroll = app.help_scroll.saturating_sub(1); }
-        View::Chat => { app.chat_scroll = app.chat_scroll.saturating_add(1); }
+        View::Activity => {
+            if app.activity_selected > 0 {
+                app.activity_selected -= 1;
+            }
+        }
+        View::Audit => {
+            if app.audit_selected > 0 {
+                app.audit_selected -= 1;
+            }
+        }
+        View::Memory => {
+            if app.memory_selected > 0 {
+                app.memory_selected -= 1;
+            }
+        }
+        View::Help => {
+            app.help_scroll = app.help_scroll.saturating_sub(1);
+        }
+        View::Chat => {
+            app.chat_scroll = app.chat_scroll.saturating_add(1);
+        }
         View::Settings => {
             if app.settings_item_index > 0 {
                 app.settings_item_index -= 1;
             } else if app.settings_card_index > 0 {
                 // Move to previous card, select last item
                 app.settings_card_index -= 1;
-                app.settings_item_index = app.settings_item_count(app.settings_card_index).saturating_sub(1);
+                app.settings_item_index = app
+                    .settings_item_count(app.settings_card_index)
+                    .saturating_sub(1);
             }
         }
         _ => {}
@@ -774,7 +860,11 @@ fn content_up(app: &mut App) {
 
 /// Truncate a string to a max length, adding "…" if truncated.
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max { s.to_string() } else { format!("{}…", &s[..max]) }
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", &s[..max])
+    }
 }
 
 /// Move content selection down for the current view.
@@ -782,33 +872,48 @@ fn content_down(app: &mut App) {
     match app.view {
         View::Goals => {
             let max = app.filtered_goals().len().saturating_sub(1);
-            if app.goal_selected < max { app.goal_selected += 1; }
+            if app.goal_selected < max {
+                app.goal_selected += 1;
+            }
         }
         View::Missions => {
             let max = app.filtered_missions().len().saturating_sub(1);
-            if app.mission_selected < max { app.mission_selected += 1; app.load_mission_detail(); }
+            if app.mission_selected < max {
+                app.mission_selected += 1;
+                app.load_mission_detail();
+            }
         }
         View::Approvals => {
             if app.approval_detail_open {
                 app.approval_detail_scroll = app.approval_detail_scroll.saturating_add(1);
             } else {
                 let max = app.approvals.len().saturating_sub(1);
-                if app.approval_selected < max { app.approval_selected += 1; }
+                if app.approval_selected < max {
+                    app.approval_selected += 1;
+                }
             }
         }
         View::Activity => {
             let max = app.filtered_notifications().len().saturating_sub(1);
-            if app.activity_selected < max { app.activity_selected += 1; }
+            if app.activity_selected < max {
+                app.activity_selected += 1;
+            }
         }
         View::Audit => {
             let max = app.filtered_audit().len().saturating_sub(1);
-            if app.audit_selected < max { app.audit_selected += 1; }
+            if app.audit_selected < max {
+                app.audit_selected += 1;
+            }
         }
         View::Memory => {
             let max = app.memories.len().saturating_sub(1);
-            if app.memory_selected < max { app.memory_selected += 1; }
+            if app.memory_selected < max {
+                app.memory_selected += 1;
+            }
         }
-        View::Help => { app.help_scroll += 1; }
+        View::Help => {
+            app.help_scroll += 1;
+        }
         View::Chat => {
             app.chat_scroll = app.chat_scroll.saturating_sub(1);
         }

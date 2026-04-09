@@ -5,12 +5,12 @@
 
 use std::sync::Arc;
 
-use aivyx_core::{AivyxError, Result};
 use crate::Action;
+use aivyx_core::{AivyxError, Result};
 
 use super::{
-    ElementQuery, InteractionContext, ScrollDirection, WindowRef,
-    MAX_JS_INPUT_BYTES, MAX_TYPE_TEXT_BYTES, ALLOWED_URL_SCHEMES,
+    ALLOWED_URL_SCHEMES, ElementQuery, InteractionContext, MAX_JS_INPUT_BYTES, MAX_TYPE_TEXT_BYTES,
+    ScrollDirection, WindowRef,
 };
 // InputBackend and UiBackend traits are in scope via parent module for dyn dispatch.
 #[allow(unused_imports)]
@@ -28,7 +28,9 @@ pub struct UiInspect {
 
 #[async_trait::async_trait]
 impl Action for UiInspect {
-    fn name(&self) -> &str { "ui_inspect" }
+    fn name(&self) -> &str {
+        "ui_inspect"
+    }
 
     fn description(&self) -> &str {
         "Read the accessibility tree of a window. Returns structured JSON of UI \
@@ -58,10 +60,7 @@ impl Action for UiInspect {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let window = WindowRef::from_input(
-            input["window"].as_str(),
-            input["window_id"].as_str(),
-        );
+        let window = WindowRef::from_input(input["window"].as_str(), input["window_id"].as_str());
         let max_depth = input["max_depth"].as_u64().unwrap_or(5) as u32;
 
         self.ctx.enforce_access(&window, false).await?;
@@ -77,7 +76,9 @@ impl Action for UiInspect {
 }
 
 fn count_nodes(nodes: &[super::UiTreeNode]) -> usize {
-    nodes.iter().fold(0, |acc, n| acc + 1 + count_nodes(&n.children))
+    nodes
+        .iter()
+        .fold(0, |acc, n| acc + 1 + count_nodes(&n.children))
 }
 
 // ── ui_find_element ──────────────────────────────────────────────
@@ -88,7 +89,9 @@ pub struct UiFindElement {
 
 #[async_trait::async_trait]
 impl Action for UiFindElement {
-    fn name(&self) -> &str { "ui_find_element" }
+    fn name(&self) -> &str {
+        "ui_find_element"
+    }
 
     fn description(&self) -> &str {
         "Find a specific UI element by role, name, or text content. Returns element \
@@ -124,10 +127,7 @@ impl Action for UiFindElement {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let window = WindowRef::from_input(
-            input["window"].as_str(),
-            input["window_id"].as_str(),
-        );
+        let window = WindowRef::from_input(input["window"].as_str(), input["window_id"].as_str());
         let query = ElementQuery {
             role: input["role"].as_str().map(String::from),
             name: input["name"].as_str().map(String::from),
@@ -160,7 +160,9 @@ pub struct UiClick {
 
 #[async_trait::async_trait]
 impl Action for UiClick {
-    fn name(&self) -> &str { "ui_click" }
+    fn name(&self) -> &str {
+        "ui_click"
+    }
 
     fn description(&self) -> &str {
         "Click a UI element found by ui_find_element (using its element path), \
@@ -218,9 +220,10 @@ impl Action for UiClick {
             }
             let backend = self.ctx.router.route(&window).await;
             let elements = backend.find_element(&window, &query).await?;
-            elements.into_iter().next().ok_or_else(|| {
-                AivyxError::Other("No matching element found".into())
-            })?
+            elements
+                .into_iter()
+                .next()
+                .ok_or_else(|| AivyxError::Other("No matching element found".into()))?
         };
 
         self.ctx.enforce_access(&window, true).await?;
@@ -258,7 +261,9 @@ pub struct UiTypeText {
 
 #[async_trait::async_trait]
 impl Action for UiTypeText {
-    fn name(&self) -> &str { "ui_type_text" }
+    fn name(&self) -> &str {
+        "ui_type_text"
+    }
 
     fn description(&self) -> &str {
         "Type text into a focused text field or a specific UI element. \
@@ -335,7 +340,9 @@ pub struct UiReadText {
 
 #[async_trait::async_trait]
 impl Action for UiReadText {
-    fn name(&self) -> &str { "ui_read_text" }
+    fn name(&self) -> &str {
+        "ui_read_text"
+    }
 
     fn description(&self) -> &str {
         "Read text content from a UI element or the active focus. \
@@ -392,7 +399,9 @@ pub struct UiKeyCombo {
 
 #[async_trait::async_trait]
 impl Action for UiKeyCombo {
-    fn name(&self) -> &str { "ui_key_combo" }
+    fn name(&self) -> &str {
+        "ui_key_combo"
+    }
 
     fn description(&self) -> &str {
         "Send a keyboard shortcut (e.g., ctrl+s, alt+F4, super). Uses ydotool \
@@ -439,7 +448,8 @@ impl Action for UiKeyCombo {
 fn require_cdp(ctx: &InteractionContext) -> Result<&super::cdp::CdpBackend> {
     ctx.router.cdp().ok_or_else(|| {
         AivyxError::Other(
-            "Browser automation is disabled. Enable [desktop.interaction.browser] in config.".into(),
+            "Browser automation is disabled. Enable [desktop.interaction.browser] in config."
+                .into(),
         )
     })
 }
@@ -452,7 +462,9 @@ pub struct BrowserNavigate {
 
 #[async_trait::async_trait]
 impl Action for BrowserNavigate {
-    fn name(&self) -> &str { "browser_navigate" }
+    fn name(&self) -> &str {
+        "browser_navigate"
+    }
 
     fn description(&self) -> &str {
         "Navigate a browser tab to a URL. The browser must be running with \
@@ -510,7 +522,9 @@ pub struct BrowserQuery {
 
 #[async_trait::async_trait]
 impl Action for BrowserQuery {
-    fn name(&self) -> &str { "browser_query" }
+    fn name(&self) -> &str {
+        "browser_query"
+    }
 
     fn description(&self) -> &str {
         "Query DOM elements in a browser tab by CSS selector. Returns matching \
@@ -554,7 +568,9 @@ pub struct BrowserClick {
 
 #[async_trait::async_trait]
 impl Action for BrowserClick {
-    fn name(&self) -> &str { "browser_click" }
+    fn name(&self) -> &str {
+        "browser_click"
+    }
 
     fn description(&self) -> &str {
         "Click a DOM element in the browser by CSS selector. Scrolls the element \
@@ -604,7 +620,9 @@ pub struct BrowserType {
 
 #[async_trait::async_trait]
 impl Action for BrowserType {
-    fn name(&self) -> &str { "browser_type" }
+    fn name(&self) -> &str {
+        "browser_type"
+    }
 
     fn description(&self) -> &str {
         "Type text into a form field in the browser, selected by CSS selector. \
@@ -669,7 +687,9 @@ pub struct BrowserReadPage {
 
 #[async_trait::async_trait]
 impl Action for BrowserReadPage {
-    fn name(&self) -> &str { "browser_read_page" }
+    fn name(&self) -> &str {
+        "browser_read_page"
+    }
 
     fn description(&self) -> &str {
         "Read the visible text content of a browser page or a specific element. \
@@ -715,7 +735,9 @@ pub struct BrowserScreenshot {
 
 #[async_trait::async_trait]
 impl Action for BrowserScreenshot {
-    fn name(&self) -> &str { "browser_screenshot" }
+    fn name(&self) -> &str {
+        "browser_screenshot"
+    }
 
     fn description(&self) -> &str {
         "Take a screenshot of the current browser page. Returns a base64-encoded \
@@ -774,7 +796,9 @@ pub struct MediaControl {
 
 #[async_trait::async_trait]
 impl Action for MediaControl {
-    fn name(&self) -> &str { "media_control" }
+    fn name(&self) -> &str {
+        "media_control"
+    }
 
     fn description(&self) -> &str {
         "Control the active media player — play, pause, toggle, next, previous, stop. \
@@ -832,9 +856,7 @@ impl Action for MediaControl {
 
         #[cfg(target_os = "windows")]
         {
-            const VALID_ACTIONS: &[&str] = &[
-                "play", "pause", "toggle", "next", "previous", "stop",
-            ];
+            const VALID_ACTIONS: &[&str] = &["play", "pause", "toggle", "next", "previous", "stop"];
             if !VALID_ACTIONS.contains(&action) {
                 return Err(AivyxError::Validation(format!(
                     "Invalid action: '{action}'. Valid: {}",
@@ -853,7 +875,9 @@ impl Action for MediaControl {
 
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         {
-            Err(AivyxError::Other("Media control is not supported on this platform".into()))
+            Err(AivyxError::Other(
+                "Media control is not supported on this platform".into(),
+            ))
         }
     }
 }
@@ -866,7 +890,9 @@ pub struct MediaInfo {
 
 #[async_trait::async_trait]
 impl Action for MediaInfo {
-    fn name(&self) -> &str { "media_info" }
+    fn name(&self) -> &str {
+        "media_info"
+    }
 
     fn description(&self) -> &str {
         "Get current playback info from the active media player — title, artist, \
@@ -908,7 +934,9 @@ impl Action for MediaInfo {
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         {
             let _ = input;
-            Err(AivyxError::Other("Media info is not supported on this platform".into()))
+            Err(AivyxError::Other(
+                "Media info is not supported on this platform".into(),
+            ))
         }
     }
 }
@@ -925,7 +953,9 @@ pub struct UiScroll {
 
 #[async_trait::async_trait]
 impl Action for UiScroll {
-    fn name(&self) -> &str { "ui_scroll" }
+    fn name(&self) -> &str {
+        "ui_scroll"
+    }
 
     fn description(&self) -> &str {
         "Scroll within any application window. Uses mouse wheel injection via \
@@ -983,7 +1013,9 @@ pub struct UiRightClick {
 
 #[async_trait::async_trait]
 impl Action for UiRightClick {
-    fn name(&self) -> &str { "ui_right_click" }
+    fn name(&self) -> &str {
+        "ui_right_click"
+    }
 
     fn description(&self) -> &str {
         "Right-click a UI element to open its context menu. Accepts an element \
@@ -1006,7 +1038,11 @@ impl Action for UiRightClick {
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         if let (Some(x), Some(y)) = (input["x"].as_i64(), input["y"].as_i64()) {
-            self.ctx.router.input_backend().right_click_at(x as i32, y as i32).await?;
+            self.ctx
+                .router
+                .input_backend()
+                .right_click_at(x as i32, y as i32)
+                .await?;
             return Ok(serde_json::json!({
                 "status": "right_clicked",
                 "backend": "input",
@@ -1037,7 +1073,9 @@ pub struct UiHover {
 
 #[async_trait::async_trait]
 impl Action for UiHover {
-    fn name(&self) -> &str { "ui_hover" }
+    fn name(&self) -> &str {
+        "ui_hover"
+    }
 
     fn description(&self) -> &str {
         "Hover over a UI element to trigger tooltips or hover menus. \
@@ -1060,7 +1098,11 @@ impl Action for UiHover {
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         if let (Some(x), Some(y)) = (input["x"].as_i64(), input["y"].as_i64()) {
-            self.ctx.router.input_backend().mouse_move_to(x as i32, y as i32).await?;
+            self.ctx
+                .router
+                .input_backend()
+                .mouse_move_to(x as i32, y as i32)
+                .await?;
             return Ok(serde_json::json!({
                 "status": "hovered",
                 "backend": "input",
@@ -1091,7 +1133,9 @@ pub struct UiDrag {
 
 #[async_trait::async_trait]
 impl Action for UiDrag {
-    fn name(&self) -> &str { "ui_drag" }
+    fn name(&self) -> &str {
+        "ui_drag"
+    }
 
     fn description(&self) -> &str {
         "Drag from one position to another. Useful for drag-and-drop, sliders, \
@@ -1133,14 +1177,15 @@ impl Action for UiDrag {
             }));
         }
 
-        let from_path = input["from_element"]
-            .as_str()
-            .ok_or_else(|| AivyxError::Validation(
-                "Provide from_x+from_y+to_x+to_y coordinates, or from_element+to_element paths".into(),
-            ))?;
-        let to_path = input["to_element"]
-            .as_str()
-            .ok_or_else(|| AivyxError::Validation("to_element is required for element-based drag".into()))?;
+        let from_path = input["from_element"].as_str().ok_or_else(|| {
+            AivyxError::Validation(
+                "Provide from_x+from_y+to_x+to_y coordinates, or from_element+to_element paths"
+                    .into(),
+            )
+        })?;
+        let to_path = input["to_element"].as_str().ok_or_else(|| {
+            AivyxError::Validation("to_element is required for element-based drag".into())
+        })?;
 
         let from = super::UiElement {
             path: from_path.to_string(),
@@ -1181,7 +1226,9 @@ pub struct UiMouseMove {
 
 #[async_trait::async_trait]
 impl Action for UiMouseMove {
-    fn name(&self) -> &str { "ui_mouse_move" }
+    fn name(&self) -> &str {
+        "ui_mouse_move"
+    }
 
     fn description(&self) -> &str {
         "Move the mouse cursor to absolute screen coordinates. Uses ydotool \
@@ -1225,7 +1272,9 @@ pub struct WindowScreenshot {
 
 #[async_trait::async_trait]
 impl Action for WindowScreenshot {
-    fn name(&self) -> &str { "window_screenshot" }
+    fn name(&self) -> &str {
+        "window_screenshot"
+    }
 
     fn description(&self) -> &str {
         "Take a screenshot of a specific window, screen region, or the full \
@@ -1269,7 +1318,8 @@ impl Action for WindowScreenshot {
             let geometry = if let Some(region) = input["region"].as_str() {
                 if !region.contains('x') || region.is_empty() {
                     return Err(AivyxError::Validation(
-                        "region must be in 'x,y widthxheight' format (e.g., '100,200 800x600')".into(),
+                        "region must be in 'x,y widthxheight' format (e.g., '100,200 800x600')"
+                            .into(),
                     ));
                 }
                 Some(region.to_string())
@@ -1305,7 +1355,9 @@ impl Action for WindowScreenshot {
 
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         {
-            Err(AivyxError::Other("Screenshots not supported on this platform".into()))
+            Err(AivyxError::Other(
+                "Screenshots not supported on this platform".into(),
+            ))
         }
     }
 }
@@ -1318,7 +1370,9 @@ pub struct BrowserScroll {
 
 #[async_trait::async_trait]
 impl Action for BrowserScroll {
-    fn name(&self) -> &str { "browser_scroll" }
+    fn name(&self) -> &str {
+        "browser_scroll"
+    }
 
     fn description(&self) -> &str {
         "Scroll within a browser page. Can scroll the whole page or a specific \
@@ -1382,7 +1436,9 @@ pub struct BrowserExecuteJs {
 
 #[async_trait::async_trait]
 impl Action for BrowserExecuteJs {
-    fn name(&self) -> &str { "browser_execute_js" }
+    fn name(&self) -> &str {
+        "browser_execute_js"
+    }
 
     fn description(&self) -> &str {
         "Execute arbitrary JavaScript in a browser tab. Returns the evaluated \
@@ -1464,9 +1520,10 @@ async fn resolve_element_input(
 
     let backend = ctx.router.route(window).await;
     let elements = backend.find_element(window, &query).await?;
-    elements.into_iter().next().ok_or_else(|| {
-        AivyxError::Other("No matching element found".into())
-    })
+    elements
+        .into_iter()
+        .next()
+        .ok_or_else(|| AivyxError::Other("No matching element found".into()))
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1481,7 +1538,9 @@ pub struct UiDoubleClick {
 
 #[async_trait::async_trait]
 impl Action for UiDoubleClick {
-    fn name(&self) -> &str { "ui_double_click" }
+    fn name(&self) -> &str {
+        "ui_double_click"
+    }
 
     fn description(&self) -> &str {
         "Double-click a UI element. Useful for opening files in file managers, \
@@ -1505,7 +1564,11 @@ impl Action for UiDoubleClick {
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         if let (Some(x), Some(y)) = (input["x"].as_i64(), input["y"].as_i64()) {
-            self.ctx.router.input_backend().double_click_at(x as i32, y as i32).await?;
+            self.ctx
+                .router
+                .input_backend()
+                .double_click_at(x as i32, y as i32)
+                .await?;
             return Ok(serde_json::json!({
                 "status": "double_clicked", "backend": "input", "x": x, "y": y,
             }));
@@ -1531,7 +1594,9 @@ pub struct UiMiddleClick {
 
 #[async_trait::async_trait]
 impl Action for UiMiddleClick {
-    fn name(&self) -> &str { "ui_middle_click" }
+    fn name(&self) -> &str {
+        "ui_middle_click"
+    }
 
     fn description(&self) -> &str {
         "Middle-click a UI element. On Linux, middle-click typically pastes the \
@@ -1554,7 +1619,11 @@ impl Action for UiMiddleClick {
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         if let (Some(x), Some(y)) = (input["x"].as_i64(), input["y"].as_i64()) {
-            self.ctx.router.input_backend().middle_click_at(x as i32, y as i32).await?;
+            self.ctx
+                .router
+                .input_backend()
+                .middle_click_at(x as i32, y as i32)
+                .await?;
             return Ok(serde_json::json!({
                 "status": "middle_clicked", "backend": "input", "x": x, "y": y,
             }));
@@ -1580,7 +1649,9 @@ pub struct BrowserListTabs {
 
 #[async_trait::async_trait]
 impl Action for BrowserListTabs {
-    fn name(&self) -> &str { "browser_list_tabs" }
+    fn name(&self) -> &str {
+        "browser_list_tabs"
+    }
 
     fn description(&self) -> &str {
         "List all open browser tabs with their titles and URLs. Returns tab \
@@ -1607,7 +1678,9 @@ pub struct BrowserNewTab {
 
 #[async_trait::async_trait]
 impl Action for BrowserNewTab {
-    fn name(&self) -> &str { "browser_new_tab" }
+    fn name(&self) -> &str {
+        "browser_new_tab"
+    }
 
     fn description(&self) -> &str {
         "Open a new browser tab, optionally navigating to a URL."
@@ -1648,7 +1721,9 @@ pub struct BrowserCloseTab {
 
 #[async_trait::async_trait]
 impl Action for BrowserCloseTab {
-    fn name(&self) -> &str { "browser_close_tab" }
+    fn name(&self) -> &str {
+        "browser_close_tab"
+    }
 
     fn description(&self) -> &str {
         "Close a browser tab by index."
@@ -1683,7 +1758,9 @@ pub struct BrowserWaitFor {
 
 #[async_trait::async_trait]
 impl Action for BrowserWaitFor {
-    fn name(&self) -> &str { "browser_wait_for" }
+    fn name(&self) -> &str {
+        "browser_wait_for"
+    }
 
     fn description(&self) -> &str {
         "Wait for a DOM element to appear on the page. Polls with a CSS \
@@ -1746,7 +1823,9 @@ pub struct WindowManage {
 
 #[async_trait::async_trait]
 impl Action for WindowManage {
-    fn name(&self) -> &str { "window_manage" }
+    fn name(&self) -> &str {
+        "window_manage"
+    }
 
     fn description(&self) -> &str {
         "Manage desktop windows: minimize, maximize, restore, close, resize, \
@@ -1802,7 +1881,9 @@ impl Action for WindowManage {
         let result = super::win_window::manage_window(action, window, &input).await?;
 
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        let result: String = return Err(AivyxError::Other("Window management not supported on this platform".into()));
+        let result: String = return Err(AivyxError::Other(
+            "Window management not supported on this platform".into(),
+        ));
 
         Ok(serde_json::json!({
             "status": "ok",
@@ -1820,7 +1901,9 @@ pub struct SystemVolume {
 
 #[async_trait::async_trait]
 impl Action for SystemVolume {
-    fn name(&self) -> &str { "system_volume" }
+    fn name(&self) -> &str {
+        "system_volume"
+    }
 
     fn description(&self) -> &str {
         "Control system audio volume. Set absolute percentage, adjust up/down, \
@@ -1852,13 +1935,22 @@ impl Action for SystemVolume {
         let value = input["value"].as_u64().map(|v| v as u32);
 
         #[cfg(target_os = "linux")]
-        { super::system_ctl::volume_control(action, value).await }
+        {
+            super::system_ctl::volume_control(action, value).await
+        }
 
         #[cfg(target_os = "windows")]
-        { super::win_system::volume_control(action, value).await }
+        {
+            super::win_system::volume_control(action, value).await
+        }
 
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        { let _ = (action, value); Err(AivyxError::Other("Volume control not supported on this platform".into())) }
+        {
+            let _ = (action, value);
+            Err(AivyxError::Other(
+                "Volume control not supported on this platform".into(),
+            ))
+        }
     }
 }
 
@@ -1870,7 +1962,9 @@ pub struct SystemBrightness {
 
 #[async_trait::async_trait]
 impl Action for SystemBrightness {
-    fn name(&self) -> &str { "system_brightness" }
+    fn name(&self) -> &str {
+        "system_brightness"
+    }
 
     fn description(&self) -> &str {
         "Control screen brightness. Set absolute percentage, adjust up/down, \
@@ -1902,13 +1996,22 @@ impl Action for SystemBrightness {
         let value = input["value"].as_u64().map(|v| v as u32);
 
         #[cfg(target_os = "linux")]
-        { super::system_ctl::brightness_control(action, value).await }
+        {
+            super::system_ctl::brightness_control(action, value).await
+        }
 
         #[cfg(target_os = "windows")]
-        { super::win_system::brightness_control(action, value).await }
+        {
+            super::win_system::brightness_control(action, value).await
+        }
 
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        { let _ = (action, value); Err(AivyxError::Other("Brightness control not supported on this platform".into())) }
+        {
+            let _ = (action, value);
+            Err(AivyxError::Other(
+                "Brightness control not supported on this platform".into(),
+            ))
+        }
     }
 }
 
@@ -1920,7 +2023,9 @@ pub struct UiSelectOption {
 
 #[async_trait::async_trait]
 impl Action for UiSelectOption {
-    fn name(&self) -> &str { "ui_select_option" }
+    fn name(&self) -> &str {
+        "ui_select_option"
+    }
 
     fn description(&self) -> &str {
         "Select an option from a dropdown, combo box, or list. Works by finding \
@@ -1988,7 +2093,9 @@ pub struct UiClearField {
 
 #[async_trait::async_trait]
 impl Action for UiClearField {
-    fn name(&self) -> &str { "ui_clear_field" }
+    fn name(&self) -> &str {
+        "ui_clear_field"
+    }
 
     fn description(&self) -> &str {
         "Clear a text input field. For browser fields, uses JavaScript. For \
@@ -2047,7 +2154,9 @@ pub struct NotificationList {
 
 #[async_trait::async_trait]
 impl Action for NotificationList {
-    fn name(&self) -> &str { "notification_list" }
+    fn name(&self) -> &str {
+        "notification_list"
+    }
 
     fn description(&self) -> &str {
         "List recent desktop notifications. Reads from the notification history \
@@ -2071,7 +2180,9 @@ impl Action for NotificationList {
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         let count = input["count"].as_u64().unwrap_or(10) as usize;
         #[cfg(target_os = "linux")]
-        { super::system_ctl::list_notifications(count).await }
+        {
+            super::system_ctl::list_notifications(count).await
+        }
 
         #[cfg(target_os = "windows")]
         {
@@ -2085,7 +2196,12 @@ impl Action for NotificationList {
         }
 
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        { let _ = count; Err(AivyxError::Other("Notification listing not supported on this platform".into())) }
+        {
+            let _ = count;
+            Err(AivyxError::Other(
+                "Notification listing not supported on this platform".into(),
+            ))
+        }
     }
 }
 
@@ -2097,7 +2213,9 @@ pub struct FileManagerShow {
 
 #[async_trait::async_trait]
 impl Action for FileManagerShow {
-    fn name(&self) -> &str { "file_manager_show" }
+    fn name(&self) -> &str {
+        "file_manager_show"
+    }
 
     fn description(&self) -> &str {
         "Open a file or folder in the system file manager. Can reveal a specific \
@@ -2136,7 +2254,9 @@ impl Action for FileManagerShow {
         let result = super::win_system::file_manager_show(path, reveal).await?;
 
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        let result: String = return Err(AivyxError::Other("File manager not supported on this platform".into()));
+        let result: String = return Err(AivyxError::Other(
+            "File manager not supported on this platform".into(),
+        ));
 
         Ok(serde_json::json!({
             "status": "opened",
@@ -2159,7 +2279,9 @@ pub struct ScreenOcr {
 
 #[async_trait::async_trait]
 impl Action for ScreenOcr {
-    fn name(&self) -> &str { "screen_ocr" }
+    fn name(&self) -> &str {
+        "screen_ocr"
+    }
 
     fn description(&self) -> &str {
         "Extract text from a screen region using OCR (Tesseract). This is the \
@@ -2205,11 +2327,13 @@ impl Action for ScreenOcr {
                     "region must be in 'x,y widthxheight' format".into(),
                 ));
             }
-            let coords: Vec<i32> = parts[0].split(',')
+            let coords: Vec<i32> = parts[0]
+                .split(',')
                 .map(|s| s.trim().parse::<i32>())
                 .collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(|_| AivyxError::Validation("Invalid region coordinates".into()))?;
-            let dims: Vec<i32> = parts[1].split('x')
+            let dims: Vec<i32> = parts[1]
+                .split('x')
                 .map(|s| s.trim().parse::<i32>())
                 .collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(|_| AivyxError::Validation("Invalid region dimensions".into()))?;
@@ -2222,7 +2346,9 @@ impl Action for ScreenOcr {
         };
 
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        let text: String = return Err(AivyxError::Other("OCR not supported on this platform".into()));
+        let text: String = return Err(AivyxError::Other(
+            "OCR not supported on this platform".into(),
+        ));
 
         Ok(serde_json::json!({
             "status": "ok",
@@ -2241,7 +2367,9 @@ pub struct ListRunningApps {
 
 #[async_trait::async_trait]
 impl Action for ListRunningApps {
-    fn name(&self) -> &str { "list_running_apps" }
+    fn name(&self) -> &str {
+        "list_running_apps"
+    }
 
     fn description(&self) -> &str {
         "List all running GUI applications on the desktop. Returns window titles, \
@@ -2255,13 +2383,19 @@ impl Action for ListRunningApps {
 
     async fn execute(&self, _input: serde_json::Value) -> Result<serde_json::Value> {
         #[cfg(target_os = "linux")]
-        { super::desktop_info::list_running_apps().await }
+        {
+            super::desktop_info::list_running_apps().await
+        }
 
         #[cfg(target_os = "windows")]
-        { super::win_desktop_info::list_running_apps().await }
+        {
+            super::win_desktop_info::list_running_apps().await
+        }
 
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        { Err(AivyxError::Other("Not supported on this platform".into())) }
+        {
+            Err(AivyxError::Other("Not supported on this platform".into()))
+        }
     }
 }
 
@@ -2273,7 +2407,9 @@ pub struct DesktopWorkspace {
 
 #[async_trait::async_trait]
 impl Action for DesktopWorkspace {
-    fn name(&self) -> &str { "desktop_workspace" }
+    fn name(&self) -> &str {
+        "desktop_workspace"
+    }
 
     fn description(&self) -> &str {
         "Manage desktop workspaces/virtual desktops. List workspaces, get the \
@@ -2310,7 +2446,9 @@ impl Action for DesktopWorkspace {
         let window = input["window"].as_str();
 
         #[cfg(target_os = "linux")]
-        { super::desktop_info::workspace_control(action, target, window).await }
+        {
+            super::desktop_info::workspace_control(action, target, window).await
+        }
 
         #[cfg(target_os = "windows")]
         {
@@ -2328,7 +2466,10 @@ impl Action for DesktopWorkspace {
         }
 
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        { let _ = (action, target, window); Err(AivyxError::Other("Not supported on this platform".into())) }
+        {
+            let _ = (action, target, window);
+            Err(AivyxError::Other("Not supported on this platform".into()))
+        }
     }
 }
 
@@ -2340,7 +2481,9 @@ pub struct BrowserPdf {
 
 #[async_trait::async_trait]
 impl Action for BrowserPdf {
-    fn name(&self) -> &str { "browser_pdf" }
+    fn name(&self) -> &str {
+        "browser_pdf"
+    }
 
     fn description(&self) -> &str {
         "Save the current browser page as a PDF document. Returns base64-encoded \
@@ -2390,7 +2533,9 @@ pub struct BrowserFindText {
 
 #[async_trait::async_trait]
 impl Action for BrowserFindText {
-    fn name(&self) -> &str { "browser_find_text" }
+    fn name(&self) -> &str {
+        "browser_find_text"
+    }
 
     fn description(&self) -> &str {
         "Find text on a browser page (Ctrl+F equivalent). Returns the number \
@@ -2449,7 +2594,9 @@ pub struct UiMultiSelect {
 
 #[async_trait::async_trait]
 impl Action for UiMultiSelect {
-    fn name(&self) -> &str { "ui_multi_select" }
+    fn name(&self) -> &str {
+        "ui_multi_select"
+    }
 
     fn description(&self) -> &str {
         "Ctrl+click multiple UI elements to select them simultaneously. Essential \
@@ -2495,9 +2642,9 @@ impl Action for UiMultiSelect {
 
         let mut positions: Vec<(i32, i32)> = Vec::new();
         for (i, pos) in positions_val.iter().enumerate() {
-            let arr = pos.as_array().ok_or_else(|| {
-                AivyxError::Validation(format!("Position {i} must be [x, y]"))
-            })?;
+            let arr = pos
+                .as_array()
+                .ok_or_else(|| AivyxError::Validation(format!("Position {i} must be [x, y]")))?;
             if arr.len() != 2 {
                 return Err(AivyxError::Validation(format!(
                     "Position {i} must be [x, y], got {} elements",
@@ -2513,7 +2660,11 @@ impl Action for UiMultiSelect {
             positions.push((x, y));
         }
 
-        self.ctx.router.input_backend().multi_click_at(&positions).await?;
+        self.ctx
+            .router
+            .input_backend()
+            .multi_click_at(&positions)
+            .await?;
 
         Ok(serde_json::json!({
             "status": "multi_selected",
@@ -2535,7 +2686,9 @@ pub struct DocCreateText {
 
 #[async_trait::async_trait]
 impl Action for DocCreateText {
-    fn name(&self) -> &str { "doc_create_text" }
+    fn name(&self) -> &str {
+        "doc_create_text"
+    }
 
     fn description(&self) -> &str {
         "Create a text or markdown file. Supports .txt, .md, .html, .json, \
@@ -2587,7 +2740,9 @@ pub struct DocCreateSpreadsheet {
 
 #[async_trait::async_trait]
 impl Action for DocCreateSpreadsheet {
-    fn name(&self) -> &str { "doc_create_spreadsheet" }
+    fn name(&self) -> &str {
+        "doc_create_spreadsheet"
+    }
 
     fn description(&self) -> &str {
         "Create a spreadsheet from structured data. Writes CSV natively. \
@@ -2673,7 +2828,9 @@ pub struct DocCreatePdf {
 
 #[async_trait::async_trait]
 impl Action for DocCreatePdf {
-    fn name(&self) -> &str { "doc_create_pdf" }
+    fn name(&self) -> &str {
+        "doc_create_pdf"
+    }
 
     fn description(&self) -> &str {
         "Create a PDF from markdown, HTML, LaTeX, or reStructuredText content. \
@@ -2733,7 +2890,9 @@ pub struct DocEditText {
 
 #[async_trait::async_trait]
 impl Action for DocEditText {
-    fn name(&self) -> &str { "doc_edit_text" }
+    fn name(&self) -> &str {
+        "doc_edit_text"
+    }
 
     fn description(&self) -> &str {
         "Edit a text file with structured operations: find_replace, insert_at \
@@ -2815,7 +2974,9 @@ pub struct DocConvert {
 
 #[async_trait::async_trait]
 impl Action for DocConvert {
-    fn name(&self) -> &str { "doc_convert" }
+    fn name(&self) -> &str {
+        "doc_convert"
+    }
 
     fn description(&self) -> &str {
         "Convert a document between formats. Supports: markdown, HTML, LaTeX, \
@@ -2858,13 +3019,9 @@ impl Action for DocConvert {
         let from_format = input["from_format"].as_str();
         let to_format = input["to_format"].as_str();
 
-        let result = super::documents::convert_document(
-            input_path,
-            output_path,
-            from_format,
-            to_format,
-        )
-        .await?;
+        let result =
+            super::documents::convert_document(input_path, output_path, from_format, to_format)
+                .await?;
 
         Ok(serde_json::json!({
             "status": "converted",
@@ -2883,7 +3040,9 @@ pub struct DocReadPdf {
 
 #[async_trait::async_trait]
 impl Action for DocReadPdf {
-    fn name(&self) -> &str { "doc_read_pdf" }
+    fn name(&self) -> &str {
+        "doc_read_pdf"
+    }
 
     fn description(&self) -> &str {
         "Extract text from a PDF file using pdftotext. More accurate than OCR \
@@ -2991,9 +3150,7 @@ mod tests {
     #[tokio::test]
     async fn browser_screenshot_rejects_bad_format() {
         let tool = BrowserScreenshot { ctx: test_ctx() };
-        let result = tool
-            .execute(serde_json::json!({"format": "bmp"}))
-            .await;
+        let result = tool.execute(serde_json::json!({"format": "bmp"})).await;
         assert!(result.is_err());
     }
 
@@ -3010,9 +3167,7 @@ mod tests {
     #[tokio::test]
     async fn media_control_rejects_invalid_action() {
         let tool = MediaControl { ctx: test_ctx() };
-        let result = tool
-            .execute(serde_json::json!({"action": "rewind"}))
-            .await;
+        let result = tool.execute(serde_json::json!({"action": "rewind"})).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("Invalid action"), "error: {err}");
@@ -3037,7 +3192,9 @@ mod tests {
     #[tokio::test]
     async fn ui_scroll_rejects_bad_direction() {
         let tool = UiScroll { ctx: test_ctx() };
-        let result = tool.execute(serde_json::json!({"direction": "diagonal"})).await;
+        let result = tool
+            .execute(serde_json::json!({"direction": "diagonal"}))
+            .await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("Invalid scroll direction"), "error: {err}");
@@ -3192,9 +3349,7 @@ mod tests {
     #[tokio::test]
     async fn window_screenshot_rejects_bad_region() {
         let tool = WindowScreenshot { ctx: test_ctx() };
-        let result = tool
-            .execute(serde_json::json!({"region": "invalid"}))
-            .await;
+        let result = tool.execute(serde_json::json!({"region": "invalid"})).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("widthxheight"), "error: {err}");
@@ -3239,9 +3394,7 @@ mod tests {
     #[tokio::test]
     async fn desktop_workspace_switch_requires_target() {
         let tool = DesktopWorkspace { ctx: test_ctx() };
-        let result = tool
-            .execute(serde_json::json!({"action": "switch"}))
-            .await;
+        let result = tool.execute(serde_json::json!({"action": "switch"})).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("target workspace"), "error: {err}");
@@ -3257,9 +3410,7 @@ mod tests {
     #[tokio::test]
     async fn browser_find_text_rejects_empty() {
         let tool = BrowserFindText { ctx: test_ctx() };
-        let result = tool
-            .execute(serde_json::json!({"query": ""}))
-            .await;
+        let result = tool.execute(serde_json::json!({"query": ""})).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("empty"), "error: {err}");
@@ -3269,9 +3420,7 @@ mod tests {
     async fn browser_find_text_rejects_oversized() {
         let tool = BrowserFindText { ctx: test_ctx() };
         let big = "x".repeat(1500);
-        let result = tool
-            .execute(serde_json::json!({"query": big}))
-            .await;
+        let result = tool.execute(serde_json::json!({"query": big})).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("too long"), "error: {err}");
@@ -3287,9 +3436,7 @@ mod tests {
     #[tokio::test]
     async fn ui_multi_select_rejects_empty_array() {
         let tool = UiMultiSelect { ctx: test_ctx() };
-        let result = tool
-            .execute(serde_json::json!({"positions": []}))
-            .await;
+        let result = tool.execute(serde_json::json!({"positions": []})).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("At least one"), "error: {err}");

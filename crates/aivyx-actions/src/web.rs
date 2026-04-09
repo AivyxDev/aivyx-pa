@@ -7,7 +7,9 @@ pub struct FetchPage;
 
 #[async_trait::async_trait]
 impl Action for FetchPage {
-    fn name(&self) -> &str { "fetch_webpage" }
+    fn name(&self) -> &str {
+        "fetch_webpage"
+    }
 
     fn description(&self) -> &str {
         "Fetch a webpage and return its text content"
@@ -35,17 +37,21 @@ impl Action for FetchPage {
             &crate::retry::RetryConfig::network(),
             || async {
                 let client = crate::http_client();
-                let response = client.get(&url).send().await.map_err(|e| {
-                    aivyx_core::AivyxError::Http(e.to_string())
-                })?;
+                let response = client
+                    .get(&url)
+                    .send()
+                    .await
+                    .map_err(|e| aivyx_core::AivyxError::Http(e.to_string()))?;
                 let status = response.status().as_u16();
-                let body = response.text().await.map_err(|e| {
-                    aivyx_core::AivyxError::Http(e.to_string())
-                })?;
+                let body = response
+                    .text()
+                    .await
+                    .map_err(|e| aivyx_core::AivyxError::Http(e.to_string()))?;
                 Ok((status, body))
             },
             crate::retry::is_transient,
-        ).await?;
+        )
+        .await?;
 
         // Truncate to avoid blowing up context (char-boundary safe)
         let truncated = truncate_safe(&body, 32_000);
@@ -81,7 +87,12 @@ fn validate_url(url: &str) -> Result<()> {
         .to_lowercase();
 
     // Block localhost
-    if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]" || host == "0.0.0.0" {
+    if host == "localhost"
+        || host == "127.0.0.1"
+        || host == "::1"
+        || host == "[::1]"
+        || host == "0.0.0.0"
+    {
         return Err(aivyx_core::AivyxError::Validation(
             "Localhost URLs are not allowed".into(),
         ));
@@ -89,32 +100,38 @@ fn validate_url(url: &str) -> Result<()> {
 
     // Block private/link-local IPv4 ranges
     if let Ok(ip) = host.parse::<std::net::Ipv4Addr>()
-        && (ip.is_private() || ip.is_loopback() || ip.is_link_local() || ip.is_broadcast()
-            || host.starts_with("169.254.")) // link-local / cloud metadata
-        {
-            return Err(aivyx_core::AivyxError::Validation(
-                format!("Private/internal IP addresses are not allowed: {host}")
-            ));
-        }
+        && (ip.is_private()
+            || ip.is_loopback()
+            || ip.is_link_local()
+            || ip.is_broadcast()
+            || host.starts_with("169.254."))
+    // link-local / cloud metadata
+    {
+        return Err(aivyx_core::AivyxError::Validation(format!(
+            "Private/internal IP addresses are not allowed: {host}"
+        )));
+    }
 
     // Block private/link-local IPv6 ranges (strip brackets for [::1] notation)
     let ipv6_host = host.trim_start_matches('[').trim_end_matches(']');
     if let Ok(ip) = ipv6_host.parse::<std::net::Ipv6Addr>() {
         if ip.is_loopback() || ip.is_unspecified()
             || is_ipv6_unique_local(&ip)   // fc00::/7  — ULA (private)
-            || is_ipv6_link_local(&ip)     // fe80::/10 — link-local
+            || is_ipv6_link_local(&ip)
+        // fe80::/10 — link-local
         {
-            return Err(aivyx_core::AivyxError::Validation(
-                format!("Private/internal IPv6 addresses are not allowed: {host}")
-            ));
+            return Err(aivyx_core::AivyxError::Validation(format!(
+                "Private/internal IPv6 addresses are not allowed: {host}"
+            )));
         }
         // Check for IPv4-mapped IPv6 (::ffff:127.0.0.1) — common SSRF bypass
         if let Some(ipv4) = ip.to_ipv4_mapped()
-            && (ipv4.is_private() || ipv4.is_loopback() || ipv4.is_link_local()) {
-                return Err(aivyx_core::AivyxError::Validation(
-                    format!("IPv4-mapped IPv6 to private address not allowed: {host}")
-                ));
-            }
+            && (ipv4.is_private() || ipv4.is_loopback() || ipv4.is_link_local())
+        {
+            return Err(aivyx_core::AivyxError::Validation(format!(
+                "IPv4-mapped IPv6 to private address not allowed: {host}"
+            )));
+        }
     }
 
     // Block common cloud metadata endpoints
@@ -162,7 +179,9 @@ pub struct SearchWeb;
 
 #[async_trait::async_trait]
 impl Action for SearchWeb {
-    fn name(&self) -> &str { "search_web" }
+    fn name(&self) -> &str {
+        "search_web"
+    }
 
     fn description(&self) -> &str {
         "Search the web and return results with titles, URLs, and snippets"
@@ -201,7 +220,8 @@ impl Action for SearchWeb {
             &crate::retry::RetryConfig::network(),
             || search_ddg(&query_owned, max_results),
             crate::retry::is_transient,
-        ).await?;
+        )
+        .await?;
 
         Ok(serde_json::json!({
             "query": query_owned,
@@ -212,10 +232,7 @@ impl Action for SearchWeb {
 }
 
 /// Perform a search via DuckDuckGo HTML lite and parse results.
-async fn search_ddg(
-    query: &str,
-    max_results: usize,
-) -> Result<Vec<serde_json::Value>> {
+async fn search_ddg(query: &str, max_results: usize) -> Result<Vec<serde_json::Value>> {
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (compatible; Aivyx/1.0)")
         .build()
@@ -255,19 +272,17 @@ fn parse_ddg_html(html: &str, max_results: usize) -> Vec<serde_json::Value> {
         }
 
         // Extract href from the anchor
-        let url = extract_between(chunk, "href=\"", "\"")
-            .map(|u| {
-                // DDG wraps URLs in a redirect; extract the actual URL
-                if let Some(pos) = u.find("uddg=") {
-                    url_decode(&u[pos + 5..])
-                } else {
-                    u.to_string()
-                }
-            });
+        let url = extract_between(chunk, "href=\"", "\"").map(|u| {
+            // DDG wraps URLs in a redirect; extract the actual URL
+            if let Some(pos) = u.find("uddg=") {
+                url_decode(&u[pos + 5..])
+            } else {
+                u.to_string()
+            }
+        });
 
         // Extract title text (content between > and </a>)
-        let title = extract_between(chunk, ">", "</a>")
-            .map(strip_html_tags);
+        let title = extract_between(chunk, ">", "</a>").map(strip_html_tags);
 
         // Look for snippet
         let snippet = if let Some(snippet_start) = chunk.find("class=\"result__snippet\"") {
@@ -280,13 +295,15 @@ fn parse_ddg_html(html: &str, max_results: usize) -> Vec<serde_json::Value> {
         };
 
         if let (Some(url), Some(title)) = (url, title)
-            && !url.is_empty() && !title.is_empty() {
-                results.push(serde_json::json!({
-                    "title": title.trim(),
-                    "url": url.trim(),
-                    "snippet": snippet.unwrap_or_default().trim(),
-                }));
-            }
+            && !url.is_empty()
+            && !title.is_empty()
+        {
+            results.push(serde_json::json!({
+                "title": title.trim(),
+                "url": url.trim(),
+                "snippet": snippet.unwrap_or_default().trim(),
+            }));
+        }
     }
 
     results
@@ -313,10 +330,7 @@ fn url_decode(s: &str) -> String {
             b'%' => {
                 let hex: Vec<u8> = chars.by_ref().take(2).collect();
                 if hex.len() == 2 {
-                    if let Ok(decoded) = u8::from_str_radix(
-                        &String::from_utf8_lossy(&hex),
-                        16,
-                    ) {
+                    if let Ok(decoded) = u8::from_str_radix(&String::from_utf8_lossy(&hex), 16) {
                         bytes.push(decoded);
                     } else {
                         bytes.push(b'%');
@@ -382,7 +396,10 @@ mod tests {
 
     #[test]
     fn url_decode_stops_at_ampersand() {
-        assert_eq!(url_decode("https://example.com&rut=abc"), "https://example.com");
+        assert_eq!(
+            url_decode("https://example.com&rut=abc"),
+            "https://example.com"
+        );
     }
 
     #[test]

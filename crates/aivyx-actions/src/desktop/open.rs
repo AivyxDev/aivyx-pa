@@ -3,7 +3,7 @@
 use crate::Action;
 use aivyx_core::Result;
 
-use super::{is_app_denied, is_path_denied, DesktopConfig};
+use super::{DesktopConfig, is_app_denied, is_path_denied};
 
 pub struct OpenApplication {
     pub config: DesktopConfig,
@@ -71,9 +71,9 @@ impl Action for OpenApplication {
         if is_url || is_file {
             if is_file {
                 if let Some(frag) = is_path_denied(target) {
-                    return Err(aivyx_core::AivyxError::CapabilityDenied(
-                        format!("Cannot open sensitive path (matched: {frag})"),
-                    ));
+                    return Err(aivyx_core::AivyxError::CapabilityDenied(format!(
+                        "Cannot open sensitive path (matched: {frag})"
+                    )));
                 }
             }
 
@@ -89,24 +89,24 @@ impl Action for OpenApplication {
                     "target": target,
                     "method": "xdg-open",
                 })),
-                Err(e) => Err(aivyx_core::AivyxError::Other(
-                    format!("Failed to launch xdg-open: {e}"),
-                )),
+                Err(e) => Err(aivyx_core::AivyxError::Other(format!(
+                    "Failed to launch xdg-open: {e}"
+                ))),
             }
         } else {
             // Named application — direct spawn (no shell)
             if let Some(reason) = is_app_denied(target, &self.config) {
-                return Err(aivyx_core::AivyxError::CapabilityDenied(
-                    format!("Application blocked: {reason}"),
-                ));
+                return Err(aivyx_core::AivyxError::CapabilityDenied(format!(
+                    "Application blocked: {reason}"
+                )));
             }
 
             // Check file args for sensitive paths
             for arg in &args {
                 if let Some(frag) = is_path_denied(arg) {
-                    return Err(aivyx_core::AivyxError::CapabilityDenied(
-                        format!("Cannot open sensitive path in args (matched: {frag})"),
-                    ));
+                    return Err(aivyx_core::AivyxError::CapabilityDenied(format!(
+                        "Cannot open sensitive path in args (matched: {frag})"
+                    )));
                 }
             }
 
@@ -122,9 +122,9 @@ impl Action for OpenApplication {
                     "method": "direct",
                     "args": args,
                 })),
-                Err(e) => Err(aivyx_core::AivyxError::Other(
-                    format!("Failed to launch {target}: {e}"),
-                )),
+                Err(e) => Err(aivyx_core::AivyxError::Other(format!(
+                    "Failed to launch {target}: {e}"
+                ))),
             }
         }
     }
@@ -143,9 +143,7 @@ mod tests {
         let action = OpenApplication {
             config: default_config(),
         };
-        let result = action
-            .execute(serde_json::json!({ "target": "" }))
-            .await;
+        let result = action.execute(serde_json::json!({ "target": "" })).await;
         assert!(result.is_err());
     }
 

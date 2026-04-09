@@ -257,13 +257,7 @@ async fn resize(window: Option<&str>, width: i32, height: i32) -> Result<String>
     }
 
     let id = xdotool_window_id(window).await?;
-    xdotool(&[
-        "windowsize",
-        &id,
-        &width.to_string(),
-        &height.to_string(),
-    ])
-    .await?;
+    xdotool(&["windowsize", &id, &width.to_string(), &height.to_string()]).await?;
     Ok(format!("Resized window {id} to {width}x{height}"))
 }
 

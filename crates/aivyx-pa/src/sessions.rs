@@ -116,8 +116,12 @@ impl ChatSessionMeta {
         }
     }
 
-    fn meta_key(&self) -> String { format!("chat:{}:meta", self.id) }
-    fn messages_key(&self) -> String { format!("chat:{}:messages", self.id) }
+    fn meta_key(&self) -> String {
+        format!("chat:{}:meta", self.id)
+    }
+    fn messages_key(&self) -> String {
+        format!("chat:{}:messages", self.id)
+    }
 }
 
 /// Generate a title from the first user message (truncate to ~40 chars).
@@ -139,10 +143,14 @@ pub fn list_chat_sessions(store: &EncryptedStore, key: &MasterKey) -> Vec<ChatSe
         Ok(k) => k,
         Err(_) => return Vec::new(),
     };
-    let mut sessions: Vec<ChatSessionMeta> = keys.iter()
+    let mut sessions: Vec<ChatSessionMeta> = keys
+        .iter()
         .filter(|k| k.starts_with("chat:") && k.ends_with(":meta"))
         .filter_map(|k| {
-            store.get(k, key).ok().flatten()
+            store
+                .get(k, key)
+                .ok()
+                .flatten()
                 .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         })
         .collect();
@@ -167,13 +175,15 @@ pub fn save_chat_session(
     };
 
     if let Ok(json) = serde_json::to_vec(to_save)
-        && let Err(e) = store.put(&meta.messages_key(), &json, key) {
-            tracing::warn!("Failed to save chat messages: {e}");
-        }
+        && let Err(e) = store.put(&meta.messages_key(), &json, key)
+    {
+        tracing::warn!("Failed to save chat messages: {e}");
+    }
     if let Ok(json) = serde_json::to_vec(meta)
-        && let Err(e) = store.put(&meta.meta_key(), &json, key) {
-            tracing::warn!("Failed to save chat metadata: {e}");
-        }
+        && let Err(e) = store.put(&meta.meta_key(), &json, key)
+    {
+        tracing::warn!("Failed to save chat metadata: {e}");
+    }
 }
 
 /// Load messages for a specific chat session.
@@ -199,12 +209,13 @@ pub fn load_chat_messages(
 
     // Fall back to v1 format (Vec<(String, String)>)
     if let Ok(pairs) = serde_json::from_slice::<Vec<(String, String)>>(&bytes) {
-        let upgraded: Vec<SessionMessage> = pairs.into_iter().map(|(role, content)| {
-            match role.as_str() {
+        let upgraded: Vec<SessionMessage> = pairs
+            .into_iter()
+            .map(|(role, content)| match role.as_str() {
                 "you" | "user" => SessionMessage::user(content),
                 _ => SessionMessage::assistant(content),
-            }
-        }).collect();
+            })
+            .collect();
         return Some(upgraded);
     }
 
@@ -243,13 +254,9 @@ pub fn conversation_to_session(conversation: &[ChatMessage]) -> Vec<SessionMessa
                 } else {
                     // Assistant message with tool calls — annotate the text
                     // so the restored conversation shows what tools were invoked.
-                    let tool_names: Vec<&str> = msg.tool_calls.iter()
-                        .map(|tc| tc.name.as_str())
-                        .collect();
-                    let annotation = format!(
-                        "[Used tools: {}]",
-                        tool_names.join(", ")
-                    );
+                    let tool_names: Vec<&str> =
+                        msg.tool_calls.iter().map(|tc| tc.name.as_str()).collect();
+                    let annotation = format!("[Used tools: {}]", tool_names.join(", "));
                     let combined = if text.is_empty() {
                         annotation
                     } else {
@@ -275,10 +282,7 @@ pub fn conversation_to_session(conversation: &[ChatMessage]) -> Vec<SessionMessa
 
                     // Extract tool name from tool_call_id if possible, or
                     // search the preceding assistant message for the matching call.
-                    let tool_name = find_tool_name_for_call_id(
-                        &tr.tool_call_id,
-                        conversation,
-                    );
+                    let tool_name = find_tool_name_for_call_id(&tr.tool_call_id, conversation);
 
                     result.push(SessionMessage::tool(
                         tool_name.unwrap_or("unknown"),
@@ -322,25 +326,28 @@ fn find_tool_name_for_call_id<'a>(
 /// System notes (rescue guidance, etc.) are restored as user messages
 /// since most LLM providers only accept user/assistant/tool roles.
 pub fn to_chat_messages(messages: &[SessionMessage]) -> Vec<ChatMessage> {
-    messages.iter().map(|sm| {
-        match sm.role.as_str() {
-            "you" | "user" => ChatMessage::user(&sm.content),
-            "tool" => {
-                let call_id = sm.tool_call_id.as_deref().unwrap_or("restored");
-                ChatMessage::tool(ToolResult {
-                    tool_call_id: call_id.to_string(),
-                    content: serde_json::Value::String(sm.content.clone()),
-                    is_error: sm.is_error,
-                })
+    messages
+        .iter()
+        .map(|sm| {
+            match sm.role.as_str() {
+                "you" | "user" => ChatMessage::user(&sm.content),
+                "tool" => {
+                    let call_id = sm.tool_call_id.as_deref().unwrap_or("restored");
+                    ChatMessage::tool(ToolResult {
+                        tool_call_id: call_id.to_string(),
+                        content: serde_json::Value::String(sm.content.clone()),
+                        is_error: sm.is_error,
+                    })
+                }
+                "system" => {
+                    // Most providers don't support mid-conversation system messages.
+                    // Restore as user messages (same as how rescue guidance is injected).
+                    ChatMessage::user(&sm.content)
+                }
+                _ => ChatMessage::assistant(&sm.content),
             }
-            "system" => {
-                // Most providers don't support mid-conversation system messages.
-                // Restore as user messages (same as how rescue guidance is injected).
-                ChatMessage::user(&sm.content)
-            }
-            _ => ChatMessage::assistant(&sm.content),
-        }
-    }).collect()
+        })
+        .collect()
 }
 
 /// Convert `SessionMessage` values to legacy display pairs for the TUI.
@@ -348,23 +355,23 @@ pub fn to_chat_messages(messages: &[SessionMessage]) -> Vec<ChatMessage> {
 /// Filters out tool and system messages, returning only user/assistant
 /// content suitable for the chat view.
 pub fn to_display_pairs(messages: &[SessionMessage]) -> Vec<(String, String)> {
-    messages.iter().filter_map(|sm| {
-        match sm.role.as_str() {
+    messages
+        .iter()
+        .filter_map(|sm| match sm.role.as_str() {
             "you" | "user" => Some(("you".into(), sm.content.clone())),
             "assistant" => Some(("assistant".into(), sm.content.clone())),
             _ => None,
-        }
-    }).collect()
+        })
+        .collect()
 }
 
 /// Count user/assistant turn pairs (for metadata).
 pub fn count_turns(messages: &[SessionMessage]) -> usize {
-    let user_count = messages.iter()
+    let user_count = messages
+        .iter()
         .filter(|m| m.role == "user" || m.role == "you")
         .count();
-    let assistant_count = messages.iter()
-        .filter(|m| m.role == "assistant")
-        .count();
+    let assistant_count = messages.iter().filter(|m| m.role == "assistant").count();
     user_count.min(assistant_count)
 }
 
@@ -375,16 +382,15 @@ pub fn count_turns(messages: &[SessionMessage]) -> usize {
 pub fn migrate_legacy_conversation(store: &EncryptedStore, key: &MasterKey) {
     let legacy_key = "conversation:display";
     let messages = match store.get(legacy_key, key) {
-        Ok(Some(bytes)) => {
-            match serde_json::from_slice::<Vec<(String, String)>>(&bytes) {
-                Ok(msgs) if !msgs.is_empty() => msgs,
-                _ => return,
-            }
-        }
+        Ok(Some(bytes)) => match serde_json::from_slice::<Vec<(String, String)>>(&bytes) {
+            Ok(msgs) if !msgs.is_empty() => msgs,
+            _ => return,
+        },
         _ => return,
     };
 
-    let title = messages.first()
+    let title = messages
+        .first()
         .filter(|(role, _)| role == "you")
         .map(|(_, content)| auto_title(content))
         .unwrap_or_else(|| "Previous conversation".into());
@@ -393,12 +399,13 @@ pub fn migrate_legacy_conversation(store: &EncryptedStore, key: &MasterKey) {
     meta.turn_count = messages.len() / 2;
 
     // Upgrade to v2 format
-    let session_messages: Vec<SessionMessage> = messages.into_iter().map(|(role, content)| {
-        match role.as_str() {
+    let session_messages: Vec<SessionMessage> = messages
+        .into_iter()
+        .map(|(role, content)| match role.as_str() {
             "you" | "user" => SessionMessage::user(content),
             _ => SessionMessage::assistant(content),
-        }
-    }).collect();
+        })
+        .collect();
 
     save_chat_session(store, key, &meta, &session_messages);
     let _ = store.delete(legacy_key);
@@ -477,7 +484,12 @@ mod tests {
         let messages = vec![
             SessionMessage::user("Delegate this task"),
             SessionMessage::assistant("I'll delegate.\n\n[Used tools: team_delegate]"),
-            SessionMessage::tool("team_delegate", "rescued-abc", "{\"result\": \"done\"}", false),
+            SessionMessage::tool(
+                "team_delegate",
+                "rescued-abc",
+                "{\"result\": \"done\"}",
+                false,
+            ),
             SessionMessage::system("[SYSTEM NOTE] Tool call rescued."),
             SessionMessage::assistant("The team has completed the task."),
         ];
@@ -555,7 +567,11 @@ mod tests {
 
         // Assistant with tool call annotation
         assert_eq!(session_msgs[1].role, "assistant");
-        assert!(session_msgs[1].content.contains("[Used tools: team_delegate]"));
+        assert!(
+            session_msgs[1]
+                .content
+                .contains("[Used tools: team_delegate]")
+        );
 
         // Tool result
         assert_eq!(session_msgs[2].role, "tool");
@@ -572,13 +588,11 @@ mod tests {
         use aivyx_llm::message::{ChatMessage, ToolResult};
 
         let big_result = "x".repeat(5000);
-        let conversation = vec![
-            ChatMessage::tool(ToolResult {
-                tool_call_id: "tc-big".into(),
-                content: serde_json::Value::String(big_result),
-                is_error: false,
-            }),
-        ];
+        let conversation = vec![ChatMessage::tool(ToolResult {
+            tool_call_id: "tc-big".into(),
+            content: serde_json::Value::String(big_result),
+            is_error: false,
+        })];
 
         let session_msgs = conversation_to_session(&conversation);
         assert!(session_msgs[0].content.len() <= 2010); // 1997 + "..."

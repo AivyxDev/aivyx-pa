@@ -5,7 +5,7 @@
 use crate::Action;
 use aivyx_core::Result;
 
-use super::{run_desktop_command, detect_display_server, DisplayServer, DEFAULT_TIMEOUT_SECS};
+use super::{DEFAULT_TIMEOUT_SECS, DisplayServer, detect_display_server, run_desktop_command};
 
 fn require_x11() -> Result<()> {
     match detect_display_server() {
@@ -49,13 +49,11 @@ impl Action for ListWindows {
         let output = run_desktop_command("wmctrl", &["-l", "-p"], DEFAULT_TIMEOUT_SECS).await?;
 
         if output.exit_code != 0 {
-            return Err(aivyx_core::AivyxError::Other(
-                format!(
-                    "wmctrl failed (exit {}). Is wmctrl installed? stderr: {}",
-                    output.exit_code,
-                    output.stderr.trim()
-                ),
-            ));
+            return Err(aivyx_core::AivyxError::Other(format!(
+                "wmctrl failed (exit {}). Is wmctrl installed? stderr: {}",
+                output.exit_code,
+                output.stderr.trim()
+            )));
         }
 
         let windows: Vec<serde_json::Value> = output
@@ -125,21 +123,15 @@ impl Action for GetActiveWindow {
         require_x11()?;
 
         // Get window ID
-        let id_output = run_desktop_command(
-            "xdotool",
-            &["getactivewindow"],
-            DEFAULT_TIMEOUT_SECS,
-        )
-        .await?;
+        let id_output =
+            run_desktop_command("xdotool", &["getactivewindow"], DEFAULT_TIMEOUT_SECS).await?;
 
         if id_output.exit_code != 0 {
-            return Err(aivyx_core::AivyxError::Other(
-                format!(
-                    "xdotool failed (exit {}). Is xdotool installed? stderr: {}",
-                    id_output.exit_code,
-                    id_output.stderr.trim()
-                ),
-            ));
+            return Err(aivyx_core::AivyxError::Other(format!(
+                "xdotool failed (exit {}). Is xdotool installed? stderr: {}",
+                id_output.exit_code,
+                id_output.stderr.trim()
+            )));
         }
 
         let window_id = id_output.stdout.trim();
@@ -208,9 +200,7 @@ impl Action for FocusWindow {
                 // Prefer window ID if both provided
                 (vec!["-i", "-a", id], format!("id {id}"))
             }
-            (Some(t), None) => {
-                (vec!["-a", t], format!("title \"{t}\""))
-            }
+            (Some(t), None) => (vec!["-a", t], format!("title \"{t}\"")),
             (None, None) => {
                 return Err(aivyx_core::AivyxError::Validation(
                     "Either title or window_id is required".into(),
@@ -223,13 +213,11 @@ impl Action for FocusWindow {
         let output = run_desktop_command("wmctrl", &args, DEFAULT_TIMEOUT_SECS).await?;
 
         if output.exit_code != 0 {
-            return Err(aivyx_core::AivyxError::Other(
-                format!(
-                    "Failed to focus window ({}). wmctrl stderr: {}",
-                    target_desc,
-                    output.stderr.trim()
-                ),
-            ));
+            return Err(aivyx_core::AivyxError::Other(format!(
+                "Failed to focus window ({}). wmctrl stderr: {}",
+                target_desc,
+                output.stderr.trim()
+            )));
         }
 
         Ok(serde_json::json!({

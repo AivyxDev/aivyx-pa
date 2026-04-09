@@ -70,12 +70,11 @@ pub fn register_default_actions(registry: &mut aivyx_core::ToolRegistry) {
     registry.register(Box::new(ActionTool::new(Box::new(ListDirectory))));
 
     // Shell — requires Shell capability scope
-    registry.register(Box::new(
-        ActionTool::new(Box::new(RunCommand))
-            .with_scope(CapabilityScope::Shell {
-                allowed_commands: vec![],
-            }),
-    ));
+    registry.register(Box::new(ActionTool::new(Box::new(RunCommand)).with_scope(
+        CapabilityScope::Shell {
+            allowed_commands: vec![],
+        },
+    )));
 
     // Web
     registry.register(Box::new(ActionTool::new(Box::new(FetchPage))));
@@ -223,8 +222,8 @@ pub fn register_calendar_actions(
     config: crate::calendar::CalendarConfig,
 ) {
     use crate::calendar::{
-        CheckConflicts, CreateCalendarEvent, DeleteCalendarEvent, FetchCalendarEvents,
-        TodayAgenda, UpdateCalendarEvent,
+        CheckConflicts, CreateCalendarEvent, DeleteCalendarEvent, FetchCalendarEvents, TodayAgenda,
+        UpdateCalendarEvent,
     };
 
     registry.register(Box::new(ActionTool::new(Box::new(TodayAgenda {
@@ -316,7 +315,10 @@ pub fn register_document_actions(
     };
 
     // vault_key is not Clone; copy the bytes to share between tools.
-    let key_bytes: [u8; 32] = vault_key.expose_secret().try_into().expect("vault key 32 bytes");
+    let key_bytes: [u8; 32] = vault_key
+        .expose_secret()
+        .try_into()
+        .expect("vault key 32 bytes");
 
     registry.register(Box::new(ActionTool::new(Box::new(SearchDocuments {
         memory: memory.clone(),
@@ -360,8 +362,8 @@ pub fn register_finance_actions(
     receipt_folder: &str,
 ) {
     use crate::finance::{
-        AddTransaction, BudgetSummary, DeleteBudget, DeleteTransactionAction,
-        FileReceipt, ListTransactions, MarkBillPaid, SetBudget, UpdateTransaction,
+        AddTransaction, BudgetSummary, DeleteBudget, DeleteTransactionAction, FileReceipt,
+        ListTransactions, MarkBillPaid, SetBudget, UpdateTransaction,
     };
 
     let finance_key = aivyx_crypto::derive_domain_key(key, b"finance");
@@ -386,10 +388,12 @@ pub fn register_finance_actions(
         store: store.clone(),
         key: aivyx_crypto::derive_domain_key(key, b"finance"),
     }))));
-    registry.register(Box::new(ActionTool::new(Box::new(DeleteTransactionAction {
-        store: store.clone(),
-        key: aivyx_crypto::derive_domain_key(key, b"finance"),
-    }))));
+    registry.register(Box::new(ActionTool::new(Box::new(
+        DeleteTransactionAction {
+            store: store.clone(),
+            key: aivyx_crypto::derive_domain_key(key, b"finance"),
+        },
+    ))));
     registry.register(Box::new(ActionTool::new(Box::new(UpdateTransaction {
         store: store.clone(),
         key: aivyx_crypto::derive_domain_key(key, b"finance"),
@@ -416,11 +420,11 @@ pub fn register_workflow_actions(
     store: std::sync::Arc<aivyx_crypto::EncryptedStore>,
     key: &aivyx_crypto::MasterKey,
 ) {
-    use crate::workflow::{
-        CreateWorkflowAction, ListWorkflowsAction, RunWorkflowAction,
-        WorkflowContext, WorkflowStatusAction,
-    };
     use crate::workflow::library::{DeleteWorkflowAction, InstallLibraryAction};
+    use crate::workflow::{
+        CreateWorkflowAction, ListWorkflowsAction, RunWorkflowAction, WorkflowContext,
+        WorkflowStatusAction,
+    };
 
     let workflow_key = aivyx_crypto::derive_domain_key(key, b"workflow");
     let ctx = WorkflowContext::new(store, &workflow_key);
@@ -457,15 +461,15 @@ pub fn register_knowledge_actions(
 
     let ctx = KnowledgeContext { memory };
 
-    registry.register(Box::new(ActionTool::new(Box::new(TraverseKnowledgeGraph {
-        ctx: ctx.clone(),
-    }))));
+    registry.register(Box::new(ActionTool::new(Box::new(
+        TraverseKnowledgeGraph { ctx: ctx.clone() },
+    ))));
     registry.register(Box::new(ActionTool::new(Box::new(FindKnowledgePaths {
         ctx: ctx.clone(),
     }))));
-    registry.register(Box::new(ActionTool::new(Box::new(SearchKnowledgeEntities {
-        ctx: ctx.clone(),
-    }))));
+    registry.register(Box::new(ActionTool::new(Box::new(
+        SearchKnowledgeEntities { ctx: ctx.clone() },
+    ))));
     registry.register(Box::new(ActionTool::new(Box::new(KnowledgeGraphStats {
         ctx: ctx.clone(),
     }))));
@@ -597,7 +601,9 @@ pub fn register_devtools_actions(
         registry.register(Box::new(ActionTool::new(Box::new(GetPrDiff {
             config: config.clone(),
         }))));
-        registry.register(Box::new(ActionTool::new(Box::new(CreatePrComment { config }))));
+        registry.register(Box::new(ActionTool::new(Box::new(CreatePrComment {
+            config,
+        }))));
     }
 }
 
@@ -636,15 +642,17 @@ pub fn register_desktop_actions(
     registry: &mut aivyx_core::ToolRegistry,
     config: crate::desktop::DesktopConfig,
 ) {
-    use aivyx_core::CapabilityScope;
     use crate::desktop::open::OpenApplication;
+    use aivyx_core::CapabilityScope;
 
     let scope = || CapabilityScope::Custom("desktop".into());
 
     // App launching is always registered when [desktop] is present
     registry.register(Box::new(
-        ActionTool::new(Box::new(OpenApplication { config: config.clone() }))
-            .with_scope(scope()),
+        ActionTool::new(Box::new(OpenApplication {
+            config: config.clone(),
+        }))
+        .with_scope(scope()),
     ));
 
     if config.clipboard {
@@ -697,8 +705,8 @@ fn register_interaction_actions(
     config: crate::desktop::interaction::InteractionConfig,
     desktop_config: crate::desktop::DesktopConfig,
 ) {
-    use aivyx_core::CapabilityScope;
     use crate::desktop::interaction::{InteractionContext, tools::*};
+    use aivyx_core::CapabilityScope;
 
     let scope = || CapabilityScope::Custom("desktop".into());
     let ctx = InteractionContext::new(config.clone(), desktop_config);
@@ -892,7 +900,7 @@ pub fn register_task_actions(
     persist_path: Option<std::sync::Arc<std::path::PathBuf>>,
 ) {
     use crate::tasks::{CancelTask, GetTaskStatus, ListTasks, SpawnTask};
-    
+
     registry.register(Box::new(ActionTool::new(Box::new(SpawnTask {
         registry: task_registry.clone(),
         persist_path: persist_path.clone(),

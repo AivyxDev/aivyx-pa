@@ -965,8 +965,12 @@ pub struct PaNotificationsConfig {
     pub min_kind: aivyx_loop::notify_dispatch::MinNotificationKind,
 }
 
-fn default_notify_desktop() -> bool { true }
-fn default_urgency() -> String { "normal".into() }
+fn default_notify_desktop() -> bool {
+    true
+}
+fn default_urgency() -> String {
+    "normal".into()
+}
 fn default_min_notify_kind() -> aivyx_loop::notify_dispatch::MinNotificationKind {
     aivyx_loop::notify_dispatch::MinNotificationKind::Info
 }
@@ -982,7 +986,9 @@ pub struct PaVoiceConfig {
     pub tts_model_path: Option<String>,
 }
 
-fn default_voice_enabled() -> bool { true }
+fn default_voice_enabled() -> bool {
+    true
+}
 
 /// PA-specific fields extracted from config.toml.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1173,9 +1179,15 @@ impl Default for PaAgentConfig {
     }
 }
 
-fn default_agent_name() -> String { "assistant".into() }
-fn default_persona() -> String { "assistant".into() }
-fn default_max_tokens() -> u32 { 4096 }
+fn default_agent_name() -> String {
+    "assistant".into()
+}
+fn default_persona() -> String {
+    "assistant".into()
+}
+fn default_max_tokens() -> u32 {
+    4096
+}
 
 /// Agent loop timing configuration.
 ///
@@ -1210,9 +1222,15 @@ impl Default for PaLoopConfig {
     }
 }
 
-fn default_check_interval() -> u32 { 15 }
-fn default_morning_briefing() -> bool { true }
-fn default_briefing_hour() -> u8 { 8 }
+fn default_check_interval() -> u32 {
+    15
+}
+fn default_morning_briefing() -> bool {
+    true
+}
+fn default_briefing_hour() -> u8 {
+    8
+}
 
 /// Heartbeat configuration as it appears in config.toml.
 ///
@@ -1280,8 +1298,12 @@ pub struct PaHeartbeatConfig {
     pub token_budget_daily: Option<u64>,
 }
 
-fn default_audit_retention_days() -> u64 { 90 }
-fn default_max_notifications_per_hour() -> u8 { 5 }
+fn default_audit_retention_days() -> u64 {
+    90
+}
+fn default_max_notifications_per_hour() -> u8 {
+    5
+}
 
 impl Default for PaHeartbeatConfig {
     fn default() -> Self {
@@ -1306,8 +1328,12 @@ impl Default for PaHeartbeatConfig {
     }
 }
 
-fn default_hb_enabled() -> bool { true }
-fn default_hb_interval() -> u32 { 30 }
+fn default_hb_enabled() -> bool {
+    true
+}
+fn default_hb_interval() -> u32 {
+    30
+}
 
 /// An initial goal to seed into the Brain on first boot.
 ///
@@ -1329,7 +1355,9 @@ pub struct PaInitialGoal {
     pub priority: String,
 }
 
-fn default_goal_priority() -> String { "medium".into() }
+fn default_goal_priority() -> String {
+    "medium".into()
+}
 
 /// Persona dimensions — numeric personality tuning.
 ///
@@ -1389,10 +1417,18 @@ pub struct PaPersonaConfig {
     pub admits_uncertainty: bool,
 }
 
-fn default_persona_mid() -> f32 { 0.5 }
-fn default_persona_low() -> f32 { 0.1 }
-fn default_persona_high() -> f32 { 0.8 }
-fn default_true() -> bool { true }
+fn default_persona_mid() -> f32 {
+    0.5
+}
+fn default_persona_low() -> f32 {
+    0.1
+}
+fn default_persona_high() -> f32 {
+    0.8
+}
+fn default_true() -> bool {
+    true
+}
 
 impl PaPersonaConfig {
     /// Convert into the engine's `Persona` struct for system prompt generation.
@@ -1404,10 +1440,18 @@ impl PaPersonaConfig {
         p.humor = self.humor;
         p.confidence = self.confidence;
         p.curiosity = self.curiosity;
-        if let Some(ref t) = self.tone { p.tone = Some(t.clone()); }
-        if let Some(ref l) = self.language_level { p.language_level = Some(l.clone()); }
-        if let Some(ref c) = self.code_style { p.code_style = Some(c.clone()); }
-        if let Some(ref e) = self.error_style { p.error_style = Some(e.clone()); }
+        if let Some(ref t) = self.tone {
+            p.tone = Some(t.clone());
+        }
+        if let Some(ref l) = self.language_level {
+            p.language_level = Some(l.clone());
+        }
+        if let Some(ref c) = self.code_style {
+            p.code_style = Some(c.clone());
+        }
+        if let Some(ref e) = self.error_style {
+            p.error_style = Some(e.clone());
+        }
         p.uses_emoji = self.uses_emoji;
         p.uses_analogies = self.uses_analogies;
         p.asks_followups = self.asks_followups;
@@ -1446,8 +1490,12 @@ pub struct PaToolDiscoveryConfig {
     pub always_include: Vec<String>,
 }
 
-fn default_discovery_top_k() -> usize { 15 }
-fn default_discovery_threshold() -> f32 { 0.3 }
+fn default_discovery_top_k() -> usize {
+    15
+}
+fn default_discovery_threshold() -> f32 {
+    0.3
+}
 
 impl PaToolDiscoveryConfig {
     /// Convert into the engine's `ToolDiscoveryConfig`.
@@ -1488,8 +1536,12 @@ pub struct PaEmailConfig {
     pub username: String,
 }
 
-fn default_imap_port() -> u16 { 993 }
-fn default_smtp_port() -> u16 { 587 }
+fn default_imap_port() -> u16 {
+    993
+}
+fn default_smtp_port() -> u16 {
+    587
+}
 
 /// Telegram bot settings as they appear in config.toml.
 ///
@@ -1667,8 +1719,12 @@ pub struct PaFinanceConfig {
     pub receipt_folder: String,
 }
 
-fn default_finance_enabled() -> bool { true }
-fn default_receipt_folder() -> String { "receipts".into() }
+fn default_finance_enabled() -> bool {
+    true
+}
+fn default_receipt_folder() -> String {
+    "receipts".into()
+}
 
 /// Email triage configuration — autonomous inbox processing.
 ///
@@ -1715,7 +1771,9 @@ pub struct PaTriageConfig {
     pub auto_reply_rules: Vec<PaAutoReplyRule>,
 }
 
-fn default_triage_max() -> usize { 10 }
+fn default_triage_max() -> usize {
+    10
+}
 
 /// An auto-reply rule in config.toml.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1739,14 +1797,16 @@ impl PaTriageConfig {
             forward_to: self.forward_to.clone(),
             ignore_senders: self.ignore_senders.clone(),
             categories: self.categories.clone(),
-            auto_reply_rules: self.auto_reply_rules.iter().map(|r| {
-                aivyx_loop::triage::AutoReplyRule {
+            auto_reply_rules: self
+                .auto_reply_rules
+                .iter()
+                .map(|r| aivyx_loop::triage::AutoReplyRule {
                     name: r.name.clone(),
                     sender_contains: r.sender_contains.clone(),
                     subject_contains: r.subject_contains.clone(),
                     reply_body: r.reply_body.clone(),
-                }
-            }).collect(),
+                })
+                .collect(),
         }
     }
 }
@@ -1887,8 +1947,8 @@ impl PaConfig {
     /// (no $DISPLAY / $WAYLAND_DISPLAY) remain without desktop tools.
     pub(crate) fn with_auto_desktop(mut self) -> Self {
         if self.desktop.is_none() {
-            let has_display = std::env::var("DISPLAY").is_ok()
-                || std::env::var("WAYLAND_DISPLAY").is_ok();
+            let has_display =
+                std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
             if has_display {
                 tracing::info!("Display server detected — enabling desktop tools by default");
                 self.desktop = Some(aivyx_actions::desktop::DesktopConfig::default());
@@ -1899,10 +1959,11 @@ impl PaConfig {
         // but respect explicit `enabled = false` configurations.
         if let Some(ref mut desktop) = self.desktop {
             if desktop.interaction.is_none() {
-                desktop.interaction = Some(aivyx_actions::desktop::interaction::InteractionConfig {
-                    enabled: true,
-                    ..Default::default()
-                });
+                desktop.interaction =
+                    Some(aivyx_actions::desktop::interaction::InteractionConfig {
+                        enabled: true,
+                        ..Default::default()
+                    });
             }
         }
 
@@ -1984,7 +2045,9 @@ impl PaConfig {
                     "Unknown persona '{}', using default system prompt",
                     agent.persona
                 );
-                format!("{identity}{PA_SOUL_CORE}You are a personal AI assistant. Be concise, helpful, and proactive.{PA_PROMPT_SUFFIX}")
+                format!(
+                    "{identity}{PA_SOUL_CORE}You are a personal AI assistant. Be concise, helpful, and proactive.{PA_PROMPT_SUFFIX}"
+                )
             }
         };
 
@@ -1993,7 +2056,8 @@ impl PaConfig {
 
     /// Get style config preferences as a flat list, or empty if unconfigured.
     pub fn style_preferences(&self) -> Vec<String> {
-        self.style.as_ref()
+        self.style
+            .as_ref()
             .map(|s| s.to_style_preferences())
             .unwrap_or_default()
     }
@@ -2069,7 +2133,8 @@ impl PaConfig {
         master_key: &aivyx_crypto::MasterKey,
     ) -> Option<aivyx_actions::calendar::CalendarConfig> {
         let cal = self.calendar.as_ref()?;
-        let password = Self::load_secret(store, master_key, "CALENDAR_PASSWORD", "Calendar password")?;
+        let password =
+            Self::load_secret(store, master_key, "CALENDAR_PASSWORD", "Calendar password")?;
 
         Some(cal.to_calendar_config(password))
     }
@@ -2083,7 +2148,8 @@ impl PaConfig {
         master_key: &aivyx_crypto::MasterKey,
     ) -> Option<aivyx_actions::contacts::ContactsConfig> {
         let contacts = self.contacts.as_ref()?;
-        let password = Self::load_secret(store, master_key, "CONTACTS_PASSWORD", "Contacts password")?;
+        let password =
+            Self::load_secret(store, master_key, "CONTACTS_PASSWORD", "Contacts password")?;
 
         Some(contacts.to_contacts_config(password))
     }
@@ -2113,7 +2179,12 @@ impl PaConfig {
         master_key: &aivyx_crypto::MasterKey,
     ) -> Option<aivyx_actions::messaging::TelegramConfig> {
         let tg = self.telegram.as_ref()?;
-        let bot_token = Self::load_secret(store, master_key, "TELEGRAM_BOT_TOKEN", "Telegram bot token")?;
+        let bot_token = Self::load_secret(
+            store,
+            master_key,
+            "TELEGRAM_BOT_TOKEN",
+            "Telegram bot token",
+        )?;
 
         Some(aivyx_actions::messaging::TelegramConfig {
             bot_token,
@@ -2130,7 +2201,12 @@ impl PaConfig {
         master_key: &aivyx_crypto::MasterKey,
     ) -> Option<aivyx_actions::messaging::MatrixConfig> {
         let mx = self.matrix.as_ref()?;
-        let access_token = Self::load_secret(store, master_key, "MATRIX_ACCESS_TOKEN", "Matrix access token")?;
+        let access_token = Self::load_secret(
+            store,
+            master_key,
+            "MATRIX_ACCESS_TOKEN",
+            "Matrix access token",
+        )?;
 
         Some(aivyx_actions::messaging::MatrixConfig {
             homeserver: mx.homeserver.clone(),
@@ -2232,19 +2308,47 @@ impl PaConfig {
             return vec!["Config file not found".into()];
         };
         let Ok(table) = content.parse::<toml::Table>() else {
-            return vec!["Config file has TOML syntax errors — run `toml-lint` or check brackets/quotes".into()];
+            return vec![
+                "Config file has TOML syntax errors — run `toml-lint` or check brackets/quotes"
+                    .into(),
+            ];
         };
 
         let mut warnings = Vec::new();
 
         // Known top-level sections.
         const KNOWN_SECTIONS: &[&str] = &[
-            "provider", "autonomy", "agent", "loop", "heartbeat", "persona",
-            "email", "calendar", "contacts", "telegram", "matrix", "signal",
-            "sms", "vault", "finance", "triage", "style", "webhook",
-            "devtools", "desktop", "environment", "tool_discovery",
-            "resilience", "consolidation", "missions", "abuse_detection",
-            "routing", "backup", "schedules", "initial_goals", "mcp_servers",
+            "provider",
+            "autonomy",
+            "agent",
+            "loop",
+            "heartbeat",
+            "persona",
+            "email",
+            "calendar",
+            "contacts",
+            "telegram",
+            "matrix",
+            "signal",
+            "sms",
+            "vault",
+            "finance",
+            "triage",
+            "style",
+            "webhook",
+            "devtools",
+            "desktop",
+            "environment",
+            "tool_discovery",
+            "resilience",
+            "consolidation",
+            "missions",
+            "abuse_detection",
+            "routing",
+            "backup",
+            "schedules",
+            "initial_goals",
+            "mcp_servers",
             "providers",
         ];
 
@@ -2252,14 +2356,16 @@ impl PaConfig {
         for key in table.keys() {
             if !KNOWN_SECTIONS.contains(&key.as_str()) {
                 // Find closest match for helpful suggestion.
-                let suggestion = KNOWN_SECTIONS.iter()
+                let suggestion = KNOWN_SECTIONS
+                    .iter()
                     .filter(|s| {
                         let k = key.to_lowercase();
                         let s = s.to_lowercase();
                         // Simple similarity: shared prefix ≥ 3 or edit distance ≤ 2
                         s.starts_with(&k[..k.len().min(3).min(s.len())])
                             || k.starts_with(&s[..s.len().min(3).min(k.len())])
-                            || (k.len().abs_diff(s.len()) <= 2 && k.chars().zip(s.chars()).filter(|(a, b)| a != b).count() <= 2)
+                            || (k.len().abs_diff(s.len()) <= 2
+                                && k.chars().zip(s.chars()).filter(|(a, b)| a != b).count() <= 2)
                     })
                     .next();
                 let hint = suggestion
@@ -2346,8 +2452,8 @@ impl PaConfig {
         if let Some(env) = table.get("environment").and_then(|v| v.as_table()) {
             if env.get("mode").and_then(|v| v.as_str()) == Some("dedicated") {
                 // Check if this looks like a personal workstation
-                let has_display = std::env::var("DISPLAY").is_ok()
-                    || std::env::var("WAYLAND_DISPLAY").is_ok();
+                let has_display =
+                    std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
                 let has_user_session = std::env::var("XDG_SESSION_TYPE").is_ok();
                 if has_display && has_user_session {
                     warnings.push(
@@ -2396,9 +2502,15 @@ pub struct PaResilienceConfig {
     pub cache_enabled: bool,
 }
 
-fn default_failure_threshold() -> u32 { 3 }
-fn default_recovery_timeout_secs() -> u64 { 30 }
-fn default_success_threshold() -> u32 { 1 }
+fn default_failure_threshold() -> u32 {
+    3
+}
+fn default_recovery_timeout_secs() -> u64 {
+    30
+}
+fn default_success_threshold() -> u32 {
+    1
+}
 
 impl Default for PaResilienceConfig {
     fn default() -> Self {
@@ -2450,12 +2562,24 @@ pub struct PaConsolidationConfig {
     pub retrieval_router: bool,
 }
 
-fn default_merge_threshold() -> f32 { 0.85 }
-fn default_stale_days() -> u64 { 90 }
-fn default_consolidation_batch() -> usize { 200 }
-fn default_triple_decay() -> f32 { 0.95 }
-fn default_pattern_min_occurrences() -> u32 { 3 }
-fn default_pattern_min_success() -> f32 { 0.6 }
+fn default_merge_threshold() -> f32 {
+    0.85
+}
+fn default_stale_days() -> u64 {
+    90
+}
+fn default_consolidation_batch() -> usize {
+    200
+}
+fn default_triple_decay() -> f32 {
+    0.95
+}
+fn default_pattern_min_occurrences() -> u32 {
+    3
+}
+fn default_pattern_min_success() -> f32 {
+    0.6
+}
 
 impl Default for PaConsolidationConfig {
     fn default() -> Self {
@@ -2510,7 +2634,9 @@ pub struct PaMissionConfig {
     pub experiment_tracking: bool,
 }
 
-fn default_mission_mode() -> String { "sequential".into() }
+fn default_mission_mode() -> String {
+    "sequential".into()
+}
 
 impl Default for PaMissionConfig {
     fn default() -> Self {
@@ -2556,10 +2682,18 @@ pub struct PaAbuseConfig {
     pub max_unique_tools_per_window: usize,
 }
 
-fn default_abuse_window() -> u64 { 60 }
-fn default_abuse_max_calls() -> usize { 50 }
-fn default_abuse_max_denials() -> usize { 5 }
-fn default_abuse_max_unique() -> usize { 10 }
+fn default_abuse_window() -> u64 {
+    60
+}
+fn default_abuse_max_calls() -> usize {
+    50
+}
+fn default_abuse_max_denials() -> usize {
+    5
+}
+fn default_abuse_max_unique() -> usize {
+    10
+}
 
 impl Default for PaAbuseConfig {
     fn default() -> Self {
@@ -2598,8 +2732,7 @@ impl PaAbuseConfig {
 /// simple = "haiku"
 /// complex = "opus"
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PaRoutingConfig {
     /// Whether routing is active.
     #[serde(default)]
@@ -2614,7 +2747,6 @@ pub struct PaRoutingConfig {
     #[serde(default)]
     pub complex: Option<String>,
 }
-
 
 /// Heartbeat-driven encrypted backup of the PA data directory.
 ///
@@ -2637,7 +2769,9 @@ pub struct PaBackupConfig {
     pub retention_days: u64,
 }
 
-fn default_retention_days() -> u64 { 30 }
+fn default_retention_days() -> u64 {
+    30
+}
 
 impl Default for PaBackupConfig {
     fn default() -> Self {
@@ -2669,7 +2803,9 @@ pub struct PaEnvironmentConfig {
     pub description: Option<String>,
 }
 
-fn default_environment_mode() -> String { "shared".into() }
+fn default_environment_mode() -> String {
+    "shared".into()
+}
 
 impl Default for PaEnvironmentConfig {
     fn default() -> Self {
@@ -2768,10 +2904,15 @@ pub fn onboarding_message(agent_name: &str, persona: &str, pa_config: &PaConfig)
     if pa_config.desktop.is_some() {
         extra_capabilities.push("open and control applications on your desktop");
     }
-    if pa_config.desktop.as_ref().and_then(|d| d.interaction.as_ref()).is_some_and(|i| i.enabled) {
+    if pa_config
+        .desktop
+        .as_ref()
+        .and_then(|d| d.interaction.as_ref())
+        .is_some_and(|i| i.enabled)
+    {
         extra_capabilities.push(
             "interact with any GUI — click buttons, fill forms, take screenshots, \
-             create documents, control media, and automate browser tasks"
+             create documents, control media, and automate browser tasks",
         );
     }
     if pa_config.telegram.is_some() || pa_config.matrix.is_some() || pa_config.signal.is_some() {
@@ -2787,7 +2928,10 @@ pub fn onboarding_message(agent_name: &str, persona: &str, pa_config: &PaConfig)
     let capabilities = if extra_capabilities.is_empty() {
         base_capabilities.to_string()
     } else {
-        format!("{base_capabilities} I also have access to: {}.", extra_capabilities.join(", "))
+        format!(
+            "{base_capabilities} I also have access to: {}.",
+            extra_capabilities.join(", ")
+        )
     };
 
     format!(
@@ -2865,7 +3009,7 @@ name = "Bob"
         let agent = cfg.agent_config();
         assert_eq!(agent.name, "Bob");
         assert_eq!(agent.persona, "assistant"); // default
-        assert_eq!(agent.max_tokens, 4096);     // default
+        assert_eq!(agent.max_tokens, 4096); // default
         assert!(cfg.email.is_none());
         assert!(cfg.loop_config.is_none());
         // loop_config() falls back to defaults
@@ -2883,7 +3027,10 @@ name = "Bob"
         };
         let prompt = cfg.effective_system_prompt();
         // Should contain auto-generated soul + PA suffix
-        assert!(prompt.contains("persistent memory"), "should contain PA suffix");
+        assert!(
+            prompt.contains("persistent memory"),
+            "should contain PA suffix"
+        );
         assert!(prompt.contains("self-model"), "should contain PA suffix");
     }
 
@@ -2898,9 +3045,18 @@ name = "Bob"
             ..Default::default()
         };
         let prompt = cfg.effective_system_prompt();
-        assert!(prompt.contains("Your name is assistant"), "should contain identity");
-        assert!(prompt.contains("You are a custom bot."), "should contain custom soul");
-        assert!(prompt.contains("persistent memory"), "PA suffix must be appended");
+        assert!(
+            prompt.contains("Your name is assistant"),
+            "should contain identity"
+        );
+        assert!(
+            prompt.contains("You are a custom bot."),
+            "should contain custom soul"
+        );
+        assert!(
+            prompt.contains("persistent memory"),
+            "PA suffix must be appended"
+        );
     }
 
     #[test]
@@ -2914,8 +3070,14 @@ name = "Bob"
             ..Default::default()
         };
         let prompt = cfg.effective_system_prompt();
-        assert!(prompt.contains("Your name is assistant"), "should contain identity");
-        assert!(prompt.contains("Greetings earthling."), "should contain custom soul");
+        assert!(
+            prompt.contains("Your name is assistant"),
+            "should contain identity"
+        );
+        assert!(
+            prompt.contains("Greetings earthling."),
+            "should contain custom soul"
+        );
         assert!(prompt.contains("persistent memory"));
     }
 
@@ -2932,7 +3094,10 @@ name = "Bob"
         };
         let prompt = cfg.effective_system_prompt();
         assert!(prompt.contains("Zork"), "fallback should use agent name");
-        assert!(prompt.contains("persistent memory"), "PA suffix must be appended");
+        assert!(
+            prompt.contains("persistent memory"),
+            "PA suffix must be appended"
+        );
     }
 
     #[test]

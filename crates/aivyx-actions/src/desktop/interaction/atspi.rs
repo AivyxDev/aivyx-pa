@@ -13,8 +13,8 @@ use atspi::proxy::editable_text::EditableTextProxy;
 use atspi::proxy::text::TextProxy;
 use atspi::{CoordType, Interface, InterfaceSet, State};
 
-use super::{ElementQuery, ScrollDirection, UiBackend, UiElement, UiTreeNode, WindowRef};
 use super::ydotool::YdotoolBackend;
+use super::{ElementQuery, ScrollDirection, UiBackend, UiElement, UiTreeNode, WindowRef};
 
 /// AT-SPI2 backend for semantic UI automation.
 ///
@@ -215,18 +215,17 @@ impl AtSpiBackend {
     }
 
     /// Extract a UiElement from an accessible proxy.
-    async fn element_from_proxy(
-        &self,
-        proxy: &AccessibleProxy<'_>,
-        path: &str,
-    ) -> UiElement {
+    async fn element_from_proxy(&self, proxy: &AccessibleProxy<'_>, path: &str) -> UiElement {
         let role = proxy
             .get_role_name()
             .await
             .unwrap_or_else(|_| "unknown".into());
         let name = proxy.name().await.unwrap_or_default();
 
-        let interfaces = proxy.get_interfaces().await.unwrap_or_else(|_| InterfaceSet::empty());
+        let interfaces = proxy
+            .get_interfaces()
+            .await
+            .unwrap_or_else(|_| InterfaceSet::empty());
 
         // Try to get text content if Text interface is available.
         let text = if interfaces.contains(Interface::Text) {
@@ -367,7 +366,11 @@ impl AtSpiBackend {
     }
 
     /// Navigate to a child accessible by path (e.g., "0/3/1").
-    async fn resolve_path(&self, root: &AccessibleProxy<'_>, path: &str) -> Result<AccessibleProxy<'_>> {
+    async fn resolve_path(
+        &self,
+        root: &AccessibleProxy<'_>,
+        path: &str,
+    ) -> Result<AccessibleProxy<'_>> {
         let indices: Vec<i32> = path
             .split('/')
             .filter(|s| !s.is_empty())
@@ -387,10 +390,9 @@ impl AtSpiBackend {
                 current.as_ref().unwrap()
             };
 
-            let child_ref = parent
-                .get_child_at_index(idx)
-                .await
-                .map_err(|e| AivyxError::Other(format!("AT-SPI2 get_child_at_index({idx}): {e}")))?;
+            let child_ref = parent.get_child_at_index(idx).await.map_err(|e| {
+                AivyxError::Other(format!("AT-SPI2 get_child_at_index({idx}): {e}"))
+            })?;
 
             if child_ref.is_null() {
                 return Err(AivyxError::Other(format!(
@@ -503,11 +505,7 @@ impl UiBackend for AtSpiBackend {
         "at-spi2"
     }
 
-    async fn inspect(
-        &self,
-        window: &WindowRef,
-        max_depth: u32,
-    ) -> Result<Vec<UiTreeNode>> {
+    async fn inspect(&self, window: &WindowRef, max_depth: u32) -> Result<Vec<UiTreeNode>> {
         let win = self.find_window(window).await?;
         self.build_tree(&win, "", 0, max_depth).await
     }
@@ -554,11 +552,7 @@ impl UiBackend for AtSpiBackend {
         }
     }
 
-    async fn type_text(
-        &self,
-        element: Option<&UiElement>,
-        text: &str,
-    ) -> Result<()> {
+    async fn type_text(&self, element: Option<&UiElement>, text: &str) -> Result<()> {
         let win = self.find_window(&WindowRef::Active).await?;
 
         if let Some(el) = element {

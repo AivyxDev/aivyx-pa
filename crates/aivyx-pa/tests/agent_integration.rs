@@ -8,16 +8,14 @@
 //! - Agent turns execute and return responses
 //! - Reminder tools actually persist to the encrypted store
 
+use aivyx_pa::agent::{BuiltAgent, ServiceConfigs, build_agent};
 use aivyx_pa::config::{PaAgentConfig, PaConfig};
-use aivyx_pa::agent::{build_agent, BuiltAgent, ServiceConfigs};
 
 use aivyx_brain::{GoalFilter, GoalStatus};
 use aivyx_config::{AivyxConfig, AivyxDirs};
 use aivyx_core::Result as AivyxResult;
 use aivyx_crypto::{EncryptedStore, MasterKey};
-use aivyx_llm::{
-    ChatMessage, ChatRequest, ChatResponse, LlmProvider, StopReason, TokenUsage,
-};
+use aivyx_llm::{ChatMessage, ChatRequest, ChatResponse, LlmProvider, StopReason, TokenUsage};
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -30,13 +28,17 @@ struct MockProvider {
 
 impl MockProvider {
     fn new(response: impl Into<String>) -> Self {
-        Self { response: response.into() }
+        Self {
+            response: response.into(),
+        }
     }
 }
 
 #[async_trait::async_trait]
 impl LlmProvider for MockProvider {
-    fn name(&self) -> &str { "mock" }
+    fn name(&self) -> &str {
+        "mock"
+    }
 
     async fn chat(&self, _request: &ChatRequest) -> AivyxResult<ChatResponse> {
         Ok(ChatResponse {
@@ -62,10 +64,7 @@ struct TestEnv {
 
 impl TestEnv {
     fn new() -> Self {
-        let dir = std::env::temp_dir().join(format!(
-            "aivyx-pa-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir = std::env::temp_dir().join(format!("aivyx-pa-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
 
         let dirs = AivyxDirs::new(&dir);
@@ -122,7 +121,8 @@ model = "test-model"
             self.master_key(),
             Box::new(MockProvider::new("Hello! I'm your assistant.")),
             None, // no audit log for tests
-        ).await
+        )
+        .await
     }
 }
 
@@ -149,38 +149,90 @@ async fn agent_has_correct_base_tool_count() {
     // Memory tools: depend on embedding provider (not available with mock)
 
     // Check required base tools are present
-    assert!(tool_names.contains(&"read_file"), "Missing read_file. Tools: {tool_names:?}");
+    assert!(
+        tool_names.contains(&"read_file"),
+        "Missing read_file. Tools: {tool_names:?}"
+    );
     assert!(tool_names.contains(&"write_file"), "Missing write_file");
-    assert!(tool_names.contains(&"list_directory"), "Missing list_directory");
+    assert!(
+        tool_names.contains(&"list_directory"),
+        "Missing list_directory"
+    );
     assert!(tool_names.contains(&"run_command"), "Missing run_command");
-    assert!(tool_names.contains(&"fetch_webpage"), "Missing fetch_webpage");
+    assert!(
+        tool_names.contains(&"fetch_webpage"),
+        "Missing fetch_webpage"
+    );
 
     // Reminder tools
     assert!(tool_names.contains(&"set_reminder"), "Missing set_reminder");
-    assert!(tool_names.contains(&"list_reminders"), "Missing list_reminders");
-    assert!(tool_names.contains(&"dismiss_reminder"), "Missing dismiss_reminder");
+    assert!(
+        tool_names.contains(&"list_reminders"),
+        "Missing list_reminders"
+    );
+    assert!(
+        tool_names.contains(&"dismiss_reminder"),
+        "Missing dismiss_reminder"
+    );
 
     // Brain tools (brain should initialize)
-    assert!(tool_names.contains(&"brain_set_goal"), "Missing brain_set_goal. Tools: {tool_names:?}");
-    assert!(tool_names.contains(&"brain_list_goals"), "Missing brain_list_goals");
-    assert!(tool_names.contains(&"brain_update_goal"), "Missing brain_update_goal");
-    assert!(tool_names.contains(&"brain_reflect"), "Missing brain_reflect");
-    assert!(tool_names.contains(&"brain_update_self_model"), "Missing brain_update_self_model. Tools: {tool_names:?}");
+    assert!(
+        tool_names.contains(&"brain_set_goal"),
+        "Missing brain_set_goal. Tools: {tool_names:?}"
+    );
+    assert!(
+        tool_names.contains(&"brain_list_goals"),
+        "Missing brain_list_goals"
+    );
+    assert!(
+        tool_names.contains(&"brain_update_goal"),
+        "Missing brain_update_goal"
+    );
+    assert!(
+        tool_names.contains(&"brain_reflect"),
+        "Missing brain_reflect"
+    );
+    assert!(
+        tool_names.contains(&"brain_update_self_model"),
+        "Missing brain_update_self_model. Tools: {tool_names:?}"
+    );
 
     // Mission tools (always registered)
-    assert!(tool_names.contains(&"mission_create"), "Missing mission_create. Tools: {tool_names:?}");
+    assert!(
+        tool_names.contains(&"mission_create"),
+        "Missing mission_create. Tools: {tool_names:?}"
+    );
     assert!(tool_names.contains(&"mission_list"), "Missing mission_list");
-    assert!(tool_names.contains(&"mission_status"), "Missing mission_status");
-    assert!(tool_names.contains(&"mission_control"), "Missing mission_control");
+    assert!(
+        tool_names.contains(&"mission_status"),
+        "Missing mission_status"
+    );
+    assert!(
+        tool_names.contains(&"mission_control"),
+        "Missing mission_control"
+    );
 
     // Contact tools (always registered — search/list work against local store)
-    assert!(tool_names.contains(&"search_contacts"), "Missing search_contacts. Tools: {tool_names:?}");
-    assert!(tool_names.contains(&"list_contacts"), "Missing list_contacts");
+    assert!(
+        tool_names.contains(&"search_contacts"),
+        "Missing search_contacts. Tools: {tool_names:?}"
+    );
+    assert!(
+        tool_names.contains(&"list_contacts"),
+        "Missing list_contacts"
+    );
     // sync_contacts only present when CardDAV is configured (not in this test)
-    assert!(!tool_names.contains(&"sync_contacts"), "sync_contacts should not be present without CardDAV config");
+    assert!(
+        !tool_names.contains(&"sync_contacts"),
+        "sync_contacts should not be present without CardDAV config"
+    );
 
     // Should have at least 19 tools (5 base + 3 reminder + 5 brain + 4 mission + 2 contacts)
-    assert!(tool_names.len() >= 19, "Expected >= 19 tools, got {}: {tool_names:?}", tool_names.len());
+    assert!(
+        tool_names.len() >= 19,
+        "Expected >= 19 tools, got {}: {tool_names:?}",
+        tool_names.len()
+    );
 }
 
 #[tokio::test]
@@ -217,19 +269,34 @@ async fn brain_seeds_goals_for_assistant_persona() {
 
     let goals = brain_store
         .list_goals(
-            &GoalFilter { status: Some(GoalStatus::Active), ..Default::default() },
+            &GoalFilter {
+                status: Some(GoalStatus::Active),
+                ..Default::default()
+            },
             &aivyx_crypto::derive_brain_key(&env.master_key()),
         )
         .unwrap();
 
     // 2 starter + 5 growth (3 universal + 2 persona-specific)
-    assert_eq!(goals.len(), 7, "Assistant persona should seed 7 goals (2 starter + 5 growth)");
+    assert_eq!(
+        goals.len(),
+        7,
+        "Assistant persona should seed 7 goals (2 starter + 5 growth)"
+    );
     // Check that descriptions match expected assistant goals
     let descriptions: Vec<&str> = goals.iter().map(|g| g.description.as_str()).collect();
-    assert!(descriptions.iter().any(|d| d.contains("routine") || d.contains("preferences")),
-        "Expected a routine/preferences goal. Got: {descriptions:?}");
-    assert!(descriptions.iter().any(|d| d.contains("proficiency") && d.contains("tools")),
-        "Expected a universal growth goal. Got: {descriptions:?}");
+    assert!(
+        descriptions
+            .iter()
+            .any(|d| d.contains("routine") || d.contains("preferences")),
+        "Expected a routine/preferences goal. Got: {descriptions:?}"
+    );
+    assert!(
+        descriptions
+            .iter()
+            .any(|d| d.contains("proficiency") && d.contains("tools")),
+        "Expected a universal growth goal. Got: {descriptions:?}"
+    );
 }
 
 #[tokio::test]
@@ -248,18 +315,33 @@ async fn brain_seeds_goals_for_coder_persona() {
 
     let goals = brain_store
         .list_goals(
-            &GoalFilter { status: Some(GoalStatus::Active), ..Default::default() },
+            &GoalFilter {
+                status: Some(GoalStatus::Active),
+                ..Default::default()
+            },
             &aivyx_crypto::derive_brain_key(&env.master_key()),
         )
         .unwrap();
 
     // 2 starter + 5 growth (3 universal + 2 persona-specific)
-    assert_eq!(goals.len(), 7, "Coder persona should seed 7 goals (2 starter + 5 growth)");
+    assert_eq!(
+        goals.len(),
+        7,
+        "Coder persona should seed 7 goals (2 starter + 5 growth)"
+    );
     let descriptions: Vec<&str> = goals.iter().map(|g| g.description.as_str()).collect();
-    assert!(descriptions.iter().any(|d| d.contains("tech stack") || d.contains("coding")),
-        "Expected a tech stack goal. Got: {descriptions:?}");
-    assert!(descriptions.iter().any(|d| d.contains("expertise") && d.contains("language")),
-        "Expected a coder growth goal. Got: {descriptions:?}");
+    assert!(
+        descriptions
+            .iter()
+            .any(|d| d.contains("tech stack") || d.contains("coding")),
+        "Expected a tech stack goal. Got: {descriptions:?}"
+    );
+    assert!(
+        descriptions
+            .iter()
+            .any(|d| d.contains("expertise") && d.contains("language")),
+        "Expected a coder growth goal. Got: {descriptions:?}"
+    );
 }
 
 #[tokio::test]
@@ -272,21 +354,33 @@ async fn brain_does_not_reseed_on_second_build() {
         let built1 = env.build(&pa_config).await.unwrap();
         let store1 = built1.brain_store.unwrap();
         let key = aivyx_crypto::derive_brain_key(&env.master_key());
-        let goals1 = store1.list_goals(
-            &GoalFilter { status: Some(GoalStatus::Active), ..Default::default() },
-            &key,
-        ).unwrap();
+        let goals1 = store1
+            .list_goals(
+                &GoalFilter {
+                    status: Some(GoalStatus::Active),
+                    ..Default::default()
+                },
+                &key,
+            )
+            .unwrap();
         assert_eq!(goals1.len(), 7); // 2 starter + 5 growth
     } // drop built1 + store1 to release the redb lock
 
     // Second build — same brain path, should NOT add more goals
     let built2 = env.build(&pa_config).await.unwrap();
-    let store2 = built2.brain_store.expect("Brain should re-open on second build");
+    let store2 = built2
+        .brain_store
+        .expect("Brain should re-open on second build");
     let key2 = aivyx_crypto::derive_brain_key(&env.master_key());
-    let goals2 = store2.list_goals(
-        &GoalFilter { status: Some(GoalStatus::Active), ..Default::default() },
-        &key2,
-    ).unwrap();
+    let goals2 = store2
+        .list_goals(
+            &GoalFilter {
+                status: Some(GoalStatus::Active),
+                ..Default::default()
+            },
+            &key2,
+        )
+        .unwrap();
     assert_eq!(goals2.len(), 7, "Should not re-seed goals on second build");
 }
 
@@ -297,48 +391,84 @@ fn system_prompt_contains_pa_capabilities() {
     let pa_config = PaConfig::default();
     let prompt = pa_config.effective_system_prompt();
 
-    assert!(prompt.contains("persistent memory"), "Missing memory instruction");
-    assert!(prompt.contains("persistent goals"), "Missing goals instruction");
-    assert!(prompt.contains("self-model"), "Missing self-model instruction");
-    assert!(prompt.contains("brain_reflect"), "Missing brain_reflect mention");
+    assert!(
+        prompt.contains("persistent memory"),
+        "Missing memory instruction"
+    );
+    assert!(
+        prompt.contains("persistent goals"),
+        "Missing goals instruction"
+    );
+    assert!(
+        prompt.contains("self-model"),
+        "Missing self-model instruction"
+    );
+    assert!(
+        prompt.contains("brain_reflect"),
+        "Missing brain_reflect mention"
+    );
 
     // Verify all always-present tool names are explicitly mentioned in the base prompt.
     // These tools are registered unconditionally and must appear in PA_PROMPT_SUFFIX
     // so the LLM knows about them.
     let required_tools = [
         // Memory tools
-        "memory_store", "memory_retrieve", "memory_search", "memory_forget", "memory_patterns",
+        "memory_store",
+        "memory_retrieve",
+        "memory_search",
+        "memory_forget",
+        "memory_patterns",
         // Goal tools
-        "brain_set_goal", "brain_list_goals", "brain_update_goal",
+        "brain_set_goal",
+        "brain_list_goals",
+        "brain_update_goal",
         // Self-model tools
-        "brain_reflect", "brain_update_self_model",
+        "brain_reflect",
+        "brain_update_self_model",
         // Reminder tools
-        "set_reminder", "list_reminders", "dismiss_reminder",
+        "set_reminder",
+        "list_reminders",
+        "dismiss_reminder",
         // Mission tools
-        "mission_create", "mission_list", "mission_status", "mission_control",
+        "mission_create",
+        "mission_list",
+        "mission_status",
+        "mission_control",
         "mission_from_recipe",
         // Web tools
-        "search_web", "fetch_webpage",
+        "search_web",
+        "fetch_webpage",
         // File tools
-        "list_directory", "read_file", "write_file",
+        "list_directory",
+        "read_file",
+        "write_file",
         // Shell
         "run_command",
         // MCP
         "mcp_list_prompts",
     ];
     for tool in &required_tools {
-        assert!(prompt.contains(tool), "PA_PROMPT_SUFFIX missing tool: {tool}");
+        assert!(
+            prompt.contains(tool),
+            "PA_PROMPT_SUFFIX missing tool: {tool}"
+        );
     }
 }
 
 #[test]
 fn system_prompt_varies_by_persona() {
     let assistant = PaConfig {
-        agent: Some(PaAgentConfig { persona: "assistant".into(), ..Default::default() }),
+        agent: Some(PaAgentConfig {
+            persona: "assistant".into(),
+            ..Default::default()
+        }),
         ..Default::default()
     };
     let coder = PaConfig {
-        agent: Some(PaAgentConfig { persona: "coder".into(), ..Default::default() }),
+        agent: Some(PaAgentConfig {
+            persona: "coder".into(),
+            ..Default::default()
+        }),
         ..Default::default()
     };
 
@@ -350,7 +480,10 @@ fn system_prompt_varies_by_persona() {
     assert!(prompt_c.contains("persistent memory"));
 
     // But the body should differ (different persona generates different soul)
-    assert_ne!(prompt_a, prompt_c, "Different personas should produce different prompts");
+    assert_ne!(
+        prompt_a, prompt_c,
+        "Different personas should produce different prompts"
+    );
 }
 
 // ── Agent Turn Tests ──────────────────────────────────────────
@@ -396,11 +529,9 @@ fn reminder_round_trip_through_store() {
     };
 
     let json = serde_json::to_vec(&reminder).unwrap();
-    env.store.put(
-        &format!("reminder:{}", reminder.id),
-        &json,
-        &reminder_key,
-    ).unwrap();
+    env.store
+        .put(&format!("reminder:{}", reminder.id), &json, &reminder_key)
+        .unwrap();
 
     // Load due reminders
     let due = aivyx_actions::reminders::load_due_reminders(&env.store, &reminder_key).unwrap();
@@ -412,7 +543,16 @@ fn reminder_round_trip_through_store() {
 
 #[tokio::test]
 async fn all_personas_seed_two_goals() {
-    let personas = ["assistant", "coder", "researcher", "writer", "coach", "companion", "ops", "analyst"];
+    let personas = [
+        "assistant",
+        "coder",
+        "researcher",
+        "writer",
+        "coach",
+        "companion",
+        "ops",
+        "analyst",
+    ];
 
     for persona in personas {
         let env = TestEnv::new();
@@ -425,14 +565,26 @@ async fn all_personas_seed_two_goals() {
         };
 
         let built = env.build(&pa_config).await.unwrap();
-        let store = built.brain_store.expect(&format!("Brain should be available for persona '{persona}'"));
+        let store = built.brain_store.expect(&format!(
+            "Brain should be available for persona '{persona}'"
+        ));
         let key = aivyx_crypto::derive_brain_key(&env.master_key());
-        let goals = store.list_goals(
-            &GoalFilter { status: Some(GoalStatus::Active), ..Default::default() },
-            &key,
-        ).unwrap();
+        let goals = store
+            .list_goals(
+                &GoalFilter {
+                    status: Some(GoalStatus::Active),
+                    ..Default::default()
+                },
+                &key,
+            )
+            .unwrap();
 
         // 2 starter + 5 growth (3 universal + 2 persona-specific)
-        assert_eq!(goals.len(), 7, "Persona '{persona}' should seed 7 goals (2 starter + 5 growth), got {}", goals.len());
+        assert_eq!(
+            goals.len(),
+            7,
+            "Persona '{persona}' should seed 7 goals (2 starter + 5 growth), got {}",
+            goals.len()
+        );
     }
 }

@@ -4,7 +4,7 @@
 //! or Gitea Actions API for workflow run information. Requires forge
 //! configuration in `[devtools]`.
 
-use super::{forge_get, forge_get_text, forge_repo, DevToolsConfig, ForgeKind};
+use super::{DevToolsConfig, ForgeKind, forge_get, forge_get_text, forge_repo};
 use crate::Action;
 use aivyx_core::{AivyxError, Result};
 
@@ -47,7 +47,8 @@ impl Action for CiStatus {
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         let repo = forge_repo(&self.config)?;
-        let limit = input.get("limit")
+        let limit = input
+            .get("limit")
             .and_then(|v| v.as_u64())
             .unwrap_or(10)
             .min(30);
@@ -59,8 +60,12 @@ impl Action for CiStatus {
         })?;
 
         let runs = match forge {
-            ForgeKind::Github => fetch_github_runs(&self.config, repo, branch, workflow, limit).await?,
-            ForgeKind::Gitea => fetch_gitea_runs(&self.config, repo, branch, workflow, limit).await?,
+            ForgeKind::Github => {
+                fetch_github_runs(&self.config, repo, branch, workflow, limit).await?
+            }
+            ForgeKind::Gitea => {
+                fetch_gitea_runs(&self.config, repo, branch, workflow, limit).await?
+            }
         };
 
         Ok(serde_json::json!({
@@ -107,7 +112,8 @@ impl Action for CiLogs {
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         let repo = forge_repo(&self.config)?;
-        let run_id = input.get("run_id")
+        let run_id = input
+            .get("run_id")
             .and_then(|v| v.as_u64())
             .ok_or_else(|| AivyxError::Validation("run_id is required".into()))?;
         let job_filter = input.get("job").and_then(|v| v.as_str());
@@ -176,11 +182,7 @@ async fn fetch_github_logs(
     job_filter: Option<&str>,
 ) -> Result<serde_json::Value> {
     // First, list jobs for this run
-    let jobs_body = forge_get(
-        config,
-        &format!("/repos/{repo}/actions/runs/{run_id}/jobs"),
-    )
-    .await?;
+    let jobs_body = forge_get(config, &format!("/repos/{repo}/actions/runs/{run_id}/jobs")).await?;
 
     let jobs = jobs_body["jobs"]
         .as_array()
@@ -193,21 +195,19 @@ async fn fetch_github_logs(
 
         // If filtering by job name, skip non-matching jobs
         if let Some(filter) = job_filter
-            && !job_name.to_lowercase().contains(&filter.to_lowercase()) {
-                continue;
-            }
+            && !job_name.to_lowercase().contains(&filter.to_lowercase())
+        {
+            continue;
+        }
 
         let job_id = job["id"]
             .as_u64()
             .ok_or_else(|| AivyxError::Other("Job missing id".into()))?;
 
         // Fetch logs for this job
-        let log_text = forge_get_text(
-            config,
-            &format!("/repos/{repo}/actions/jobs/{job_id}/logs"),
-        )
-        .await
-        .unwrap_or_else(|e| format!("[Could not fetch logs: {e}]"));
+        let log_text = forge_get_text(config, &format!("/repos/{repo}/actions/jobs/{job_id}/logs"))
+            .await
+            .unwrap_or_else(|e| format!("[Could not fetch logs: {e}]"));
 
         results.push(serde_json::json!({
             "job_id": job_id,
@@ -247,11 +247,7 @@ async fn fetch_gitea_runs(
         query.push_str(&format!("&branch={b}"));
     }
 
-    let body = forge_get(
-        config,
-        &format!("/repos/{repo}/actions/runs{query}"),
-    )
-    .await?;
+    let body = forge_get(config, &format!("/repos/{repo}/actions/runs{query}")).await?;
 
     // Gitea returns { "workflow_runs": [...] } similar to GitHub
     let runs_array = body["workflow_runs"]
@@ -288,11 +284,7 @@ async fn fetch_gitea_logs(
     job_filter: Option<&str>,
 ) -> Result<serde_json::Value> {
     // Gitea: list jobs for a run
-    let jobs_body = forge_get(
-        config,
-        &format!("/repos/{repo}/actions/runs/{run_id}/jobs"),
-    )
-    .await?;
+    let jobs_body = forge_get(config, &format!("/repos/{repo}/actions/runs/{run_id}/jobs")).await?;
 
     let jobs = jobs_body["jobs"]
         .as_array()
@@ -305,21 +297,19 @@ async fn fetch_gitea_logs(
         let job_name = job["name"].as_str().unwrap_or("unknown");
 
         if let Some(filter) = job_filter
-            && !job_name.to_lowercase().contains(&filter.to_lowercase()) {
-                continue;
-            }
+            && !job_name.to_lowercase().contains(&filter.to_lowercase())
+        {
+            continue;
+        }
 
         let job_id = job["id"]
             .as_u64()
             .ok_or_else(|| AivyxError::Other("Job missing id".into()))?;
 
         // Gitea log endpoint
-        let log_text = forge_get_text(
-            config,
-            &format!("/repos/{repo}/actions/jobs/{job_id}/logs"),
-        )
-        .await
-        .unwrap_or_else(|e| format!("[Could not fetch logs: {e}]"));
+        let log_text = forge_get_text(config, &format!("/repos/{repo}/actions/jobs/{job_id}/logs"))
+            .await
+            .unwrap_or_else(|e| format!("[Could not fetch logs: {e}]"));
 
         results.push(serde_json::json!({
             "job_id": job_id,
@@ -383,7 +373,9 @@ mod tests {
 
     #[test]
     fn ci_status_name_and_schema() {
-        let action = CiStatus { config: github_config() };
+        let action = CiStatus {
+            config: github_config(),
+        };
         assert_eq!(action.name(), "ci_status");
         let schema = action.input_schema();
         let props = schema["properties"].as_object().unwrap();
@@ -394,7 +386,9 @@ mod tests {
 
     #[test]
     fn ci_logs_name_and_schema() {
-        let action = CiLogs { config: github_config() };
+        let action = CiLogs {
+            config: github_config(),
+        };
         assert_eq!(action.name(), "ci_logs");
         let schema = action.input_schema();
         let props = schema["properties"].as_object().unwrap();
@@ -408,7 +402,9 @@ mod tests {
 
     #[tokio::test]
     async fn ci_status_rejects_no_forge() {
-        let action = CiStatus { config: no_forge_config() };
+        let action = CiStatus {
+            config: no_forge_config(),
+        };
         let result = action.execute(serde_json::json!({})).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -431,7 +427,9 @@ mod tests {
 
     #[tokio::test]
     async fn ci_logs_rejects_missing_run_id() {
-        let action = CiLogs { config: github_config() };
+        let action = CiLogs {
+            config: github_config(),
+        };
         let result = action.execute(serde_json::json!({})).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -440,7 +438,9 @@ mod tests {
 
     #[tokio::test]
     async fn ci_logs_rejects_no_forge() {
-        let action = CiLogs { config: no_forge_config() };
+        let action = CiLogs {
+            config: no_forge_config(),
+        };
         let result = action.execute(serde_json::json!({ "run_id": 123 })).await;
         assert!(result.is_err());
     }

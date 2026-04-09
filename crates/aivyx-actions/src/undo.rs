@@ -65,9 +65,11 @@ impl UndoContext {
     }
 
     fn reconstruct_key(&self) -> Result<MasterKey> {
-        let bytes: [u8; 32] = self.key_bytes.as_slice().try_into().map_err(|_| {
-            AivyxError::Other("undo key bytes not 32 bytes".into())
-        })?;
+        let bytes: [u8; 32] = self
+            .key_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| AivyxError::Other("undo key bytes not 32 bytes".into()))?;
         Ok(MasterKey::from_bytes(bytes))
     }
 
@@ -103,7 +105,9 @@ impl UndoContext {
     /// List all non-expired, non-undone undo records.
     pub fn list_active_records(&self) -> Result<Vec<UndoRecord>> {
         let key = self.reconstruct_key()?;
-        let keys = self.store.list_keys()
+        let keys = self
+            .store
+            .list_keys()
             .map_err(|e| AivyxError::Other(format!("list undo keys: {e}")))?;
 
         let mut records = Vec::new();
@@ -113,9 +117,11 @@ impl UndoContext {
             }
             if let Ok(Some(data)) = self.store.get(&store_key, &key)
                 && let Ok(record) = serde_json::from_slice::<UndoRecord>(&data)
-                    && !record.is_expired() && !record.undone {
-                        records.push(record);
-                    }
+                && !record.is_expired()
+                && !record.undone
+            {
+                records.push(record);
+            }
         }
 
         // Sort by most recent first
@@ -148,7 +154,9 @@ impl RecordUndoAction {
 
 #[async_trait::async_trait]
 impl Action for RecordUndoAction {
-    fn name(&self) -> &str { "record_undo" }
+    fn name(&self) -> &str {
+        "record_undo"
+    }
 
     fn description(&self) -> &str {
         "Record an undo entry before a destructive action so it can be reversed later"
@@ -186,7 +194,10 @@ impl Action for RecordUndoAction {
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         let tool_name = input["tool_name"].as_str().unwrap_or_default().to_string();
-        let summary = input["action_summary"].as_str().unwrap_or_default().to_string();
+        let summary = input["action_summary"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
         let undo_type = input["undo_type"].as_str().unwrap_or_default();
         let undo_data = &input["undo_data"];
         let ttl_hours = input["ttl_hours"].as_i64().unwrap_or(24);
@@ -218,9 +229,7 @@ impl Action for RecordUndoAction {
                     .to_string(),
             },
             other => {
-                return Err(AivyxError::Other(format!(
-                    "unknown undo_type: {other}"
-                )));
+                return Err(AivyxError::Other(format!("unknown undo_type: {other}")));
             }
         };
 
@@ -258,7 +267,9 @@ impl ListUndoHistoryAction {
 
 #[async_trait::async_trait]
 impl Action for ListUndoHistoryAction {
-    fn name(&self) -> &str { "list_undo_history" }
+    fn name(&self) -> &str {
+        "list_undo_history"
+    }
 
     fn description(&self) -> &str {
         "List recent actions that can be undone"
@@ -329,7 +340,9 @@ impl UndoActionTool {
 
 #[async_trait::async_trait]
 impl Action for UndoActionTool {
-    fn name(&self) -> &str { "undo_action" }
+    fn name(&self) -> &str {
+        "undo_action"
+    }
 
     fn description(&self) -> &str {
         "Undo a previous action by its undo ID"
@@ -351,11 +364,15 @@ impl Action for UndoActionTool {
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         let undo_id = input["undo_id"].as_str().unwrap_or_default();
 
-        let record = self.ctx.load_record(undo_id)?
+        let record = self
+            .ctx
+            .load_record(undo_id)?
             .ok_or_else(|| AivyxError::Other(format!("undo record '{undo_id}' not found")))?;
 
         if record.undone {
-            return Err(AivyxError::Other("this action has already been undone".into()));
+            return Err(AivyxError::Other(
+                "this action has already been undone".into(),
+            ));
         }
         if record.is_expired() {
             return Err(AivyxError::Other(format!(
@@ -365,7 +382,10 @@ impl Action for UndoActionTool {
         }
 
         let result = match &record.undo_action {
-            UndoAction::RestoreFile { path, original_content } => {
+            UndoAction::RestoreFile {
+                path,
+                original_content,
+            } => {
                 // Validate path before writing — undo records contain user/LLM-provided
                 // paths that could target sensitive locations if crafted maliciously.
                 crate::files::validate_path(path)?;

@@ -24,8 +24,11 @@ pub fn seconds_until_hour(hour: u8) -> u64 {
         (target - now).num_seconds() as u64
     } else {
         // Tomorrow
-        let Some(tomorrow) = now.date_naive().succ_opt()
-            .and_then(|d| d.and_hms_opt(hour, 0, 0)) else {
+        let Some(tomorrow) = now
+            .date_naive()
+            .succ_opt()
+            .and_then(|d| d.and_hms_opt(hour, 0, 0))
+        else {
             return 3600;
         };
         match tomorrow.and_local_timezone(now.timezone()).earliest() {

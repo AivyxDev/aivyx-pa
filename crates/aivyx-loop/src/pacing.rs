@@ -34,7 +34,10 @@ pub fn should_send(
     max_per_hour: u8,
 ) -> PacingDecision {
     // Rule 1: Urgent and ApprovalNeeded always send
-    if matches!(kind, NotificationKind::Urgent | NotificationKind::ApprovalNeeded) {
+    if matches!(
+        kind,
+        NotificationKind::Urgent | NotificationKind::ApprovalNeeded
+    ) {
         return PacingDecision::Send;
     }
 
@@ -47,25 +50,33 @@ pub fn should_send(
             hour >= start || hour < end
         };
         if in_quiet {
-            return PacingDecision::Defer { reason: "quiet hours" };
+            return PacingDecision::Defer {
+                reason: "quiet hours",
+            };
         }
     }
 
     // Rule 3: Hourly rate limit
     if signals.notifications_sent_this_hour >= max_per_hour as u32 {
-        return PacingDecision::Defer { reason: "hourly rate limit exceeded" };
+        return PacingDecision::Defer {
+            reason: "hourly rate limit exceeded",
+        };
     }
 
     // Rule 4: Frustrated mood — only Urgent (handled) + ActionTaken
     if *mood == MoodSignal::Frustrated && !matches!(kind, NotificationKind::ActionTaken) {
-        return PacingDecision::Defer { reason: "user appears frustrated" };
+        return PacingDecision::Defer {
+            reason: "user appears frustrated",
+        };
     }
 
     // Rule 5: Active engagement — defer Info during active conversation
     if matches!(kind, NotificationKind::Info) {
         if let Some(idle) = signals.idle_minutes() {
             if idle < 2 && signals.message_count_session > 5 {
-                return PacingDecision::Defer { reason: "user actively engaged" };
+                return PacingDecision::Defer {
+                    reason: "user actively engaged",
+                };
             }
         }
     }
@@ -108,7 +119,12 @@ mod tests {
             Some((hour, hour.wrapping_add(1) % 24)),
             10,
         );
-        assert_eq!(result, PacingDecision::Defer { reason: "quiet hours" });
+        assert_eq!(
+            result,
+            PacingDecision::Defer {
+                reason: "quiet hours"
+            }
+        );
     }
 
     #[test]
@@ -126,7 +142,12 @@ mod tests {
             None,
             5, // max 5 per hour
         );
-        assert_eq!(result, PacingDecision::Defer { reason: "hourly rate limit exceeded" });
+        assert_eq!(
+            result,
+            PacingDecision::Defer {
+                reason: "hourly rate limit exceeded"
+            }
+        );
     }
 
     #[test]
@@ -135,27 +156,20 @@ mod tests {
         // Need 3+ messages for mood detection but we pass mood directly
         signals.message_count_session = 5;
         let mood = MoodSignal::Frustrated;
-        let result = should_send(
-            &NotificationKind::Info,
-            &signals,
-            &mood,
-            None,
-            10,
+        let result = should_send(&NotificationKind::Info, &signals, &mood, None, 10);
+        assert_eq!(
+            result,
+            PacingDecision::Defer {
+                reason: "user appears frustrated"
+            }
         );
-        assert_eq!(result, PacingDecision::Defer { reason: "user appears frustrated" });
     }
 
     #[test]
     fn frustrated_allows_action_taken() {
         let signals = signals_default();
         let mood = MoodSignal::Frustrated;
-        let result = should_send(
-            &NotificationKind::ActionTaken,
-            &signals,
-            &mood,
-            None,
-            10,
-        );
+        let result = should_send(&NotificationKind::ActionTaken, &signals, &mood, None, 10);
         assert_eq!(result, PacingDecision::Send);
     }
 }

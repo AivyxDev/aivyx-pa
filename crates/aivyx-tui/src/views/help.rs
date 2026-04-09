@@ -4,7 +4,7 @@ use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Rect},
     text::{Line, Span},
-    widgets::{Block, Borders, BorderType, Widget},
+    widgets::{Block, BorderType, Borders, Widget},
 };
 
 use crate::app::App;
@@ -17,7 +17,8 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         Constraint::Length(2),
         Constraint::Min(5),
         Constraint::Length(1),
-    ]).areas(area);
+    ])
+    .areas(area);
 
     let title = Line::from(vec![
         Span::styled("Help", theme::text_bold()),
@@ -30,7 +31,10 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         .borders(Borders::ALL)
         .border_type(BorderType::Plain)
         .border_style(theme::border())
-        .title(Line::from(Span::styled("[ USER MANUAL ]", theme::primary_bold())));
+        .title(Line::from(Span::styled(
+            "[ USER MANUAL ]",
+            theme::primary_bold(),
+        )));
     let inner = block.inner(body);
     block.render(body, buf);
 
@@ -47,7 +51,11 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
     // ── Help bar ─────────────────────────────────────────────
     let pos = if total > 0 {
-        let pct = if total <= visible { 100 } else { (scroll * 100) / (total - visible) };
+        let pct = if total <= visible {
+            100
+        } else {
+            (scroll * 100) / (total - visible)
+        };
         format!("  {pct}%  ({}/{})", scroll + 1, total)
     } else {
         String::new()
@@ -208,10 +216,7 @@ fn inline_spans(text: &str) -> Vec<Span<'static>> {
 
         // Find closing backtick
         if let Some(end) = rest.find('`') {
-            spans.push(Span::styled(
-                rest[..end].to_string(),
-                theme::highlight(),
-            ));
+            spans.push(Span::styled(rest[..end].to_string(), theme::highlight()));
             rest = &rest[end + 1..];
         } else {
             // No closing backtick — treat as normal text
@@ -248,13 +253,19 @@ fn wrap_spans(spans: &[Span<'static>], max_w: usize, out: &mut Vec<Line<'static>
     while pos < full.len() {
         let remaining = &full[pos..];
         if remaining.len() <= max_w {
-            out.push(Line::from(Span::styled(remaining.to_string(), theme::text())));
+            out.push(Line::from(Span::styled(
+                remaining.to_string(),
+                theme::text(),
+            )));
             break;
         }
         // Find last space within max_w
         let chunk = &remaining[..max_w];
         let break_at = chunk.rfind(' ').unwrap_or(max_w);
-        out.push(Line::from(Span::styled(remaining[..break_at].to_string(), theme::text())));
+        out.push(Line::from(Span::styled(
+            remaining[..break_at].to_string(),
+            theme::text(),
+        )));
         pos += break_at;
         // Skip the space
         if pos < full.len() && full.as_bytes()[pos] == b' ' {

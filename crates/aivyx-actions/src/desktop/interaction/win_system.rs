@@ -19,10 +19,11 @@ pub async fn volume_control(action: &str, level: Option<u32>) -> Result<serde_js
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::Media::Audio::{
-            eRender, eConsole, IMMDeviceEnumerator, MMDeviceEnumerator,
-            IAudioEndpointVolume,
+            IAudioEndpointVolume, IMMDeviceEnumerator, MMDeviceEnumerator, eConsole, eRender,
         };
-        use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED};
+        use windows::Win32::System::Com::{
+            CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
+        };
         use windows::core::Interface;
 
         unsafe {
@@ -42,9 +43,11 @@ pub async fn volume_control(action: &str, level: Option<u32>) -> Result<serde_js
 
             match action {
                 "get" => {
-                    let scalar = volume.GetMasterVolumeLevelScalar()
-                        .map_err(|e| AivyxError::Other(format!("GetMasterVolumeLevelScalar: {e}")))?;
-                    let muted = volume.GetMute()
+                    let scalar = volume.GetMasterVolumeLevelScalar().map_err(|e| {
+                        AivyxError::Other(format!("GetMasterVolumeLevelScalar: {e}"))
+                    })?;
+                    let muted = volume
+                        .GetMute()
                         .map_err(|e| AivyxError::Other(format!("GetMute: {e}")))?;
                     Ok(serde_json::json!({
                         "volume": (scalar * 100.0).round() as u32,
@@ -52,29 +55,36 @@ pub async fn volume_control(action: &str, level: Option<u32>) -> Result<serde_js
                     }))
                 }
                 "set" => {
-                    let lvl = level.ok_or_else(|| AivyxError::Validation(
-                        "level is required for set".into(),
-                    ))?;
+                    let lvl = level.ok_or_else(|| {
+                        AivyxError::Validation("level is required for set".into())
+                    })?;
                     let scalar = (lvl.min(100) as f32) / 100.0;
-                    volume.SetMasterVolumeLevelScalar(scalar, std::ptr::null())
-                        .map_err(|e| AivyxError::Other(format!("SetMasterVolumeLevelScalar: {e}")))?;
+                    volume
+                        .SetMasterVolumeLevelScalar(scalar, std::ptr::null())
+                        .map_err(|e| {
+                            AivyxError::Other(format!("SetMasterVolumeLevelScalar: {e}"))
+                        })?;
                     Ok(serde_json::json!({ "volume": lvl.min(100) }))
                 }
                 "mute" => {
-                    volume.SetMute(true, std::ptr::null())
+                    volume
+                        .SetMute(true, std::ptr::null())
                         .map_err(|e| AivyxError::Other(format!("SetMute: {e}")))?;
                     Ok(serde_json::json!({ "muted": true }))
                 }
                 "unmute" => {
-                    volume.SetMute(false, std::ptr::null())
+                    volume
+                        .SetMute(false, std::ptr::null())
                         .map_err(|e| AivyxError::Other(format!("SetMute: {e}")))?;
                     Ok(serde_json::json!({ "muted": false }))
                 }
                 "toggle_mute" => {
-                    let muted = volume.GetMute()
+                    let muted = volume
+                        .GetMute()
                         .map_err(|e| AivyxError::Other(format!("GetMute: {e}")))?;
                     let new_state = !muted.as_bool();
-                    volume.SetMute(new_state, std::ptr::null())
+                    volume
+                        .SetMute(new_state, std::ptr::null())
                         .map_err(|e| AivyxError::Other(format!("SetMute: {e}")))?;
                     Ok(serde_json::json!({ "muted": new_state }))
                 }
@@ -87,7 +97,9 @@ pub async fn volume_control(action: &str, level: Option<u32>) -> Result<serde_js
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (action, level);
-        Err(AivyxError::Other("win_system: only available on Windows".into()))
+        Err(AivyxError::Other(
+            "win_system: only available on Windows".into(),
+        ))
     }
 }
 
@@ -113,7 +125,9 @@ pub async fn brightness_control(action: &str, level: Option<u32>) -> Result<serd
                     .map_err(|e| AivyxError::Other(format!("powershell: {e}")))?;
 
                 if !output.status.success() {
-                    return Err(AivyxError::Other("Brightness query failed (may not be supported on desktop monitors)".into()));
+                    return Err(AivyxError::Other(
+                        "Brightness query failed (may not be supported on desktop monitors)".into(),
+                    ));
                 }
 
                 let brightness: u32 = String::from_utf8_lossy(&output.stdout)
@@ -124,9 +138,9 @@ pub async fn brightness_control(action: &str, level: Option<u32>) -> Result<serd
                 Ok(serde_json::json!({ "brightness": brightness }))
             }
             "set" => {
-                let lvl = level.ok_or_else(|| AivyxError::Validation(
-                    "level is required for set".into(),
-                ))?.min(100);
+                let lvl = level
+                    .ok_or_else(|| AivyxError::Validation("level is required for set".into()))?
+                    .min(100);
 
                 let cmd = format!(
                     "(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,{lvl})"
@@ -151,7 +165,9 @@ pub async fn brightness_control(action: &str, level: Option<u32>) -> Result<serd
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (action, level);
-        Err(AivyxError::Other("win_system: only available on Windows".into()))
+        Err(AivyxError::Other(
+            "win_system: only available on Windows".into(),
+        ))
     }
 }
 
@@ -189,7 +205,9 @@ pub async fn notify(summary: &str, body: &str) -> Result<()> {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AivyxError::Other(format!("Toast notification failed: {stderr}")));
+            return Err(AivyxError::Other(format!(
+                "Toast notification failed: {stderr}"
+            )));
         }
 
         Ok(())
@@ -197,7 +215,9 @@ pub async fn notify(summary: &str, body: &str) -> Result<()> {
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (summary, body);
-        Err(AivyxError::Other("win_system: only available on Windows".into()))
+        Err(AivyxError::Other(
+            "win_system: only available on Windows".into(),
+        ))
     }
 }
 
@@ -227,7 +247,9 @@ pub async fn file_manager_show(path: &str, reveal: bool) -> Result<String> {
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (path, reveal);
-        Err(AivyxError::Other("win_system: only available on Windows".into()))
+        Err(AivyxError::Other(
+            "win_system: only available on Windows".into(),
+        ))
     }
 }
 

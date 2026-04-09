@@ -5,7 +5,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, BorderType, Clear, Widget},
+    widgets::{Block, BorderType, Borders, Clear, Widget},
 };
 
 use crate::app::{App, GoalPopup, PRIORITIES};
@@ -19,13 +19,17 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         Constraint::Length(1),
         Constraint::Min(5),
         Constraint::Length(1),
-    ]).areas(area);
+    ])
+    .areas(area);
 
     // Title
     let total = app.goals.len();
     let title = Line::from(vec![
         Span::styled("Goals", theme::text_bold()),
-        Span::styled(format!("  {total} goals tracked by your assistant."), theme::dim()),
+        Span::styled(
+            format!("  {total} goals tracked by your assistant."),
+            theme::dim(),
+        ),
     ]);
     buf.set_line(header.x, header.y, &title, header.width);
 
@@ -33,7 +37,9 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     let mut filter_spans = Vec::new();
     for (i, f) in FILTERS.iter().enumerate() {
         let style = if i == app.goal_filter {
-            Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(theme::PRIMARY)
+                .add_modifier(Modifier::BOLD)
         } else {
             theme::dim()
         };
@@ -42,13 +48,16 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             filter_spans.push(Span::styled("│", theme::dim()));
         }
     }
-    buf.set_line(filter_row.x, filter_row.y, &Line::from(filter_spans), filter_row.width);
+    buf.set_line(
+        filter_row.x,
+        filter_row.y,
+        &Line::from(filter_spans),
+        filter_row.width,
+    );
 
     // Split: goal list + detail panel
-    let [list_area, detail_area] = Layout::horizontal([
-        Constraint::Percentage(55),
-        Constraint::Percentage(45),
-    ]).areas(body);
+    let [list_area, detail_area] =
+        Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)]).areas(body);
 
     // ── Goal list with scroll ─────────────────────────────────
     let goals = app.filtered_goals();
@@ -66,7 +75,12 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
     if goals.is_empty() {
         let empty = Line::from(Span::styled("  No goals yet.", theme::dim()));
-        buf.set_line(list_inner.x + 1, list_inner.y + 1, &empty, list_inner.width - 2);
+        buf.set_line(
+            list_inner.x + 1,
+            list_inner.y + 1,
+            &empty,
+            list_inner.width - 2,
+        );
     } else {
         let card_height = 5u16;
         let visible_count = list_inner.height / card_height;
@@ -85,7 +99,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             let is_selected = i == app.goal_selected;
             let block = Block::default()
                 .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+                .border_type(BorderType::Rounded)
                 .border_style(if is_selected {
                     theme::border_active()
                 } else {
@@ -104,7 +118,14 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             };
             let status_str = format!("{:?}", goal.status).to_lowercase();
             let mut title_spans = vec![
-                Span::styled(&goal.description, if is_selected { theme::primary_bold() } else { theme::text_bold() }),
+                Span::styled(
+                    &goal.description,
+                    if is_selected {
+                        theme::primary_bold()
+                    } else {
+                        theme::text_bold()
+                    },
+                ),
                 Span::styled("  [", theme::dim()),
                 Span::styled(&priority_str, priority_style),
                 Span::styled("] [", theme::dim()),
@@ -123,13 +144,23 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             let filled = (pct as f64 * bar_width as f64) as usize;
             let empty = bar_width.saturating_sub(filled);
             let pct_display = (pct * 100.0) as u8;
-            let bar = format!("{}{}  {}%", "█".repeat(filled), "░".repeat(empty), pct_display);
+            let bar = format!(
+                "{}{}  {}%",
+                "█".repeat(filled),
+                "░".repeat(empty),
+                pct_display
+            );
             let bar_style = match goal.status {
                 aivyx_brain::GoalStatus::Completed => theme::sage(),
                 aivyx_brain::GoalStatus::Abandoned => theme::dim(),
                 _ => theme::primary(),
             };
-            buf.set_line(inner.x + 1, inner.y + 1, &Line::from(Span::styled(bar, bar_style)), inner.width - 2);
+            buf.set_line(
+                inner.x + 1,
+                inner.y + 1,
+                &Line::from(Span::styled(bar, bar_style)),
+                inner.width - 2,
+            );
 
             // Info line: deadline (if set) or last-updated timestamp
             if inner.height > 2 {
@@ -139,7 +170,8 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                     format!("  updated: {}", goal.updated_at.format("%H:%M"))
                 };
                 buf.set_line(
-                    inner.x + 1, inner.y + 2,
+                    inner.x + 1,
+                    inner.y + 2,
                     &Line::from(Span::styled(info_str, theme::dim())),
                     inner.width - 2,
                 );
@@ -163,9 +195,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         let mut y = detail_inner.y;
 
         // Description
-        let desc_line = Line::from(vec![
-            Span::styled(&goal.description, theme::primary_bold()),
-        ]);
+        let desc_line = Line::from(vec![Span::styled(&goal.description, theme::primary_bold())]);
         buf.set_line(detail_inner.x + 1, y, &desc_line, detail_inner.width - 2);
         y += 2;
 
@@ -197,15 +227,27 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
             let max_w = (detail_inner.width - 4) as usize;
             for line in goal.success_criteria.lines() {
-                if y >= detail_inner.y + detail_inner.height { break; }
+                if y >= detail_inner.y + detail_inner.height {
+                    break;
+                }
                 if line.len() <= max_w {
-                    buf.set_line(detail_inner.x + 2, y, &Line::from(Span::styled(line, theme::text())), detail_inner.width - 3);
+                    buf.set_line(
+                        detail_inner.x + 2,
+                        y,
+                        &Line::from(Span::styled(line, theme::text())),
+                        detail_inner.width - 3,
+                    );
                     y += 1;
                 } else {
                     let mut pos = 0;
                     while pos < line.len() && y < detail_inner.y + detail_inner.height {
                         let end = (pos + max_w).min(line.len());
-                        buf.set_line(detail_inner.x + 2, y, &Line::from(Span::styled(&line[pos..end], theme::text())), detail_inner.width - 3);
+                        buf.set_line(
+                            detail_inner.x + 2,
+                            y,
+                            &Line::from(Span::styled(&line[pos..end], theme::text())),
+                            detail_inner.width - 3,
+                        );
                         y += 1;
                         pos = end;
                     }
@@ -217,17 +259,34 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         // Tags — self-development goals rendered in lavender to distinguish
         // the agent's own growth goals from user-created goals
         if !goal.tags.is_empty() && y < detail_inner.y + detail_inner.height {
-            let tags: Vec<Span> = goal.tags.iter().map(|t| {
-                let color = if t == "self-development" { theme::SECONDARY } else { theme::PRIMARY };
-                Span::styled(format!(" [{t}] "), Style::default().fg(color).add_modifier(Modifier::BOLD))
-            }).collect();
-            buf.set_line(detail_inner.x + 1, y, &Line::from(tags), detail_inner.width - 2);
+            let tags: Vec<Span> = goal
+                .tags
+                .iter()
+                .map(|t| {
+                    let color = if t == "self-development" {
+                        theme::SECONDARY
+                    } else {
+                        theme::PRIMARY
+                    };
+                    Span::styled(
+                        format!(" [{t}] "),
+                        Style::default().fg(color).add_modifier(Modifier::BOLD),
+                    )
+                })
+                .collect();
+            buf.set_line(
+                detail_inner.x + 1,
+                y,
+                &Line::from(tags),
+                detail_inner.width - 2,
+            );
             y += 2;
         }
 
         // Deadline
         if y < detail_inner.y + detail_inner.height {
-            let dl_str = goal.deadline
+            let dl_str = goal
+                .deadline
                 .map(|d| d.format("%Y-%m-%d").to_string())
                 .unwrap_or_else(|| "none".into());
             let dl_line = Line::from(vec![
@@ -242,7 +301,10 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         if y + 1 < detail_inner.y + detail_inner.height {
             let created = Line::from(vec![
                 Span::styled("Created:  ", theme::muted()),
-                Span::styled(goal.created_at.format("%Y-%m-%d %H:%M").to_string(), theme::dim()),
+                Span::styled(
+                    goal.created_at.format("%Y-%m-%d %H:%M").to_string(),
+                    theme::dim(),
+                ),
             ]);
             buf.set_line(detail_inner.x + 1, y, &created, detail_inner.width - 2);
             y += 1;
@@ -250,7 +312,10 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             if y < detail_inner.y + detail_inner.height {
                 let updated = Line::from(vec![
                     Span::styled("Updated:  ", theme::muted()),
-                    Span::styled(goal.updated_at.format("%Y-%m-%d %H:%M").to_string(), theme::dim()),
+                    Span::styled(
+                        goal.updated_at.format("%Y-%m-%d %H:%M").to_string(),
+                        theme::dim(),
+                    ),
                 ]);
                 buf.set_line(detail_inner.x + 1, y, &updated, detail_inner.width - 2);
                 y += 1;
@@ -262,7 +327,13 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             y += 1;
             let fail_line = Line::from(vec![
                 Span::styled("Failures: ", theme::muted()),
-                Span::styled(format!("{} total, {} consecutive", goal.failure_count, goal.consecutive_failures), theme::error()),
+                Span::styled(
+                    format!(
+                        "{} total, {} consecutive",
+                        goal.failure_count, goal.consecutive_failures
+                    ),
+                    theme::error(),
+                ),
             ]);
             buf.set_line(detail_inner.x + 1, y, &fail_line, detail_inner.width - 2);
             y += 1;
@@ -271,7 +342,10 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                 if y < detail_inner.y + detail_inner.height {
                     let cd = Line::from(vec![
                         Span::styled("Cooldown: ", theme::muted()),
-                        Span::styled(format!("until {}", cooldown.format("%H:%M")), theme::warning()),
+                        Span::styled(
+                            format!("until {}", cooldown.format("%H:%M")),
+                            theme::warning(),
+                        ),
                     ]);
                     buf.set_line(detail_inner.x + 1, y, &cd, detail_inner.width - 2);
                 }
@@ -279,7 +353,9 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         }
 
         // Sub-goals (goals whose parent matches this goal's id)
-        let sub_goals: Vec<_> = app.goals.iter()
+        let sub_goals: Vec<_> = app
+            .goals
+            .iter()
             .filter(|g| g.parent == Some(goal.id))
             .collect();
         if !sub_goals.is_empty() && y + 2 < detail_inner.y + detail_inner.height {
@@ -288,7 +364,9 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             buf.set_line(detail_inner.x + 1, y, &label, detail_inner.width - 2);
             y += 1;
             for sg in &sub_goals {
-                if y >= detail_inner.y + detail_inner.height { break; }
+                if y >= detail_inner.y + detail_inner.height {
+                    break;
+                }
                 let marker = match sg.status {
                     aivyx_brain::GoalStatus::Completed => "✓",
                     aivyx_brain::GoalStatus::Abandoned => "✗",
@@ -310,8 +388,16 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
         let _ = y; // suppress unused
     } else {
-        let empty = Line::from(Span::styled("  Select a goal to view details.", theme::dim()));
-        buf.set_line(detail_inner.x + 1, detail_inner.y, &empty, detail_inner.width - 2);
+        let empty = Line::from(Span::styled(
+            "  Select a goal to view details.",
+            theme::dim(),
+        ));
+        buf.set_line(
+            detail_inner.x + 1,
+            detail_inner.y,
+            &empty,
+            detail_inner.width - 2,
+        );
     }
 
     // ── Help bar ─────────────────────────────────────────────
@@ -344,17 +430,37 @@ fn render_popup(popup: &GoalPopup, frame_count: u64, area: Rect, buf: &mut Buffe
     let cursor_char = if frame_count % 60 < 30 { "█" } else { " " };
 
     match popup {
-        GoalPopup::Create { description, criteria, priority, focused_field }
-        | GoalPopup::Edit { description, criteria, priority, focused_field, .. } => {
+        GoalPopup::Create {
+            description,
+            criteria,
+            priority,
+            focused_field,
+        }
+        | GoalPopup::Edit {
+            description,
+            criteria,
+            priority,
+            focused_field,
+            ..
+        } => {
             let is_edit = matches!(popup, GoalPopup::Edit { .. });
-            let deadline_str = if let GoalPopup::Edit { deadline, .. } = popup { deadline.as_str() } else { "" };
+            let deadline_str = if let GoalPopup::Edit { deadline, .. } = popup {
+                deadline.as_str()
+            } else {
+                ""
+            };
             let h = if is_edit { 13u16 } else { 11 };
-            let title = if is_edit { " Edit Goal " } else { " Create Goal " };
+            let title = if is_edit {
+                " Edit Goal "
+            } else {
+                " Create Goal "
+            };
 
             let rect = centered_rect(55, h, area);
             Clear.render(rect, buf);
             let block = Block::default()
-                .borders(Borders::ALL).border_type(BorderType::Rounded)
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
                 .border_style(theme::primary())
                 .title(Line::from(Span::styled(title, theme::primary_bold())));
             let inner = block.inner(rect);
@@ -363,8 +469,17 @@ fn render_popup(popup: &GoalPopup, frame_count: u64, area: Rect, buf: &mut Buffe
             let mut y = inner.y;
 
             // Description
-            let desc_label_style = if *focused_field == 0 { theme::highlight() } else { theme::muted() };
-            buf.set_line(inner.x + 1, y, &Line::from(Span::styled("Description:", desc_label_style)), inner.width - 2);
+            let desc_label_style = if *focused_field == 0 {
+                theme::highlight()
+            } else {
+                theme::muted()
+            };
+            buf.set_line(
+                inner.x + 1,
+                y,
+                &Line::from(Span::styled("Description:", desc_label_style)),
+                inner.width - 2,
+            );
             y += 1;
             let desc_cursor = if *focused_field == 0 { cursor_char } else { "" };
             let desc_line = Line::from(vec![
@@ -376,8 +491,17 @@ fn render_popup(popup: &GoalPopup, frame_count: u64, area: Rect, buf: &mut Buffe
             y += 2;
 
             // Criteria
-            let crit_label_style = if *focused_field == 1 { theme::highlight() } else { theme::muted() };
-            buf.set_line(inner.x + 1, y, &Line::from(Span::styled("Success Criteria:", crit_label_style)), inner.width - 2);
+            let crit_label_style = if *focused_field == 1 {
+                theme::highlight()
+            } else {
+                theme::muted()
+            };
+            buf.set_line(
+                inner.x + 1,
+                y,
+                &Line::from(Span::styled("Success Criteria:", crit_label_style)),
+                inner.width - 2,
+            );
             y += 1;
             let crit_cursor = if *focused_field == 1 { cursor_char } else { "" };
             let crit_line = Line::from(vec![
@@ -389,7 +513,11 @@ fn render_popup(popup: &GoalPopup, frame_count: u64, area: Rect, buf: &mut Buffe
             y += 2;
 
             // Priority
-            let pri_label_style = if *focused_field == 2 { theme::highlight() } else { theme::muted() };
+            let pri_label_style = if *focused_field == 2 {
+                theme::highlight()
+            } else {
+                theme::muted()
+            };
             let pri_name = PRIORITIES.get(*priority).unwrap_or(&"Medium");
             let pri_display = if *focused_field == 2 {
                 format!("◄ {pri_name} ►")
@@ -406,7 +534,11 @@ fn render_popup(popup: &GoalPopup, frame_count: u64, area: Rect, buf: &mut Buffe
             // Deadline (edit only)
             if is_edit {
                 y += 1;
-                let dl_label_style = if *focused_field == 3 { theme::highlight() } else { theme::muted() };
+                let dl_label_style = if *focused_field == 3 {
+                    theme::highlight()
+                } else {
+                    theme::muted()
+                };
                 let dl_cursor = if *focused_field == 3 { cursor_char } else { "" };
                 let dl_line = Line::from(vec![
                     Span::styled("Deadline:     ", dl_label_style),
@@ -421,7 +553,8 @@ fn render_popup(popup: &GoalPopup, frame_count: u64, area: Rect, buf: &mut Buffe
             let rect = centered_rect(50, 5, area);
             Clear.render(rect, buf);
             let block = Block::default()
-                .borders(Borders::ALL).border_type(BorderType::Rounded)
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
                 .border_style(theme::primary())
                 .title(Line::from(Span::styled(" Confirm ", theme::primary_bold())));
             let inner = block.inner(rect);

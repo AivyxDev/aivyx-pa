@@ -11,10 +11,7 @@ use super::MAX_SCREENSHOT_BYTES;
 ///
 /// Tries grim (Wayland) first, falls back to import (X11/ImageMagick).
 /// Returns base64-encoded image data.
-pub async fn capture_window(
-    geometry: Option<&str>,
-    format: &str,
-) -> Result<String> {
+pub async fn capture_window(geometry: Option<&str>, format: &str) -> Result<String> {
     // Try grim first (Wayland-native).
     match try_grim(geometry, format).await {
         Ok(data) => encode_base64(&data),
@@ -38,7 +35,8 @@ fn encode_base64(data: &[u8]) -> Result<String> {
         .map_err(|e| AivyxError::Other(format!("base64 command failed: {e}")))?;
 
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(data)
+        stdin
+            .write_all(data)
             .map_err(|e| AivyxError::Other(format!("base64 stdin write failed: {e}")))?;
     }
 
@@ -196,8 +194,7 @@ async fn try_xdotool_geometry(window_title: Option<&str>) -> Result<String> {
             .await
     };
 
-    let id_output =
-        id_output.map_err(|e| AivyxError::Other(format!("xdotool failed: {e}")))?;
+    let id_output = id_output.map_err(|e| AivyxError::Other(format!("xdotool failed: {e}")))?;
 
     if !id_output.status.success() {
         return Err(AivyxError::Other("xdotool: window not found".into()));
@@ -221,7 +218,9 @@ async fn try_xdotool_geometry(window_title: Option<&str>) -> Result<String> {
         .map_err(|e| AivyxError::Other(format!("xdotool geometry failed: {e}")))?;
 
     if !geo_output.status.success() {
-        return Err(AivyxError::Other("xdotool: getwindowgeometry failed".into()));
+        return Err(AivyxError::Other(
+            "xdotool: getwindowgeometry failed".into(),
+        ));
     }
 
     let geo_text = String::from_utf8_lossy(&geo_output.stdout);

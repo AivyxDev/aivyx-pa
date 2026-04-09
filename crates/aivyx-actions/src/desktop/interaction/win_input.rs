@@ -15,18 +15,14 @@ use super::{
 
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    SendInput, INPUT, INPUT_0, INPUT_TYPE, KEYBDINPUT, KEYBD_EVENT_FLAGS, MOUSEINPUT,
-    MOUSE_EVENT_FLAGS,
-    KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
-    MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
-    MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN,
-    MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEEVENTF_VIRTUALDESK,
-    VIRTUAL_KEY,
+    INPUT, INPUT_0, INPUT_TYPE, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
+    MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN,
+    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE,
+    MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL,
+    MOUSEINPUT, SendInput, VIRTUAL_KEY,
 };
 #[cfg(target_os = "windows")]
-use windows::Win32::UI::WindowsAndMessaging::{
-    GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN,
-};
+use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
 
 /// Win32 SendInput-based input backend.
 pub struct WinInputBackend;
@@ -92,13 +88,7 @@ impl WinInputBackend {
     }
 
     /// Drag from one position to another (left-button hold + move + release).
-    pub async fn drag(
-        &self,
-        from_x: i32,
-        from_y: i32,
-        to_x: i32,
-        to_y: i32,
-    ) -> Result<()> {
+    pub async fn drag(&self, from_x: i32, from_y: i32, to_x: i32, to_y: i32) -> Result<()> {
         // Move to start position.
         send_mouse_move(from_x, from_y)?;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -358,7 +348,9 @@ fn send_mouse_move(x: i32, y: i32) -> Result<()> {
 
 #[cfg(not(target_os = "windows"))]
 fn send_mouse_move(_x: i32, _y: i32) -> Result<()> {
-    Err(AivyxError::Other("SendInput is only available on Windows".into()))
+    Err(AivyxError::Other(
+        "SendInput is only available on Windows".into(),
+    ))
 }
 
 /// Send a mouse click (down + up) at absolute screen coordinates.
@@ -370,7 +362,9 @@ fn send_mouse_click(x: i32, y: i32, button: MouseButton) -> Result<()> {
 
 #[cfg(not(target_os = "windows"))]
 fn send_mouse_click(_x: i32, _y: i32, _button: MouseButton) -> Result<()> {
-    Err(AivyxError::Other("SendInput is only available on Windows".into()))
+    Err(AivyxError::Other(
+        "SendInput is only available on Windows".into(),
+    ))
 }
 
 /// Send a single mouse button event (down or up) at screen coordinates.
@@ -403,7 +397,9 @@ fn send_mouse_button_event(x: i32, y: i32, button: &MouseButton, down: bool) -> 
 
 #[cfg(not(target_os = "windows"))]
 fn send_mouse_button_event(_x: i32, _y: i32, _button: MouseButton, _down: bool) -> Result<()> {
-    Err(AivyxError::Other("SendInput is only available on Windows".into()))
+    Err(AivyxError::Other(
+        "SendInput is only available on Windows".into(),
+    ))
 }
 
 /// Send a scroll event.
@@ -433,7 +429,9 @@ fn send_scroll(direction: ScrollDirection, amount: u32) -> Result<()> {
 
 #[cfg(not(target_os = "windows"))]
 fn send_scroll(_direction: ScrollDirection, _amount: u32) -> Result<()> {
-    Err(AivyxError::Other("SendInput is only available on Windows".into()))
+    Err(AivyxError::Other(
+        "SendInput is only available on Windows".into(),
+    ))
 }
 
 // ── Keyboard helpers ───────────────────────────────────────────
@@ -463,7 +461,9 @@ fn send_key_event(vk: u16, key_up: bool) -> Result<()> {
 
 #[cfg(not(target_os = "windows"))]
 fn send_key_event(_vk: u16, _key_up: bool) -> Result<()> {
-    Err(AivyxError::Other("SendInput is only available on Windows".into()))
+    Err(AivyxError::Other(
+        "SendInput is only available on Windows".into(),
+    ))
 }
 
 /// Send a key combo: press all keys down in order, release in reverse.
@@ -508,7 +508,9 @@ fn send_key_combo(vk_codes: &[u16]) -> Result<()> {
 
 #[cfg(not(target_os = "windows"))]
 fn send_key_combo(_vk_codes: &[u16]) -> Result<()> {
-    Err(AivyxError::Other("SendInput is only available on Windows".into()))
+    Err(AivyxError::Other(
+        "SendInput is only available on Windows".into(),
+    ))
 }
 
 /// Type a Unicode string character by character via KEYEVENTF_UNICODE.
@@ -550,15 +552,15 @@ fn send_unicode_string(text: &str) -> Result<()> {
 
 #[cfg(not(target_os = "windows"))]
 fn send_unicode_string(_text: &str) -> Result<()> {
-    Err(AivyxError::Other("SendInput is only available on Windows".into()))
+    Err(AivyxError::Other(
+        "SendInput is only available on Windows".into(),
+    ))
 }
 
 /// Safe wrapper around SendInput that checks the return value.
 #[cfg(target_os = "windows")]
 fn send_input_safe(inputs: &[INPUT]) -> Result<()> {
-    let sent = unsafe {
-        SendInput(inputs, std::mem::size_of::<INPUT>() as i32)
-    };
+    let sent = unsafe { SendInput(inputs, std::mem::size_of::<INPUT>() as i32) };
     if sent as usize != inputs.len() {
         Err(AivyxError::Other(format!(
             "SendInput: only {sent}/{} events were injected (UIPI may be blocking)",
@@ -580,9 +582,8 @@ fn parse_key_combo(combo: &str) -> Result<Vec<u16>> {
 
     let mut codes = Vec::new();
     for part in &parts {
-        let code = key_name_to_vk(part).ok_or_else(|| {
-            AivyxError::Other(format!("unknown key: '{part}'"))
-        })?;
+        let code = key_name_to_vk(part)
+            .ok_or_else(|| AivyxError::Other(format!("unknown key: '{part}'")))?;
         codes.push(code);
     }
     Ok(codes)
@@ -594,70 +595,101 @@ fn key_name_to_vk(name: &str) -> Option<u16> {
     match lower.as_str() {
         // Modifiers
         "ctrl" | "control" | "lctrl" => Some(0x11), // VK_CONTROL
-        "rctrl" => Some(0xA3),                       // VK_RCONTROL
-        "shift" | "lshift" => Some(0x10),            // VK_SHIFT
-        "rshift" => Some(0xA1),                      // VK_RSHIFT
-        "alt" | "lalt" => Some(0x12),                // VK_MENU
-        "ralt" | "altgr" => Some(0xA5),              // VK_RMENU
+        "rctrl" => Some(0xA3),                      // VK_RCONTROL
+        "shift" | "lshift" => Some(0x10),           // VK_SHIFT
+        "rshift" => Some(0xA1),                     // VK_RSHIFT
+        "alt" | "lalt" => Some(0x12),               // VK_MENU
+        "ralt" | "altgr" => Some(0xA5),             // VK_RMENU
         "super" | "meta" | "win" | "lmeta" => Some(0x5B), // VK_LWIN
-        "rmeta" | "rsuper" => Some(0x5C),            // VK_RWIN
+        "rmeta" | "rsuper" => Some(0x5C),           // VK_RWIN
 
         // Letters (VK_A through VK_Z = 0x41-0x5A)
-        "a" => Some(0x41), "b" => Some(0x42), "c" => Some(0x43),
-        "d" => Some(0x44), "e" => Some(0x45), "f" => Some(0x46),
-        "g" => Some(0x47), "h" => Some(0x48), "i" => Some(0x49),
-        "j" => Some(0x4A), "k" => Some(0x4B), "l" => Some(0x4C),
-        "m" => Some(0x4D), "n" => Some(0x4E), "o" => Some(0x4F),
-        "p" => Some(0x50), "q" => Some(0x51), "r" => Some(0x52),
-        "s" => Some(0x53), "t" => Some(0x54), "u" => Some(0x55),
-        "v" => Some(0x56), "w" => Some(0x57), "x" => Some(0x58),
-        "y" => Some(0x59), "z" => Some(0x5A),
+        "a" => Some(0x41),
+        "b" => Some(0x42),
+        "c" => Some(0x43),
+        "d" => Some(0x44),
+        "e" => Some(0x45),
+        "f" => Some(0x46),
+        "g" => Some(0x47),
+        "h" => Some(0x48),
+        "i" => Some(0x49),
+        "j" => Some(0x4A),
+        "k" => Some(0x4B),
+        "l" => Some(0x4C),
+        "m" => Some(0x4D),
+        "n" => Some(0x4E),
+        "o" => Some(0x4F),
+        "p" => Some(0x50),
+        "q" => Some(0x51),
+        "r" => Some(0x52),
+        "s" => Some(0x53),
+        "t" => Some(0x54),
+        "u" => Some(0x55),
+        "v" => Some(0x56),
+        "w" => Some(0x57),
+        "x" => Some(0x58),
+        "y" => Some(0x59),
+        "z" => Some(0x5A),
 
         // Numbers (VK_0 through VK_9 = 0x30-0x39)
-        "0" => Some(0x30), "1" => Some(0x31), "2" => Some(0x32),
-        "3" => Some(0x33), "4" => Some(0x34), "5" => Some(0x35),
-        "6" => Some(0x36), "7" => Some(0x37), "8" => Some(0x38),
+        "0" => Some(0x30),
+        "1" => Some(0x31),
+        "2" => Some(0x32),
+        "3" => Some(0x33),
+        "4" => Some(0x34),
+        "5" => Some(0x35),
+        "6" => Some(0x36),
+        "7" => Some(0x37),
+        "8" => Some(0x38),
         "9" => Some(0x39),
 
         // Function keys (VK_F1-VK_F12 = 0x70-0x7B)
-        "f1" => Some(0x70), "f2" => Some(0x71), "f3" => Some(0x72),
-        "f4" => Some(0x73), "f5" => Some(0x74), "f6" => Some(0x75),
-        "f7" => Some(0x76), "f8" => Some(0x77), "f9" => Some(0x78),
-        "f10" => Some(0x79), "f11" => Some(0x7A), "f12" => Some(0x7B),
+        "f1" => Some(0x70),
+        "f2" => Some(0x71),
+        "f3" => Some(0x72),
+        "f4" => Some(0x73),
+        "f5" => Some(0x74),
+        "f6" => Some(0x75),
+        "f7" => Some(0x76),
+        "f8" => Some(0x77),
+        "f9" => Some(0x78),
+        "f10" => Some(0x79),
+        "f11" => Some(0x7A),
+        "f12" => Some(0x7B),
 
         // Special keys
-        "esc" | "escape" => Some(0x1B),     // VK_ESCAPE
-        "tab" => Some(0x09),                 // VK_TAB
-        "enter" | "return" => Some(0x0D),    // VK_RETURN
-        "space" | " " => Some(0x20),         // VK_SPACE
-        "backspace" | "bs" => Some(0x08),    // VK_BACK
-        "delete" | "del" => Some(0x2E),      // VK_DELETE
-        "insert" | "ins" => Some(0x2D),      // VK_INSERT
-        "home" => Some(0x24),                // VK_HOME
-        "end" => Some(0x23),                 // VK_END
-        "pageup" | "pgup" => Some(0x21),     // VK_PRIOR
-        "pagedown" | "pgdn" => Some(0x22),   // VK_NEXT
-        "up" => Some(0x26),                  // VK_UP
-        "down" => Some(0x28),                // VK_DOWN
-        "left" => Some(0x25),                // VK_LEFT
-        "right" => Some(0x27),               // VK_RIGHT
-        "capslock" => Some(0x14),            // VK_CAPITAL
+        "esc" | "escape" => Some(0x1B),        // VK_ESCAPE
+        "tab" => Some(0x09),                   // VK_TAB
+        "enter" | "return" => Some(0x0D),      // VK_RETURN
+        "space" | " " => Some(0x20),           // VK_SPACE
+        "backspace" | "bs" => Some(0x08),      // VK_BACK
+        "delete" | "del" => Some(0x2E),        // VK_DELETE
+        "insert" | "ins" => Some(0x2D),        // VK_INSERT
+        "home" => Some(0x24),                  // VK_HOME
+        "end" => Some(0x23),                   // VK_END
+        "pageup" | "pgup" => Some(0x21),       // VK_PRIOR
+        "pagedown" | "pgdn" => Some(0x22),     // VK_NEXT
+        "up" => Some(0x26),                    // VK_UP
+        "down" => Some(0x28),                  // VK_DOWN
+        "left" => Some(0x25),                  // VK_LEFT
+        "right" => Some(0x27),                 // VK_RIGHT
+        "capslock" => Some(0x14),              // VK_CAPITAL
         "printscreen" | "prtsc" => Some(0x2C), // VK_SNAPSHOT
-        "scrolllock" => Some(0x91),          // VK_SCROLL
-        "pause" | "break" => Some(0x13),     // VK_PAUSE
+        "scrolllock" => Some(0x91),            // VK_SCROLL
+        "pause" | "break" => Some(0x13),       // VK_PAUSE
 
         // Punctuation (using VK_OEM codes)
-        "minus" | "-" => Some(0xBD),           // VK_OEM_MINUS
-        "equal" | "=" => Some(0xBB),           // VK_OEM_PLUS (unshifted = '=')
-        "leftbrace" | "[" => Some(0xDB),       // VK_OEM_4
-        "rightbrace" | "]" => Some(0xDD),      // VK_OEM_6
-        "semicolon" | ";" => Some(0xBA),       // VK_OEM_1
-        "apostrophe" | "'" => Some(0xDE),      // VK_OEM_7
-        "grave" | "`" => Some(0xC0),           // VK_OEM_3
-        "backslash" | "\\" => Some(0xDC),      // VK_OEM_5
-        "comma" | "," => Some(0xBC),           // VK_OEM_COMMA
-        "dot" | "period" | "." => Some(0xBE),  // VK_OEM_PERIOD
-        "slash" | "/" => Some(0xBF),           // VK_OEM_2
+        "minus" | "-" => Some(0xBD),          // VK_OEM_MINUS
+        "equal" | "=" => Some(0xBB),          // VK_OEM_PLUS (unshifted = '=')
+        "leftbrace" | "[" => Some(0xDB),      // VK_OEM_4
+        "rightbrace" | "]" => Some(0xDD),     // VK_OEM_6
+        "semicolon" | ";" => Some(0xBA),      // VK_OEM_1
+        "apostrophe" | "'" => Some(0xDE),     // VK_OEM_7
+        "grave" | "`" => Some(0xC0),          // VK_OEM_3
+        "backslash" | "\\" => Some(0xDC),     // VK_OEM_5
+        "comma" | "," => Some(0xBC),          // VK_OEM_COMMA
+        "dot" | "period" | "." => Some(0xBE), // VK_OEM_PERIOD
+        "slash" | "/" => Some(0xBF),          // VK_OEM_2
 
         _ => None,
     }

@@ -4,7 +4,7 @@
 //! that shell out to the local `git` binary. Each tool accepts an optional
 //! `repo_path` override; otherwise uses the configured default.
 
-use super::{resolve_repo, run_git, DevToolsConfig};
+use super::{DevToolsConfig, resolve_repo, run_git};
 use crate::Action;
 use aivyx_core::Result;
 
@@ -64,15 +64,13 @@ impl Action for GitLog {
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         let repo = resolve_repo(&self.config, &input)?;
 
-        let limit = input.get("limit")
+        let limit = input
+            .get("limit")
             .and_then(|v| v.as_u64())
             .unwrap_or(20)
             .min(100);
 
-        let mut args = vec![
-            "log",
-            "--format=%H%x00%an%x00%ae%x00%aI%x00%s",
-        ];
+        let mut args = vec!["log", "--format=%H%x00%an%x00%ae%x00%aI%x00%s"];
 
         let limit_str = format!("-{limit}");
         args.push(&limit_str);
@@ -194,8 +192,14 @@ impl Action for GitDiff {
 
         let mut args = vec!["diff"];
 
-        let staged = input.get("staged").and_then(|v| v.as_bool()).unwrap_or(false);
-        let stat_only = input.get("stat_only").and_then(|v| v.as_bool()).unwrap_or(false);
+        let staged = input
+            .get("staged")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let stat_only = input
+            .get("stat_only")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let from = input.get("from").and_then(|v| v.as_str());
         let to = input.get("to").and_then(|v| v.as_str());
 
@@ -406,7 +410,6 @@ impl Action for GitBranches {
     }
 }
 
-
 // ── GitCommit ─────────────────────────────────────────────────
 
 pub struct GitCommit {
@@ -415,7 +418,9 @@ pub struct GitCommit {
 
 #[async_trait::async_trait]
 impl Action for GitCommit {
-    fn name(&self) -> &str { "git_commit" }
+    fn name(&self) -> &str {
+        "git_commit"
+    }
 
     fn description(&self) -> &str {
         "Commit changes to the local git repository. Use add_all=true to stage all modified files first."
@@ -443,7 +448,7 @@ impl Action for GitCommit {
         }
 
         let output = run_git(&repo, &["commit", "-m", message]).await?;
-        
+
         Ok(serde_json::json!({
             "repo": repo.display().to_string(),
             "output": output,
@@ -459,7 +464,9 @@ pub struct GitPush {
 
 #[async_trait::async_trait]
 impl Action for GitPush {
-    fn name(&self) -> &str { "git_push" }
+    fn name(&self) -> &str {
+        "git_push"
+    }
 
     fn description(&self) -> &str {
         "Push local commits to the remote repository. Note: If your SSH key requires a passphrase, this tool will timeout. You must use spawn_background_command to push interactively."
@@ -479,7 +486,7 @@ impl Action for GitPush {
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         let repo = resolve_repo(&self.config, &input)?;
         let remote = input["remote"].as_str().unwrap_or("origin");
-        
+
         let mut args = vec!["push", remote];
         if let Some(branch) = input.get("branch").and_then(|v| v.as_str()) {
             args.push(branch);
@@ -487,9 +494,13 @@ impl Action for GitPush {
 
         let output = match run_git(&repo, &args).await {
             Ok(o) => o,
-            Err(e) => return Err(aivyx_core::AivyxError::Other(format!("Push failed or timed out: {e}"))),
+            Err(e) => {
+                return Err(aivyx_core::AivyxError::Other(format!(
+                    "Push failed or timed out: {e}"
+                )));
+            }
         };
-        
+
         Ok(serde_json::json!({
             "repo": repo.display().to_string(),
             "output": output,
@@ -505,7 +516,9 @@ pub struct GitPull {
 
 #[async_trait::async_trait]
 impl Action for GitPull {
-    fn name(&self) -> &str { "git_pull" }
+    fn name(&self) -> &str {
+        "git_pull"
+    }
 
     fn description(&self) -> &str {
         "Pull (fetch and merge) changes from the remote repository."
@@ -525,7 +538,7 @@ impl Action for GitPull {
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         let repo = resolve_repo(&self.config, &input)?;
         let remote = input["remote"].as_str().unwrap_or("origin");
-        
+
         let mut args = vec!["pull", remote];
         if let Some(branch) = input.get("branch").and_then(|v| v.as_str()) {
             args.push(branch);
@@ -533,9 +546,13 @@ impl Action for GitPull {
 
         let output = match run_git(&repo, &args).await {
             Ok(o) => o,
-            Err(e) => return Err(aivyx_core::AivyxError::Other(format!("Pull failed or timed out: {e}"))),
+            Err(e) => {
+                return Err(aivyx_core::AivyxError::Other(format!(
+                    "Pull failed or timed out: {e}"
+                )));
+            }
         };
-        
+
         Ok(serde_json::json!({
             "repo": repo.display().to_string(),
             "output": output,
@@ -562,7 +579,9 @@ mod tests {
 
     #[test]
     fn git_log_schema_has_required_fields() {
-        let action = GitLog { config: test_config() };
+        let action = GitLog {
+            config: test_config(),
+        };
         let schema = action.input_schema();
         let props = schema["properties"].as_object().unwrap();
         assert!(props.contains_key("limit"));
@@ -574,7 +593,9 @@ mod tests {
 
     #[test]
     fn git_diff_schema_has_required_fields() {
-        let action = GitDiff { config: test_config() };
+        let action = GitDiff {
+            config: test_config(),
+        };
         let schema = action.input_schema();
         let props = schema["properties"].as_object().unwrap();
         assert!(props.contains_key("staged"));
@@ -585,13 +606,17 @@ mod tests {
 
     #[test]
     fn git_status_name() {
-        let action = GitStatus { config: test_config() };
+        let action = GitStatus {
+            config: test_config(),
+        };
         assert_eq!(action.name(), "git_status");
     }
 
     #[test]
     fn git_branches_name() {
-        let action = GitBranches { config: test_config() };
+        let action = GitBranches {
+            config: test_config(),
+        };
         assert_eq!(action.name(), "git_branches");
     }
 
@@ -604,14 +629,20 @@ mod tests {
 
         // Init repo
         run_git(&path, &["init"]).await.unwrap();
-        run_git(&path, &["config", "user.email", "test@test.com"]).await.unwrap();
-        run_git(&path, &["config", "user.name", "Test"]).await.unwrap();
+        run_git(&path, &["config", "user.email", "test@test.com"])
+            .await
+            .unwrap();
+        run_git(&path, &["config", "user.name", "Test"])
+            .await
+            .unwrap();
 
         // Create initial commit
         let readme = path.join("README.md");
         std::fs::write(&readme, "# Test\n").unwrap();
         run_git(&path, &["add", "."]).await.unwrap();
-        run_git(&path, &["commit", "-m", "Initial commit"]).await.unwrap();
+        run_git(&path, &["commit", "-m", "Initial commit"])
+            .await
+            .unwrap();
 
         (dir, path)
     }
@@ -641,7 +672,9 @@ mod tests {
         // Add a second commit
         std::fs::write(path.join("file2.txt"), "content").unwrap();
         run_git(&path, &["add", "."]).await.unwrap();
-        run_git(&path, &["commit", "-m", "Second commit"]).await.unwrap();
+        run_git(&path, &["commit", "-m", "Second commit"])
+            .await
+            .unwrap();
 
         let config = DevToolsConfig {
             repo_path: path,
@@ -651,7 +684,10 @@ mod tests {
             forge_token: None,
         };
         let action = GitLog { config };
-        let result = action.execute(serde_json::json!({ "limit": 1 })).await.unwrap();
+        let result = action
+            .execute(serde_json::json!({ "limit": 1 }))
+            .await
+            .unwrap();
         assert_eq!(result["count"], 1);
         let commits = result["commits"].as_array().unwrap();
         assert_eq!(commits[0]["subject"], "Second commit");
@@ -765,11 +801,18 @@ mod tests {
             forge_token: None,
         };
         let action = GitDiff { config };
-        let result = action.execute(serde_json::json!({ "stat_only": true })).await.unwrap();
+        let result = action
+            .execute(serde_json::json!({ "stat_only": true }))
+            .await
+            .unwrap();
         let diff = result["diff"].as_str().unwrap();
         assert!(diff.contains("README.md"));
         // --stat output has the +/- summary line
-        assert!(diff.contains("1 file changed") || diff.contains("insertion") || diff.contains("deletion"));
+        assert!(
+            diff.contains("1 file changed")
+                || diff.contains("insertion")
+                || diff.contains("deletion")
+        );
     }
 
     #[tokio::test]
@@ -807,9 +850,7 @@ mod tests {
         let result = action.execute(serde_json::json!({})).await.unwrap();
         assert!(result["count"].as_u64().unwrap() >= 2);
         let branches = result["branches"].as_array().unwrap();
-        let names: Vec<&str> = branches.iter()
-            .filter_map(|b| b["name"].as_str())
-            .collect();
+        let names: Vec<&str> = branches.iter().filter_map(|b| b["name"].as_str()).collect();
         assert!(names.contains(&"feature-x"));
     }
 
@@ -823,7 +864,9 @@ mod tests {
             forge_token: None,
         };
         let action = GitLog { config };
-        let result = action.execute(serde_json::json!({ "repo_path": "relative" })).await;
+        let result = action
+            .execute(serde_json::json!({ "repo_path": "relative" }))
+            .await;
         assert!(result.is_err());
     }
 }

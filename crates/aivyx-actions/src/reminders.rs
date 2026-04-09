@@ -24,21 +24,13 @@ pub struct Reminder {
 }
 
 /// Persist a reminder to the store.
-fn save_reminder(
-    store: &EncryptedStore,
-    key: &MasterKey,
-    reminder: &Reminder,
-) -> Result<()> {
-    let json = serde_json::to_vec(reminder)
-        .map_err(aivyx_core::AivyxError::Serialization)?;
+fn save_reminder(store: &EncryptedStore, key: &MasterKey, reminder: &Reminder) -> Result<()> {
+    let json = serde_json::to_vec(reminder).map_err(aivyx_core::AivyxError::Serialization)?;
     store.put(&format!("{REMINDER_PREFIX}{}", reminder.id), &json, key)
 }
 
 /// Load all reminders from the store.
-pub fn load_all_reminders(
-    store: &EncryptedStore,
-    key: &MasterKey,
-) -> Result<Vec<Reminder>> {
+pub fn load_all_reminders(store: &EncryptedStore, key: &MasterKey) -> Result<Vec<Reminder>> {
     let keys = store.list_keys()?;
     let mut reminders = Vec::new();
 
@@ -60,13 +52,13 @@ pub fn load_all_reminders(
 }
 
 /// Load only pending (not completed) reminders that are due.
-pub fn load_due_reminders(
-    store: &EncryptedStore,
-    key: &MasterKey,
-) -> Result<Vec<Reminder>> {
+pub fn load_due_reminders(store: &EncryptedStore, key: &MasterKey) -> Result<Vec<Reminder>> {
     let now = Utc::now();
     let all = load_all_reminders(store, key)?;
-    Ok(all.into_iter().filter(|r| !r.completed && r.due_at <= now).collect())
+    Ok(all
+        .into_iter()
+        .filter(|r| !r.completed && r.due_at <= now)
+        .collect())
 }
 
 // ── SetReminder action ────────────────────────────────────────
@@ -78,7 +70,9 @@ pub struct SetReminder {
 
 #[async_trait::async_trait]
 impl Action for SetReminder {
-    fn name(&self) -> &str { "set_reminder" }
+    fn name(&self) -> &str {
+        "set_reminder"
+    }
 
     fn description(&self) -> &str {
         "Set a reminder for a specific date/time. The reminder will fire as a notification when due."
@@ -99,9 +93,9 @@ impl Action for SetReminder {
         let message = input["message"].as_str().unwrap_or_default();
         let due_at_str = input["due_at"].as_str().unwrap_or_default();
 
-        let due_at: DateTime<Utc> = due_at_str.parse().map_err(|_| {
-            aivyx_core::AivyxError::Validation("invalid ISO 8601 datetime".into())
-        })?;
+        let due_at: DateTime<Utc> = due_at_str
+            .parse()
+            .map_err(|_| aivyx_core::AivyxError::Validation("invalid ISO 8601 datetime".into()))?;
 
         let id = Uuid::new_v4().to_string();
 
@@ -135,7 +129,9 @@ pub struct ListReminders {
 
 #[async_trait::async_trait]
 impl Action for ListReminders {
-    fn name(&self) -> &str { "list_reminders" }
+    fn name(&self) -> &str {
+        "list_reminders"
+    }
 
     fn description(&self) -> &str {
         "List all pending reminders (not yet completed)"
@@ -174,7 +170,9 @@ pub struct DismissReminder {
 
 #[async_trait::async_trait]
 impl Action for DismissReminder {
-    fn name(&self) -> &str { "dismiss_reminder" }
+    fn name(&self) -> &str {
+        "dismiss_reminder"
+    }
 
     fn description(&self) -> &str {
         "Mark a reminder as completed/dismissed"
@@ -194,11 +192,12 @@ impl Action for DismissReminder {
         let id = input["id"].as_str().unwrap_or_default();
         let store_key = format!("{REMINDER_PREFIX}{id}");
 
-        let bytes = self.store.get(&store_key, &self.key)?
-            .ok_or_else(|| aivyx_core::AivyxError::Validation(format!("reminder '{id}' not found")))?;
+        let bytes = self.store.get(&store_key, &self.key)?.ok_or_else(|| {
+            aivyx_core::AivyxError::Validation(format!("reminder '{id}' not found"))
+        })?;
 
-        let mut reminder: Reminder = serde_json::from_slice(&bytes)
-            .map_err(aivyx_core::AivyxError::Serialization)?;
+        let mut reminder: Reminder =
+            serde_json::from_slice(&bytes).map_err(aivyx_core::AivyxError::Serialization)?;
 
         reminder.completed = true;
         save_reminder(&self.store, &self.key, &reminder)?;
@@ -221,7 +220,9 @@ pub struct UpdateReminder {
 
 #[async_trait::async_trait]
 impl Action for UpdateReminder {
-    fn name(&self) -> &str { "update_reminder" }
+    fn name(&self) -> &str {
+        "update_reminder"
+    }
 
     fn description(&self) -> &str {
         "Update a reminder's message or reschedule its due time. \
@@ -246,16 +247,18 @@ impl Action for UpdateReminder {
             .ok_or_else(|| aivyx_core::AivyxError::Validation("'id' is required".into()))?;
 
         let store_key = format!("{REMINDER_PREFIX}{id}");
-        let bytes = self.store.get(&store_key, &self.key)?
-            .ok_or_else(|| aivyx_core::AivyxError::Validation(format!("Reminder '{id}' not found")))?;
-        let mut reminder: Reminder = serde_json::from_slice(&bytes)
-            .map_err(aivyx_core::AivyxError::Serialization)?;
+        let bytes = self.store.get(&store_key, &self.key)?.ok_or_else(|| {
+            aivyx_core::AivyxError::Validation(format!("Reminder '{id}' not found"))
+        })?;
+        let mut reminder: Reminder =
+            serde_json::from_slice(&bytes).map_err(aivyx_core::AivyxError::Serialization)?;
 
         if let Some(msg) = input["message"].as_str() {
             reminder.message = msg.into();
         }
         if let Some(due) = input["due_at"].as_str() {
-            reminder.due_at = due.parse::<DateTime<Utc>>()
+            reminder.due_at = due
+                .parse::<DateTime<Utc>>()
                 .map_err(|e| aivyx_core::AivyxError::Validation(format!("Invalid due_at: {e}")))?;
         }
 
@@ -297,10 +300,13 @@ mod tests {
             key: aivyx_crypto::derive_domain_key(&key, b"reminders"),
         };
 
-        let result = setter.execute(serde_json::json!({
-            "message": "Buy groceries",
-            "due_at": "2026-12-25T10:00:00Z"
-        })).await.unwrap();
+        let result = setter
+            .execute(serde_json::json!({
+                "message": "Buy groceries",
+                "due_at": "2026-12-25T10:00:00Z"
+            }))
+            .await
+            .unwrap();
 
         assert_eq!(result["status"], "set");
         assert_eq!(result["message"], "Buy groceries");
@@ -334,10 +340,13 @@ mod tests {
             key: aivyx_crypto::derive_domain_key(&key, b"reminders"),
         };
 
-        let result = setter.execute(serde_json::json!({
-            "message": "Call dentist",
-            "due_at": "2026-06-01T14:00:00Z"
-        })).await.unwrap();
+        let result = setter
+            .execute(serde_json::json!({
+                "message": "Call dentist",
+                "due_at": "2026-06-01T14:00:00Z"
+            }))
+            .await
+            .unwrap();
         let id = result["id"].as_str().unwrap().to_string();
 
         // Dismiss it
@@ -345,9 +354,12 @@ mod tests {
             store: store.clone(),
             key: aivyx_crypto::derive_domain_key(&key, b"reminders"),
         };
-        let dismiss_result = dismisser.execute(serde_json::json!({
-            "id": id
-        })).await.unwrap();
+        let dismiss_result = dismisser
+            .execute(serde_json::json!({
+                "id": id
+            }))
+            .await
+            .unwrap();
         assert_eq!(dismiss_result["status"], "dismissed");
 
         // List without completed should be empty
@@ -360,7 +372,10 @@ mod tests {
         assert_eq!(reminders.len(), 0);
 
         // List with completed should show it
-        let list = lister.execute(serde_json::json!({ "include_completed": true })).await.unwrap();
+        let list = lister
+            .execute(serde_json::json!({ "include_completed": true }))
+            .await
+            .unwrap();
         let reminders: Vec<Reminder> = serde_json::from_value(list).unwrap();
         assert_eq!(reminders.len(), 1);
         assert!(reminders[0].completed);
@@ -421,9 +436,11 @@ mod tests {
             store: store.clone(),
             key: aivyx_crypto::derive_domain_key(&key, b"reminders"),
         };
-        let result = dismisser.execute(serde_json::json!({
-            "id": "nonexistent-id-12345"
-        })).await;
+        let result = dismisser
+            .execute(serde_json::json!({
+                "id": "nonexistent-id-12345"
+            }))
+            .await;
 
         assert!(result.is_err());
         cleanup(dir);
@@ -437,10 +454,12 @@ mod tests {
             store: store.clone(),
             key: aivyx_crypto::derive_domain_key(&key, b"reminders"),
         };
-        let result = setter.execute(serde_json::json!({
-            "message": "Bad date",
-            "due_at": "not-a-date"
-        })).await;
+        let result = setter
+            .execute(serde_json::json!({
+                "message": "Bad date",
+                "due_at": "not-a-date"
+            }))
+            .await;
 
         assert!(result.is_err());
         cleanup(dir);
@@ -454,21 +473,27 @@ mod tests {
             store: store.clone(),
             key: aivyx_crypto::derive_domain_key(&key, b"reminders"),
         };
-        let result = setter.execute(serde_json::json!({
-            "message": "Original message",
-            "due_at": "2026-12-25T10:00:00Z"
-        })).await.unwrap();
+        let result = setter
+            .execute(serde_json::json!({
+                "message": "Original message",
+                "due_at": "2026-12-25T10:00:00Z"
+            }))
+            .await
+            .unwrap();
         let id = result["id"].as_str().unwrap().to_string();
 
         let updater = UpdateReminder {
             store: store.clone(),
             key: aivyx_crypto::derive_domain_key(&key, b"reminders"),
         };
-        let result = updater.execute(serde_json::json!({
-            "id": id,
-            "message": "Updated message",
-            "due_at": "2026-12-26T15:00:00Z"
-        })).await.unwrap();
+        let result = updater
+            .execute(serde_json::json!({
+                "id": id,
+                "message": "Updated message",
+                "due_at": "2026-12-26T15:00:00Z"
+            }))
+            .await
+            .unwrap();
         assert_eq!(result["status"], "updated");
         assert_eq!(result["message"], "Updated message");
 

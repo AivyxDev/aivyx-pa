@@ -28,7 +28,9 @@ pub struct TraverseKnowledgeGraph {
 
 #[async_trait::async_trait]
 impl Action for TraverseKnowledgeGraph {
-    fn name(&self) -> &str { "traverse_knowledge" }
+    fn name(&self) -> &str {
+        "traverse_knowledge"
+    }
 
     fn description(&self) -> &str {
         "Traverse the knowledge graph from an entity to discover related facts. \
@@ -64,10 +66,12 @@ impl Action for TraverseKnowledgeGraph {
         let mgr = self.ctx.memory.lock().await;
         let graph = match mgr.graph() {
             Some(g) => g,
-            None => return Ok(serde_json::json!({
-                "entity": entity,
-                "error": "knowledge graph not available",
-            })),
+            None => {
+                return Ok(serde_json::json!({
+                    "entity": entity,
+                    "error": "knowledge graph not available",
+                }));
+            }
         };
 
         let paths = graph.traverse(entity, max_hops);
@@ -75,7 +79,9 @@ impl Action for TraverseKnowledgeGraph {
         if paths.is_empty() {
             // Try fuzzy search to suggest close matches
             let suggestions = graph.search_entities(entity);
-            let top: Vec<_> = suggestions.iter().take(5)
+            let top: Vec<_> = suggestions
+                .iter()
+                .take(5)
                 .map(|(name, score)| serde_json::json!({"entity": name, "similarity": score}))
                 .collect();
 
@@ -87,12 +93,17 @@ impl Action for TraverseKnowledgeGraph {
             }));
         }
 
-        let path_json: Vec<_> = paths.iter().take(50).map(|path| {
-            let hops: Vec<_> = path.hops.iter().map(|(s, p, o)| {
+        let path_json: Vec<_> =
+            paths
+                .iter()
+                .take(50)
+                .map(|path| {
+                    let hops: Vec<_> = path.hops.iter().map(|(s, p, o)| {
                 serde_json::json!({"subject": s, "predicate": p, "object": o})
             }).collect();
-            serde_json::json!({"hops": hops})
-        }).collect();
+                    serde_json::json!({"hops": hops})
+                })
+                .collect();
 
         Ok(serde_json::json!({
             "entity": entity,
@@ -112,7 +123,9 @@ pub struct FindKnowledgePaths {
 
 #[async_trait::async_trait]
 impl Action for FindKnowledgePaths {
-    fn name(&self) -> &str { "find_knowledge_paths" }
+    fn name(&self) -> &str {
+        "find_knowledge_paths"
+    }
 
     fn description(&self) -> &str {
         "Find how two entities are connected in the knowledge graph. Returns \
@@ -155,21 +168,28 @@ impl Action for FindKnowledgePaths {
         let mgr = self.ctx.memory.lock().await;
         let graph = match mgr.graph() {
             Some(g) => g,
-            None => return Ok(serde_json::json!({
-                "from": from,
-                "to": to,
-                "error": "knowledge graph not available",
-            })),
+            None => {
+                return Ok(serde_json::json!({
+                    "from": from,
+                    "to": to,
+                    "error": "knowledge graph not available",
+                }));
+            }
         };
 
         let paths = graph.find_paths(from, to, max_depth);
 
-        let path_json: Vec<_> = paths.iter().take(20).map(|path| {
-            let hops: Vec<_> = path.hops.iter().map(|(s, p, o)| {
+        let path_json: Vec<_> =
+            paths
+                .iter()
+                .take(20)
+                .map(|path| {
+                    let hops: Vec<_> = path.hops.iter().map(|(s, p, o)| {
                 serde_json::json!({"subject": s, "predicate": p, "object": o})
             }).collect();
-            serde_json::json!({"hops": hops, "length": path.hops.len()})
-        }).collect();
+                    serde_json::json!({"hops": hops, "length": path.hops.len()})
+                })
+                .collect();
 
         Ok(serde_json::json!({
             "from": from,
@@ -191,7 +211,9 @@ pub struct SearchKnowledgeEntities {
 
 #[async_trait::async_trait]
 impl Action for SearchKnowledgeEntities {
-    fn name(&self) -> &str { "search_knowledge" }
+    fn name(&self) -> &str {
+        "search_knowledge"
+    }
 
     fn description(&self) -> &str {
         "Search for entities in the knowledge graph by name (fuzzy substring match). \
@@ -227,10 +249,12 @@ impl Action for SearchKnowledgeEntities {
         let mgr = self.ctx.memory.lock().await;
         let graph = match mgr.graph() {
             Some(g) => g,
-            None => return Ok(serde_json::json!({
-                "query": query,
-                "error": "knowledge graph not available",
-            })),
+            None => {
+                return Ok(serde_json::json!({
+                    "query": query,
+                    "error": "knowledge graph not available",
+                }));
+            }
         };
 
         let matches = graph.search_entities(query);
@@ -270,7 +294,9 @@ pub struct KnowledgeGraphStats {
 
 #[async_trait::async_trait]
 impl Action for KnowledgeGraphStats {
-    fn name(&self) -> &str { "knowledge_graph_stats" }
+    fn name(&self) -> &str {
+        "knowledge_graph_stats"
+    }
 
     fn description(&self) -> &str {
         "Get statistics about the knowledge graph: entity count, edge count, \
@@ -295,9 +321,11 @@ impl Action for KnowledgeGraphStats {
         let mgr = self.ctx.memory.lock().await;
         let graph = match mgr.graph() {
             Some(g) => g,
-            None => return Ok(serde_json::json!({
-                "error": "knowledge graph not available",
-            })),
+            None => {
+                return Ok(serde_json::json!({
+                    "error": "knowledge graph not available",
+                }));
+            }
         };
 
         let entity_count = graph.entity_count();
@@ -310,7 +338,8 @@ impl Action for KnowledgeGraphStats {
 
         if include_communities {
             let communities = graph.detect_communities();
-            let community_json: Vec<_> = communities.iter()
+            let community_json: Vec<_> = communities
+                .iter()
                 .filter(|c| c.entities.len() > 1) // skip singletons
                 .take(20)
                 .map(|c| {
@@ -341,7 +370,9 @@ pub struct DeleteKnowledgeTriple {
 
 #[async_trait::async_trait]
 impl Action for DeleteKnowledgeTriple {
-    fn name(&self) -> &str { "delete_knowledge_triple" }
+    fn name(&self) -> &str {
+        "delete_knowledge_triple"
+    }
 
     fn description(&self) -> &str {
         "Delete a knowledge triple by its ID. Use this to remove incorrect or outdated facts \
@@ -362,13 +393,13 @@ impl Action for DeleteKnowledgeTriple {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let id_str = input["triple_id"].as_str()
+        let id_str = input["triple_id"]
+            .as_str()
             .ok_or_else(|| aivyx_core::AivyxError::Validation("'triple_id' is required".into()))?;
 
-        let triple_id: aivyx_core::TripleId = id_str.parse()
-            .map_err(|e| aivyx_core::AivyxError::Validation(
-                format!("Invalid triple_id '{id_str}': {e}"),
-            ))?;
+        let triple_id: aivyx_core::TripleId = id_str.parse().map_err(|e| {
+            aivyx_core::AivyxError::Validation(format!("Invalid triple_id '{id_str}': {e}"))
+        })?;
 
         let mut mgr = self.ctx.memory.lock().await;
         mgr.delete_triple(&triple_id)?;
@@ -397,10 +428,20 @@ mod tests {
         struct DummyEmbed;
         #[async_trait::async_trait]
         impl aivyx_llm::EmbeddingProvider for DummyEmbed {
-            fn name(&self) -> &str { "dummy" }
-            fn dimensions(&self) -> usize { 128 }
-            async fn embed(&self, _text: &str) -> std::result::Result<aivyx_llm::Embedding, aivyx_core::AivyxError> {
-                Ok(aivyx_llm::Embedding { vector: vec![0.1; 128], dimensions: 128 })
+            fn name(&self) -> &str {
+                "dummy"
+            }
+            fn dimensions(&self) -> usize {
+                128
+            }
+            async fn embed(
+                &self,
+                _text: &str,
+            ) -> std::result::Result<aivyx_llm::Embedding, aivyx_core::AivyxError> {
+                Ok(aivyx_llm::Embedding {
+                    vector: vec![0.1; 128],
+                    dimensions: 128,
+                })
             }
         }
 
@@ -452,7 +493,10 @@ mod tests {
     #[tokio::test]
     async fn traverse_empty_graph() {
         let action = TraverseKnowledgeGraph { ctx: test_ctx() };
-        let result = action.execute(serde_json::json!({"entity": "Alice"})).await.unwrap();
+        let result = action
+            .execute(serde_json::json!({"entity": "Alice"}))
+            .await
+            .unwrap();
         // Empty graph — should return no paths
         let paths = result["paths"].as_array().unwrap();
         assert!(paths.is_empty());
@@ -497,7 +541,10 @@ mod tests {
     #[tokio::test]
     async fn stats_with_communities() {
         let action = KnowledgeGraphStats { ctx: test_ctx() };
-        let result = action.execute(serde_json::json!({"include_communities": true})).await.unwrap();
+        let result = action
+            .execute(serde_json::json!({"include_communities": true}))
+            .await
+            .unwrap();
         assert_eq!(result["entity_count"], 0);
         assert!(result["communities"].as_array().unwrap().is_empty());
     }
@@ -508,17 +555,30 @@ mod tests {
         {
             let mut mgr = ctx.memory.lock().await;
             mgr.add_triple(
-                "Alice".into(), "works_at".into(), "Acme".into(),
-                None, 0.9, "test".into(),
-            ).unwrap();
+                "Alice".into(),
+                "works_at".into(),
+                "Acme".into(),
+                None,
+                0.9,
+                "test".into(),
+            )
+            .unwrap();
             mgr.add_triple(
-                "Acme".into(), "located_in".into(), "New York".into(),
-                None, 0.85, "test".into(),
-            ).unwrap();
+                "Acme".into(),
+                "located_in".into(),
+                "New York".into(),
+                None,
+                0.85,
+                "test".into(),
+            )
+            .unwrap();
         }
 
         let action = TraverseKnowledgeGraph { ctx };
-        let result = action.execute(serde_json::json!({"entity": "Alice", "max_hops": 2})).await.unwrap();
+        let result = action
+            .execute(serde_json::json!({"entity": "Alice", "max_hops": 2}))
+            .await
+            .unwrap();
         let paths = result["paths"].as_array().unwrap();
         assert!(!paths.is_empty());
         assert!(result["path_count"].as_u64().unwrap() > 0);
@@ -530,22 +590,38 @@ mod tests {
         {
             let mut mgr = ctx.memory.lock().await;
             mgr.add_triple(
-                "Alice".into(), "works_at".into(), "Acme".into(),
-                None, 0.9, "test".into(),
-            ).unwrap();
+                "Alice".into(),
+                "works_at".into(),
+                "Acme".into(),
+                None,
+                0.9,
+                "test".into(),
+            )
+            .unwrap();
             mgr.add_triple(
-                "Acme".into(), "employs".into(), "Bob".into(),
-                None, 0.85, "test".into(),
-            ).unwrap();
+                "Acme".into(),
+                "employs".into(),
+                "Bob".into(),
+                None,
+                0.85,
+                "test".into(),
+            )
+            .unwrap();
         }
 
         let action = FindKnowledgePaths { ctx: ctx.clone() };
-        let result = action.execute(serde_json::json!({"from": "Alice", "to": "Bob"})).await.unwrap();
+        let result = action
+            .execute(serde_json::json!({"from": "Alice", "to": "Bob"}))
+            .await
+            .unwrap();
         // Alice -> works_at -> Acme -> employs -> Bob
         assert!(result["connected"].as_bool().unwrap());
 
         // No path in the opposite direction without reverse edges
-        let result2 = action.execute(serde_json::json!({"from": "Bob", "to": "Alice"})).await.unwrap();
+        let result2 = action
+            .execute(serde_json::json!({"from": "Bob", "to": "Alice"}))
+            .await
+            .unwrap();
         // May or may not be connected depending on graph's reverse edge handling
         let _ = result2;
     }
@@ -556,13 +632,21 @@ mod tests {
         {
             let mut mgr = ctx.memory.lock().await;
             mgr.add_triple(
-                "Alice Johnson".into(), "email_is".into(), "alice@example.com".into(),
-                None, 0.95, "test".into(),
-            ).unwrap();
+                "Alice Johnson".into(),
+                "email_is".into(),
+                "alice@example.com".into(),
+                None,
+                0.95,
+                "test".into(),
+            )
+            .unwrap();
         }
 
         let action = SearchKnowledgeEntities { ctx };
-        let result = action.execute(serde_json::json!({"query": "Alice"})).await.unwrap();
+        let result = action
+            .execute(serde_json::json!({"query": "Alice"}))
+            .await
+            .unwrap();
         assert!(result["result_count"].as_u64().unwrap() > 0);
     }
 
@@ -586,9 +670,14 @@ mod tests {
         let triple_id = {
             let mut mgr = ctx.memory.lock().await;
             mgr.add_triple(
-                "Alice".into(), "knows".into(), "Bob".into(),
-                None, 0.9, "test".into(),
-            ).unwrap()
+                "Alice".into(),
+                "knows".into(),
+                "Bob".into(),
+                None,
+                0.9,
+                "test".into(),
+            )
+            .unwrap()
         };
 
         // Verify it exists via stats
@@ -598,9 +687,12 @@ mod tests {
 
         // Delete it
         let action = DeleteKnowledgeTriple { ctx: ctx.clone() };
-        let result = action.execute(serde_json::json!({
-            "triple_id": triple_id.to_string()
-        })).await.unwrap();
+        let result = action
+            .execute(serde_json::json!({
+                "triple_id": triple_id.to_string()
+            }))
+            .await
+            .unwrap();
         assert_eq!(result["status"], "deleted");
 
         // Verify it's gone
@@ -611,9 +703,11 @@ mod tests {
     #[tokio::test]
     async fn delete_triple_invalid_id() {
         let action = DeleteKnowledgeTriple { ctx: test_ctx() };
-        let result = action.execute(serde_json::json!({
-            "triple_id": "not-a-uuid"
-        })).await;
+        let result = action
+            .execute(serde_json::json!({
+                "triple_id": "not-a-uuid"
+            }))
+            .await;
         assert!(result.is_err());
     }
 }

@@ -8,32 +8,37 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, BorderType, Widget},
+    widgets::{Block, BorderType, Borders, Widget},
 };
 
-use aivyx_pa::api::ApprovalStatus;
 use crate::app::App;
 use crate::theme;
+use aivyx_pa::api::ApprovalStatus;
 
 pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
-    let [header, body] = Layout::vertical([
-        Constraint::Length(2),
-        Constraint::Min(5),
-    ]).areas(area);
+    let [header, body] = Layout::vertical([Constraint::Length(2), Constraint::Min(5)]).areas(area);
 
-    let pending = app.approvals.iter()
+    let pending = app
+        .approvals
+        .iter()
         .filter(|a| a.status == ApprovalStatus::Pending)
         .count();
     let title = Line::from(vec![
         Span::styled("Approvals", theme::text_bold()),
-        Span::styled(format!("  {pending} pending actions require your decision."), theme::dim()),
+        Span::styled(
+            format!("  {pending} pending actions require your decision."),
+            theme::dim(),
+        ),
     ]);
     buf.set_line(header.x, header.y, &title, header.width);
 
     if app.approvals.is_empty() {
         let empty = Line::from(vec![
             Span::styled("  ◇  ", theme::dim()),
-            Span::styled("No pending approvals. The agent will request decisions here.", theme::dim()),
+            Span::styled(
+                "No pending approvals. The agent will request decisions here.",
+                theme::dim(),
+            ),
         ]);
         buf.set_line(body.x + 1, body.y + 1, &empty, body.width - 2);
         render_hint(app, body, buf);
@@ -42,10 +47,8 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
     // Split layout when detail pane is open
     let (list_area, detail_area) = if app.approval_detail_open && !app.approvals.is_empty() {
-        let [top, bottom] = Layout::vertical([
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
-        ]).areas(body);
+        let [top, bottom] =
+            Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(body);
         (top, Some(bottom))
     } else {
         (body, None)
@@ -54,14 +57,17 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     // ── Card list ─────────────────────────────────────────────────
     let mut y = list_area.y;
     for (i, item) in app.approvals.iter().enumerate() {
-        let card_h: u16 = if i == app.approval_selected
-            && item.status == ApprovalStatus::Pending { 6 } else { 5 };
+        let card_h: u16 = if i == app.approval_selected && item.status == ApprovalStatus::Pending {
+            6
+        } else {
+            5
+        };
         if y + card_h >= list_area.y + list_area.height {
             break;
         }
 
         let is_selected = i == app.approval_selected;
-        let is_pending  = item.status == ApprovalStatus::Pending;
+        let is_pending = item.status == ApprovalStatus::Pending;
 
         let border_style = if is_selected {
             theme::border_active()
@@ -79,16 +85,25 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
         // Status badge
         let (status_label, status_style) = match item.status {
-            ApprovalStatus::Pending  => ("PENDING",  Style::default().fg(theme::ACCENT_GLOW).add_modifier(Modifier::BOLD)),
+            ApprovalStatus::Pending => (
+                "PENDING",
+                Style::default()
+                    .fg(theme::ACCENT_GLOW)
+                    .add_modifier(Modifier::BOLD),
+            ),
             ApprovalStatus::Approved => ("APPROVED", theme::sage()),
-            ApprovalStatus::Denied   => ("DENIED",   theme::error()),
-            ApprovalStatus::Expired  => ("EXPIRED",  theme::dim()),
+            ApprovalStatus::Denied => ("DENIED", theme::error()),
+            ApprovalStatus::Expired => ("EXPIRED", theme::dim()),
         };
 
         // Row 0: title + status badge
         let title_line = Line::from(vec![
             Span::styled(
-                if is_selected && is_pending { "[■] " } else { "[ ] " },
+                if is_selected && is_pending {
+                    "[■] "
+                } else {
+                    "[ ] "
+                },
                 theme::primary(),
             ),
             Span::styled(&item.notification.title, theme::text_bold()),
@@ -107,7 +122,9 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                     format!("  expires in {}m{}s", remaining / 60, remaining % 60)
                 }
             } else {
-                let secs = (chrono::Utc::now() - item.notification.timestamp).num_seconds().max(0);
+                let secs = (chrono::Utc::now() - item.notification.timestamp)
+                    .num_seconds()
+                    .max(0);
                 if secs < 60 {
                     format!("  waiting {secs}s")
                 } else {
@@ -120,14 +137,27 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         let source_line = Line::from(vec![
             Span::styled("   Source: ", theme::muted()),
             Span::styled(&item.notification.source, theme::secondary()),
-            Span::styled(elapsed_str, if is_pending { theme::warning() } else { theme::dim() }),
+            Span::styled(
+                elapsed_str,
+                if is_pending {
+                    theme::warning()
+                } else {
+                    theme::dim()
+                },
+            ),
         ]);
         buf.set_line(inner.x + 1, inner.y + 1, &source_line, inner.width - 2);
 
         // Row 2: action context preview (first line of body)
-        let body_preview: String = item.notification.body
-            .lines().next().unwrap_or("")
-            .chars().take((inner.width.saturating_sub(6)) as usize).collect();
+        let body_preview: String = item
+            .notification
+            .body
+            .lines()
+            .next()
+            .unwrap_or("")
+            .chars()
+            .take((inner.width.saturating_sub(6)) as usize)
+            .collect();
         let detail_line = Line::from(vec![
             Span::styled("   ", Style::default()),
             Span::styled(body_preview, theme::text()),
@@ -175,7 +205,9 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
             // Word-wrap the body to the inner width
             let max_width = inner.width.saturating_sub(2) as usize;
-            let lines: Vec<String> = item.notification.body
+            let lines: Vec<String> = item
+                .notification
+                .body
                 .lines()
                 .flat_map(|line| {
                     if line.is_empty() {
@@ -216,12 +248,14 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
             // Scroll position hint
             if total > visible {
-                let hint = Line::from(vec![
-                    Span::styled(
-                        format!(" {}/{} lines  [↑↓] scroll", scroll + visible.min(total), total),
-                        theme::dim(),
+                let hint = Line::from(vec![Span::styled(
+                    format!(
+                        " {}/{} lines  [↑↓] scroll",
+                        scroll + visible.min(total),
+                        total
                     ),
-                ]);
+                    theme::dim(),
+                )]);
                 let hint_y = inner.y + inner.height.saturating_sub(1);
                 buf.set_line(inner.x, hint_y, &hint, inner.width);
             }
@@ -233,7 +267,11 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
 fn render_hint(app: &App, body: Rect, buf: &mut Buffer) {
     let hint_y = body.y + body.height.saturating_sub(1);
-    let detail_label = if app.approval_detail_open { "CLOSE" } else { "DETAIL" };
+    let detail_label = if app.approval_detail_open {
+        "CLOSE"
+    } else {
+        "DETAIL"
+    };
     let hint = Line::from(vec![
         Span::styled("[A]", theme::sage()),
         Span::styled(" APPROVE  ", theme::dim()),

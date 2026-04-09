@@ -5,7 +5,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, BorderType, Widget},
+    widgets::{Block, BorderType, Borders, Widget},
 };
 
 use crate::app::{self, App};
@@ -19,12 +19,16 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         Constraint::Length(1),
         Constraint::Min(5),
         Constraint::Length(1),
-    ]).areas(area);
+    ])
+    .areas(area);
 
     let count = app.audit_entries.len();
     let title = Line::from(vec![
         Span::styled("Audit Trail", theme::text_bold()),
-        Span::styled(format!("  {count} entries — HMAC-chained immutable log."), theme::dim()),
+        Span::styled(
+            format!("  {count} entries — HMAC-chained immutable log."),
+            theme::dim(),
+        ),
     ]);
     buf.set_line(header.x, header.y, &title, header.width);
 
@@ -32,7 +36,9 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     let mut filter_spans = Vec::new();
     for (i, f) in FILTERS.iter().enumerate() {
         let style = if i == app.audit_filter {
-            Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(theme::PRIMARY)
+                .add_modifier(Modifier::BOLD)
         } else {
             theme::dim()
         };
@@ -41,20 +47,26 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             filter_spans.push(Span::styled("│", theme::dim()));
         }
     }
-    buf.set_line(filter_row.x, filter_row.y, &Line::from(filter_spans), filter_row.width);
+    buf.set_line(
+        filter_row.x,
+        filter_row.y,
+        &Line::from(filter_spans),
+        filter_row.width,
+    );
 
     // Split: log list + chain status / detail sidebar
-    let [log_area, side_area] = Layout::horizontal([
-        Constraint::Percentage(65),
-        Constraint::Percentage(35),
-    ]).areas(body);
+    let [log_area, side_area] =
+        Layout::horizontal([Constraint::Percentage(65), Constraint::Percentage(35)]).areas(body);
 
     // ── Event log with selection + scroll ─────────────────────
     let log_block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Plain)
         .border_style(theme::border())
-        .title(Line::from(Span::styled("[ SECURE EVENT LOG ]", theme::primary_bold())));
+        .title(Line::from(Span::styled(
+            "[ SECURE EVENT LOG ]",
+            theme::primary_bold(),
+        )));
     let log_inner = log_block.inner(log_area);
     log_block.render(log_area, buf);
 
@@ -94,18 +106,32 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
             // Short type tag in brackets for rapid scanning
             let type_tag = match event_type {
-                "tool"      => Span::styled(" [TOOL] ",      type_style),
-                "heartbeat" => Span::styled(" [HB] ",        type_style),
-                "security"  => Span::styled(" [SEC] ",       type_style),
-                _           => Span::styled(" [EVENT] ",     type_style),
+                "tool" => Span::styled(" [TOOL] ", type_style),
+                "heartbeat" => Span::styled(" [HB] ", type_style),
+                "security" => Span::styled(" [SEC] ", type_style),
+                _ => Span::styled(" [EVENT] ", type_style),
             };
 
             let line1 = Line::from(vec![
-                Span::styled(marker, if is_selected { theme::primary() } else { theme::dim() }),
+                Span::styled(
+                    marker,
+                    if is_selected {
+                        theme::primary()
+                    } else {
+                        theme::dim()
+                    },
+                ),
                 Span::styled(time, theme::dim()),
                 Span::styled(format!("  #{}", entry.sequence_number), theme::muted()),
                 type_tag,
-                Span::styled(desc, if is_selected { theme::primary_bold() } else { theme::text() }),
+                Span::styled(
+                    desc,
+                    if is_selected {
+                        theme::primary_bold()
+                    } else {
+                        theme::text()
+                    },
+                ),
             ]);
             buf.set_line(log_inner.x + 1, y, &line1, log_inner.width - 2);
             y += 2;
@@ -113,33 +139,44 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     }
 
     // ── Sidebar: chain status + selected entry detail ─────────
-    let [chain_area, detail_area] = Layout::vertical([
-        Constraint::Length(7),
-        Constraint::Min(3),
-    ]).areas(side_area);
+    let [chain_area, detail_area] =
+        Layout::vertical([Constraint::Length(7), Constraint::Min(3)]).areas(side_area);
 
     // Chain status
     let chain_block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Plain)
         .border_style(theme::border())
-        .title(Line::from(Span::styled("[ HMAC CHAIN STATUS ]", theme::primary_bold())));
+        .title(Line::from(Span::styled(
+            "[ HMAC CHAIN STATUS ]",
+            theme::primary_bold(),
+        )));
     let chain_inner = chain_block.inner(chain_area);
     chain_block.render(chain_area, buf);
 
     let (status_text, status_style, status_detail) = match app.audit_chain_valid {
-        Some(true)  => ("✓ CHAIN VERIFIED",  theme::sage(),    "HMAC-SHA256 • all seals intact"),
-        Some(false) => ("✗ CHAIN BROKEN",   theme::error(),   "⚠  one or more seals invalid"),
-        None        => ("◇ CHECKING...",     theme::dim(),     "verifying HMAC chain..."),
+        Some(true) => (
+            "✓ CHAIN VERIFIED",
+            theme::sage(),
+            "HMAC-SHA256 • all seals intact",
+        ),
+        Some(false) => (
+            "✗ CHAIN BROKEN",
+            theme::error(),
+            "⚠  one or more seals invalid",
+        ),
+        None => ("◇ CHECKING...", theme::dim(), "verifying HMAC chain..."),
     };
     // Full-width status line for maximum visibility
     buf.set_line(
-        chain_inner.x + 1, chain_inner.y,
+        chain_inner.x + 1,
+        chain_inner.y,
         &Line::from(Span::styled(status_text, status_style)),
         chain_inner.width - 2,
     );
     buf.set_line(
-        chain_inner.x + 1, chain_inner.y + 1,
+        chain_inner.x + 1,
+        chain_inner.y + 1,
         &Line::from(Span::styled(status_detail, theme::dim())),
         chain_inner.width - 2,
     );
@@ -148,20 +185,33 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         Span::styled("Algorithm   ", theme::dim()),
         Span::styled("HMAC-SHA256", theme::text()),
     ]);
-    buf.set_line(chain_inner.x + 1, chain_inner.y + 3, &algo, chain_inner.width - 2);
+    buf.set_line(
+        chain_inner.x + 1,
+        chain_inner.y + 3,
+        &algo,
+        chain_inner.width - 2,
+    );
 
     let entries_count = Line::from(vec![
         Span::styled("Entries     ", theme::dim()),
         Span::styled(app.audit_entries.len().to_string(), theme::text()),
     ]);
-    buf.set_line(chain_inner.x + 1, chain_inner.y + 4, &entries_count, chain_inner.width - 2);
+    buf.set_line(
+        chain_inner.x + 1,
+        chain_inner.y + 4,
+        &entries_count,
+        chain_inner.width - 2,
+    );
 
     // Selected entry detail
     let detail_block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Plain)
         .border_style(theme::border())
-        .title(Line::from(Span::styled("[ DETAIL ]", theme::primary_bold())));
+        .title(Line::from(Span::styled(
+            "[ DETAIL ]",
+            theme::primary_bold(),
+        )));
     let detail_inner = detail_block.inner(detail_area);
     detail_block.render(detail_area, buf);
 
@@ -196,13 +246,23 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         let mut pos = 0;
         while pos < desc.len() && y < detail_inner.y + detail_inner.height {
             let end = (pos + max_w).min(desc.len());
-            buf.set_line(detail_inner.x + 1, y, &Line::from(Span::styled(&desc[pos..end], theme::text())), detail_inner.width - 2);
+            buf.set_line(
+                detail_inner.x + 1,
+                y,
+                &Line::from(Span::styled(&desc[pos..end], theme::text())),
+                detail_inner.width - 2,
+            );
             y += 1;
             pos = end;
         }
     } else {
         let empty = Line::from(Span::styled("  Select an entry.", theme::dim()));
-        buf.set_line(detail_inner.x + 1, detail_inner.y, &empty, detail_inner.width - 2);
+        buf.set_line(
+            detail_inner.x + 1,
+            detail_inner.y,
+            &empty,
+            detail_inner.width - 2,
+        );
     }
 
     // ── Help bar ──────────────────────────────────────────────

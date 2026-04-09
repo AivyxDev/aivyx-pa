@@ -11,16 +11,16 @@ pub mod notify_dispatch;
 pub mod pacing;
 pub mod priority;
 pub mod schedule;
-pub mod trigger;
 pub mod triage;
+pub mod trigger;
 
 pub use notify_dispatch::{DispatchContext, NotificationDispatchConfig};
 // ApprovalResponse is defined in this module (lib.rs) directly.
 
+use aivyx_actions::Action;
 use aivyx_actions::email::{EmailConfig, EmailSummary, ReadInbox};
 use aivyx_actions::reminders;
 use aivyx_actions::web::FetchPage;
-use aivyx_actions::Action;
 use aivyx_brain::{BrainStore, Goal, GoalStatus};
 use aivyx_config::ScheduleEntry;
 use aivyx_core::Result;
@@ -36,7 +36,8 @@ use tokio::sync::mpsc;
 /// Silently does nothing if no audit log is set.
 fn emit_audit(ctx: &LoopContext, event: aivyx_audit::AuditEvent) {
     if let Some(ref log) = ctx.audit_log
-        && let Err(e) = log.append(event) {
+        && let Err(e) = log.append(event)
+    {
         tracing::warn!("Failed to write audit event: {e}");
     }
 }
@@ -230,8 +231,12 @@ pub struct HeartbeatConfig {
     pub max_notifications_per_hour: u8,
 }
 
-fn default_audit_retention_days() -> u64 { 90 }
-fn default_max_notifications_per_hour() -> u8 { 5 }
+fn default_audit_retention_days() -> u64 {
+    90
+}
+fn default_max_notifications_per_hour() -> u8 {
+    5
+}
 
 impl Default for HeartbeatConfig {
     fn default() -> Self {
@@ -267,9 +272,15 @@ impl Default for HeartbeatConfig {
     }
 }
 
-fn default_heartbeat_enabled() -> bool { true }
-fn default_heartbeat_interval() -> u32 { 30 }
-fn default_true() -> bool { true }
+fn default_heartbeat_enabled() -> bool {
+    true
+}
+fn default_heartbeat_interval() -> u32 {
+    30
+}
+fn default_true() -> bool {
+    true
+}
 
 /// Handle to the running agent loop.
 pub struct AgentLoop {
@@ -383,9 +394,22 @@ pub struct InteractionSignals {
 
 /// Keywords that suggest user frustration or stress.
 const NEGATIVE_KEYWORDS: &[&str] = &[
-    "frustrated", "frustrating", "annoyed", "annoying", "broken",
-    "ugh", "wtf", "damn", "useless", "wrong", "terrible", "horrible",
-    "stupid", "hate", "sucks", "awful",
+    "frustrated",
+    "frustrating",
+    "annoyed",
+    "annoying",
+    "broken",
+    "ugh",
+    "wtf",
+    "damn",
+    "useless",
+    "wrong",
+    "terrible",
+    "horrible",
+    "stupid",
+    "hate",
+    "sucks",
+    "awful",
 ];
 
 impl InteractionSignals {
@@ -598,7 +622,8 @@ impl ResourceBudget {
 
     /// Whether we're currently in the user's quiet hours.
     pub fn in_quiet_hours(&self) -> bool {
-        let (Some(start), Some(end)) = (self.user_quiet_hours_start, self.user_quiet_hours_end) else {
+        let (Some(start), Some(end)) = (self.user_quiet_hours_start, self.user_quiet_hours_end)
+        else {
             return false;
         };
         let hour = chrono::Local::now().hour() as u8;
@@ -629,7 +654,11 @@ impl ResourceBudget {
         // Show quiet hours warning if within 2 hours of start
         if let Some(start) = self.user_quiet_hours_start {
             let hour = chrono::Local::now().hour() as u8;
-            let hours_until = if start > hour { start - hour } else { start + 24 - hour };
+            let hours_until = if start > hour {
+                start - hour
+            } else {
+                start + 24 - hour
+            };
             if hours_until <= 2 && hours_until > 0 {
                 lines.push(format!(
                     "Quiet hours begin in ~{hours_until}h (at {start}:00) — avoid starting long tasks"
@@ -639,7 +668,11 @@ impl ResourceBudget {
             }
         }
 
-        if lines.is_empty() { None } else { Some(lines.join("\n")) }
+        if lines.is_empty() {
+            None
+        } else {
+            Some(lines.join("\n"))
+        }
     }
 }
 
@@ -843,7 +876,8 @@ pub fn poll_approval(ctx: &mut LoopContext, notification_id: &str) -> Option<App
     }
 
     // Check the buffer for a matching decision
-    if let Some(pos) = ctx.pending_approval_responses
+    if let Some(pos) = ctx
+        .pending_approval_responses
         .iter()
         .position(|r| r.notification_id == notification_id)
     {
@@ -918,12 +952,13 @@ async fn run_loop(
             .and_then(|c| c.briefing_fired_today)
             .is_some_and(|d| d == today);
 
-        if !already_fired
-            && let Some(ref mut ctx) = context {
-                tracing::info!("Generating launch briefing");
-                let briefing = generate_morning_briefing(ctx).await;
+        if !already_fired && let Some(ref mut ctx) = context {
+            tracing::info!("Generating launch briefing");
+            let briefing = generate_morning_briefing(ctx).await;
 
-                send_notification(&tx, Notification {
+            send_notification(
+                &tx,
+                Notification {
                     id: uuid::Uuid::new_v4().to_string(),
                     kind: NotificationKind::Info,
                     title: "Your briefing is ready".into(),
@@ -932,10 +967,11 @@ async fn run_loop(
                     timestamp: Utc::now(),
                     requires_approval: false,
                     goal_id: None,
-                });
+                },
+            );
 
-                ctx.briefing_fired_today = Some(today);
-            }
+            ctx.briefing_fired_today = Some(today);
+        }
     }
 
     run_tick(&config, &tx, context.as_mut()).await;
@@ -991,17 +1027,21 @@ async fn run_tick(
             .and_then(|c| c.briefing_fired_today)
             .is_some_and(|d| d == today);
 
-        if !already_fired
-            && let Some(ref mut ctx) = context {
-                let briefing = generate_morning_briefing(ctx).await;
+        if !already_fired && let Some(ref mut ctx) = context {
+            let briefing = generate_morning_briefing(ctx).await;
 
-                // Audit: briefing generated
-                emit_audit(ctx, aivyx_audit::AuditEvent::BriefingGenerated {
+            // Audit: briefing generated
+            emit_audit(
+                ctx,
+                aivyx_audit::AuditEvent::BriefingGenerated {
                     item_count: briefing.items.len(),
                     summary: crate::truncate(&briefing.summary, 200).to_string(),
-                });
+                },
+            );
 
-                send_notification(tx, Notification {
+            send_notification(
+                tx,
+                Notification {
                     id: uuid::Uuid::new_v4().to_string(),
                     kind: NotificationKind::Info,
                     title: "Good morning — your briefing is ready".into(),
@@ -1010,10 +1050,11 @@ async fn run_tick(
                     timestamp: Utc::now(),
                     requires_approval: false,
                     goal_id: None,
-                });
+                },
+            );
 
-                ctx.briefing_fired_today = Some(today);
-            }
+            ctx.briefing_fired_today = Some(today);
+        }
     }
 
     // Evaluate active goals, schedules, and reminders
@@ -1037,21 +1078,24 @@ async fn run_tick(
                 failures = ctx.imap_consecutive_failures,
                 "Email credentials may have expired — sending notification",
             );
-            send_notification(tx, Notification {
-                id: uuid::Uuid::new_v4().to_string(),
-                kind: NotificationKind::Urgent,
-                title: "Email authentication failing".into(),
-                body: format!(
-                    "IMAP login has failed {} consecutive times. Your email password may \
+            send_notification(
+                tx,
+                Notification {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    kind: NotificationKind::Urgent,
+                    title: "Email authentication failing".into(),
+                    body: format!(
+                        "IMAP login has failed {} consecutive times. Your email password may \
                      have expired or changed. Run `aivyx init` to update your credentials, \
                      or check Settings → Integrations → Email.",
-                    ctx.imap_consecutive_failures,
-                ),
-                source: "system:credential-check".into(),
-                timestamp: Utc::now(),
-                requires_approval: false,
-                goal_id: None,
-            });
+                        ctx.imap_consecutive_failures,
+                    ),
+                    source: "system:credential-check".into(),
+                    timestamp: Utc::now(),
+                    requires_approval: false,
+                    goal_id: None,
+                },
+            );
         }
     }
 
@@ -1076,9 +1120,13 @@ pub async fn generate_morning_briefing(ctx: &mut LoopContext) -> briefing::Brief
     use aivyx_brain::GoalFilter;
 
     // Gather active goals
-    let goals = ctx.brain_store
+    let goals = ctx
+        .brain_store
         .list_goals(
-            &GoalFilter { status: Some(GoalStatus::Active), ..Default::default() },
+            &GoalFilter {
+                status: Some(GoalStatus::Active),
+                ..Default::default()
+            },
             &ctx.brain_key,
         )
         .unwrap_or_default();
@@ -1097,11 +1145,10 @@ pub async fn generate_morning_briefing(ctx: &mut LoopContext) -> briefing::Brief
         .and_then(|dt| dt.and_local_timezone(chrono::Local).earliest())
         .map(|dt| dt.with_timezone(&Utc));
 
-    let recent_schedules: Vec<String> = ctx.schedule_last_run
+    let recent_schedules: Vec<String> = ctx
+        .schedule_last_run
         .iter()
-        .filter(|(_, fired_at)| {
-            today_start.is_some_and(|start| **fired_at >= start)
-        })
+        .filter(|(_, fired_at)| today_start.is_some_and(|start| **fired_at >= start))
         .map(|(name, _)| name.clone())
         .collect();
 
@@ -1124,7 +1171,10 @@ pub async fn generate_morning_briefing(ctx: &mut LoopContext) -> briefing::Brief
 /// Fetch today's calendar events and detect conflicts for the briefing context.
 async fn fetch_calendar_for_briefing(
     ctx: &LoopContext,
-) -> (Vec<briefing::CalendarEventSummary>, Vec<briefing::CalendarConflictSummary>) {
+) -> (
+    Vec<briefing::CalendarEventSummary>,
+    Vec<briefing::CalendarConflictSummary>,
+) {
     let Some(ref cal_config) = ctx.calendar_config else {
         return (vec![], vec![]);
     };
@@ -1150,7 +1200,10 @@ async fn fetch_calendar_for_briefing(
             let conflict_summaries: Vec<briefing::CalendarConflictSummary> = conflicts
                 .into_iter()
                 .map(|c| {
-                    let overlap_start = c.overlap_start.with_timezone(&chrono::Local).format("%H:%M");
+                    let overlap_start = c
+                        .overlap_start
+                        .with_timezone(&chrono::Local)
+                        .format("%H:%M");
                     let overlap_end = c.overlap_end.with_timezone(&chrono::Local).format("%H:%M");
                     briefing::CalendarConflictSummary {
                         event_a: c.event_a,
@@ -1160,18 +1213,24 @@ async fn fetch_calendar_for_briefing(
                 })
                 .collect();
 
-            let event_summaries = events.into_iter().map(|e| {
-                let time = if e.all_day {
-                    "All day".to_string()
-                } else {
-                    e.start.with_timezone(&chrono::Local).format("%H:%M").to_string()
-                };
-                briefing::CalendarEventSummary {
-                    time,
-                    summary: e.summary,
-                    location: e.location,
-                }
-            }).collect();
+            let event_summaries = events
+                .into_iter()
+                .map(|e| {
+                    let time = if e.all_day {
+                        "All day".to_string()
+                    } else {
+                        e.start
+                            .with_timezone(&chrono::Local)
+                            .format("%H:%M")
+                            .to_string()
+                    };
+                    briefing::CalendarEventSummary {
+                        time,
+                        summary: e.summary,
+                        location: e.location,
+                    }
+                })
+                .collect();
 
             (event_summaries, conflict_summaries)
         }
@@ -1225,7 +1284,8 @@ async fn fetch_email_cached(ctx: &mut LoopContext) -> Vec<EmailSummary> {
 
 /// Fetch unread email subjects for the briefing context (uses cache).
 async fn fetch_email_subjects(ctx: &mut LoopContext) -> Vec<String> {
-    fetch_email_cached(ctx).await
+    fetch_email_cached(ctx)
+        .await
         .into_iter()
         .map(|s| format!("{}: {}", s.from, s.subject))
         .collect()
@@ -1239,9 +1299,7 @@ fn gather_finance_briefing(ctx: &LoopContext) -> (Vec<String>, Vec<String>) {
         return (vec![], vec![]);
     };
 
-    let bills = match aivyx_actions::finance::upcoming_bills(
-        &ctx.reminder_store, &finance.key, 7,
-    ) {
+    let bills = match aivyx_actions::finance::upcoming_bills(&ctx.reminder_store, &finance.key, 7) {
         Ok(bills) => bills
             .iter()
             .map(|b| {
@@ -1258,25 +1316,24 @@ fn gather_finance_briefing(ctx: &LoopContext) -> (Vec<String>, Vec<String>) {
         }
     };
 
-    let over = match aivyx_actions::finance::over_budget_categories(
-        &ctx.reminder_store, &finance.key,
-    ) {
-        Ok(cats) => cats
-            .iter()
-            .map(|(cat, spent, limit)| {
-                format!(
-                    "{}: {} spent (limit: {})",
-                    cat,
-                    aivyx_actions::finance::format_dollars(*spent),
-                    aivyx_actions::finance::format_dollars(*limit),
-                )
-            })
-            .collect(),
-        Err(e) => {
-            tracing::warn!("Failed to check budget for briefing: {e}");
-            vec![]
-        }
-    };
+    let over =
+        match aivyx_actions::finance::over_budget_categories(&ctx.reminder_store, &finance.key) {
+            Ok(cats) => cats
+                .iter()
+                .map(|(cat, spent, limit)| {
+                    format!(
+                        "{}: {} spent (limit: {})",
+                        cat,
+                        aivyx_actions::finance::format_dollars(*spent),
+                        aivyx_actions::finance::format_dollars(*limit),
+                    )
+                })
+                .collect(),
+            Err(e) => {
+                tracing::warn!("Failed to check budget for briefing: {e}");
+                vec![]
+            }
+        };
 
     (bills, over)
 }
@@ -1366,11 +1423,10 @@ async fn create_calendar_auto_reminders(ctx: &LoopContext) {
         }
 
         // Store a marker so we don't create another reminder for this event today.
-        if let Err(e) = ctx.reminder_store.put(
-            &marker_key,
-            reminder.id.as_bytes(),
-            &ctx.reminder_key,
-        ) {
+        if let Err(e) =
+            ctx.reminder_store
+                .put(&marker_key, reminder.id.as_bytes(), &ctx.reminder_key)
+        {
             tracing::warn!("Failed to save auto-reminder marker: {e}");
         }
 
@@ -1385,14 +1441,17 @@ async fn create_calendar_auto_reminders(ctx: &LoopContext) {
     // to avoid iterating all store keys on every tick.
     let today = chrono::Local::now().date_naive();
     let prune_marker = format!("cal-prune:{today}");
-    let already_pruned = ctx.reminder_store
+    let already_pruned = ctx
+        .reminder_store
         .get(&prune_marker, &ctx.reminder_key)
         .ok()
         .flatten()
         .is_some();
     if !already_pruned {
         prune_calendar_markers(&ctx.reminder_store, 7);
-        let _ = ctx.reminder_store.put(&prune_marker, b"1", &ctx.reminder_key);
+        let _ = ctx
+            .reminder_store
+            .put(&prune_marker, b"1", &ctx.reminder_key);
     }
 }
 
@@ -1402,11 +1461,14 @@ fn prune_calendar_markers(store: &EncryptedStore, max_age_days: i64) {
     let Ok(keys) = store.list_keys() else { return };
 
     for key in &keys {
-        if let Some(date_str) = key.strip_prefix("cal-remind:").and_then(|rest| rest.rsplit(':').next())
+        if let Some(date_str) = key
+            .strip_prefix("cal-remind:")
+            .and_then(|rest| rest.rsplit(':').next())
             && let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
-                && date < cutoff {
-                    let _ = store.delete(key);
-                }
+            && date < cutoff
+        {
+            let _ = store.delete(key);
+        }
     }
 }
 
@@ -1419,8 +1481,7 @@ fn prune_calendar_markers(store: &EncryptedStore, max_age_days: i64) {
 /// have been added or modified since the last index are re-processed.
 /// This gives us "watch mode" without needing a filesystem watcher.
 async fn reindex_vault_if_configured(ctx: &LoopContext) {
-    let (Some(vault), Some(memory)) =
-        (&ctx.vault, &ctx.memory_manager) else {
+    let (Some(vault), Some(memory)) = (&ctx.vault, &ctx.memory_manager) else {
         return;
     };
 
@@ -1429,11 +1490,15 @@ async fn reindex_vault_if_configured(ctx: &LoopContext) {
         memory,
         &ctx.reminder_store, // reuse same EncryptedStore for vault index
         &vault.key,
-    ).await {
+    )
+    .await
+    {
         Ok(result) if result.indexed > 0 => {
             tracing::info!(
                 "Vault re-index: {} new/updated, {} skipped, {} errors",
-                result.indexed, result.skipped, result.errors
+                result.indexed,
+                result.skipped,
+                result.errors
             );
         }
         Ok(_) => {} // all files unchanged — silent
@@ -1449,12 +1514,8 @@ async fn reindex_vault_if_configured(ctx: &LoopContext) {
 ///
 /// Processes new emails since the last triage cursor, applies rules
 /// and LLM classification, and emits notifications for the user.
-async fn triage_inbox_if_configured(
-    ctx: &LoopContext,
-    tx: &mpsc::Sender<Notification>,
-) {
-    let (Some(triage), Some(email_config)) =
-        (&ctx.triage, &ctx.email_config) else {
+async fn triage_inbox_if_configured(ctx: &LoopContext, tx: &mpsc::Sender<Notification>) {
+    let (Some(triage), Some(email_config)) = (&ctx.triage, &ctx.email_config) else {
         return;
     };
 
@@ -1469,20 +1530,24 @@ async fn triage_inbox_if_configured(
         ctx.provider.as_ref(),
         &ctx.reminder_store,
         &triage.key,
-    ).await;
+    )
+    .await;
 
     if summary.processed == 0 {
         return;
     }
 
     // Audit: triage completed
-    emit_audit(ctx, aivyx_audit::AuditEvent::TriageCompleted {
-        processed: summary.processed,
-        classified: summary.classified,
-        auto_replied: summary.auto_replied,
-        forwarded: summary.forwarded,
-        errors: summary.errors,
-    });
+    emit_audit(
+        ctx,
+        aivyx_audit::AuditEvent::TriageCompleted {
+            processed: summary.processed,
+            classified: summary.classified,
+            auto_replied: summary.auto_replied,
+            forwarded: summary.forwarded,
+            errors: summary.errors,
+        },
+    );
 
     // Emit a notification summarizing what happened
     let mut parts = Vec::new();
@@ -1502,32 +1567,36 @@ async fn triage_inbox_if_configured(
         parts.push(format!("{} errors", summary.errors));
     }
 
-    let body = format!("Processed {} email(s): {}", summary.processed, parts.join(", "));
+    let body = format!(
+        "Processed {} email(s): {}",
+        summary.processed,
+        parts.join(", ")
+    );
 
-    send_notification(tx, Notification {
-        id: uuid::Uuid::new_v4().to_string(),
-        kind: if summary.auto_replied > 0 || summary.forwarded > 0 {
-            NotificationKind::ActionTaken
-        } else {
-            NotificationKind::Info
+    send_notification(
+        tx,
+        Notification {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind: if summary.auto_replied > 0 || summary.forwarded > 0 {
+                NotificationKind::ActionTaken
+            } else {
+                NotificationKind::Info
+            },
+            title: "Email triage complete".into(),
+            body,
+            source: "triage".into(),
+            timestamp: Utc::now(),
+            requires_approval: false,
+            goal_id: None,
         },
-        title: "Email triage complete".into(),
-        body,
-        source: "triage".into(),
-        timestamp: Utc::now(),
-        requires_approval: false,
-        goal_id: None,
-    });
+    );
 }
 
 // ── Reminder checks ───────────────────────────────────────────
 
 /// Check for due reminders and emit notifications for each.
 /// Marks fired reminders as completed so they don't fire again.
-fn check_due_reminders(
-    ctx: &LoopContext,
-    tx: &mpsc::Sender<Notification>,
-) {
+fn check_due_reminders(ctx: &LoopContext, tx: &mpsc::Sender<Notification>) {
     let due = match reminders::load_due_reminders(&ctx.reminder_store, &ctx.reminder_key) {
         Ok(due) => due,
         Err(e) => {
@@ -1537,16 +1606,19 @@ fn check_due_reminders(
     };
 
     for reminder in &due {
-        send_notification(tx, Notification {
-            id: reminder.id.clone(),
-            kind: NotificationKind::Info,
-            title: format!("Reminder: {}", truncate(&reminder.message, 60)),
-            body: reminder.message.clone(),
-            source: "reminder".into(),
-            timestamp: Utc::now(),
-            requires_approval: false,
-            goal_id: None,
-        });
+        send_notification(
+            tx,
+            Notification {
+                id: reminder.id.clone(),
+                kind: NotificationKind::Info,
+                title: format!("Reminder: {}", truncate(&reminder.message, 60)),
+                body: reminder.message.clone(),
+                source: "reminder".into(),
+                timestamp: Utc::now(),
+                requires_approval: false,
+                goal_id: None,
+            },
+        );
 
         // Mark as completed so it doesn't fire again
         let mut completed = reminder.clone();
@@ -1573,11 +1645,10 @@ fn check_due_reminders(
 // ── Schedule evaluation ────────────────────────────────────────
 
 /// Evaluate workflow triggers and emit notifications for any that fire.
-fn evaluate_workflow_triggers(
-    ctx: &mut LoopContext,
-    tx: &mpsc::Sender<Notification>,
-) {
-    let Some(ref workflow_key) = ctx.workflow_key else { return };
+fn evaluate_workflow_triggers(ctx: &mut LoopContext, tx: &mpsc::Sender<Notification>) {
+    let Some(ref workflow_key) = ctx.workflow_key else {
+        return;
+    };
 
     // Gather recent email data from triage log for email triggers
     let recent_emails: Vec<(String, String)> = if let Some(ref triage) = ctx.triage {
@@ -1595,7 +1666,8 @@ fn evaluate_workflow_triggers(
             status: Some(GoalStatus::Active),
             ..Default::default()
         };
-        ctx.brain_store.list_goals(&filter, &ctx.brain_key)
+        ctx.brain_store
+            .list_goals(&filter, &ctx.brain_key)
             .unwrap_or_default()
             .into_iter()
             .map(|g| (g.description, g.progress))
@@ -1626,16 +1698,19 @@ fn evaluate_workflow_triggers(
     }
 
     for fired in result.fired {
-        send_notification(tx, Notification {
-            id: uuid::Uuid::new_v4().to_string(),
-            kind: NotificationKind::ActionTaken,
-            title: format!("Workflow triggered: {}", fired.template_name),
-            body: fired.reason.clone(),
-            source: "trigger".into(),
-            timestamp: Utc::now(),
-            requires_approval: false,
-            goal_id: None,
-        });
+        send_notification(
+            tx,
+            Notification {
+                id: uuid::Uuid::new_v4().to_string(),
+                kind: NotificationKind::ActionTaken,
+                title: format!("Workflow triggered: {}", fired.template_name),
+                body: fired.reason.clone(),
+                source: "trigger".into(),
+                timestamp: Utc::now(),
+                requires_approval: false,
+                goal_id: None,
+            },
+        );
         tracing::info!(
             "Trigger fired: template='{}' reason='{}'",
             fired.template_name,
@@ -1648,11 +1723,7 @@ fn evaluate_workflow_triggers(
 ///
 /// A schedule is due if at least one cron match occurred between
 /// `last_run_at` (or 61s ago if never run) and `now`.
-fn is_due(
-    cron_expr: &str,
-    last_run_at: Option<DateTime<Utc>>,
-    now: DateTime<Utc>,
-) -> bool {
+fn is_due(cron_expr: &str, last_run_at: Option<DateTime<Utc>>, now: DateTime<Utc>) -> bool {
     let cron = match croner::Cron::new(cron_expr).parse() {
         Ok(c) => c,
         Err(e) => {
@@ -1672,10 +1743,7 @@ fn is_due(
 /// When `schedule_tools` is present in the context, tool definitions are
 /// included in the request and tool calls are executed in a loop (max 5
 /// iterations). This allows schedules to read email, search the web, etc.
-async fn evaluate_schedules(
-    ctx: &mut LoopContext,
-    tx: &mpsc::Sender<Notification>,
-) {
+async fn evaluate_schedules(ctx: &mut LoopContext, tx: &mpsc::Sender<Notification>) {
     let now = Utc::now();
 
     // Collect due schedules first to avoid borrowing ctx across await points.
@@ -1684,7 +1752,10 @@ async fn evaluate_schedules(
         .iter()
         .filter(|s| s.enabled)
         .filter(|s| {
-            let last_run = ctx.schedule_last_run.get(&s.name).copied()
+            let last_run = ctx
+                .schedule_last_run
+                .get(&s.name)
+                .copied()
                 .or(s.last_run_at);
             is_due(&s.cron, last_run, now)
         })
@@ -1692,7 +1763,9 @@ async fn evaluate_schedules(
         .collect();
 
     // Generate tool definitions once if we have a schedule registry.
-    let tool_defs = ctx.schedule_tools.as_ref()
+    let tool_defs = ctx
+        .schedule_tools
+        .as_ref()
         .map(|r| r.tool_definitions())
         .unwrap_or_default();
 
@@ -1700,11 +1773,14 @@ async fn evaluate_schedules(
         tracing::info!("Schedule '{name}' is due — executing prompt");
 
         // Audit: schedule fired
-        emit_audit(ctx, aivyx_audit::AuditEvent::ScheduleFired {
-            schedule_name: name.clone(),
-            agent_name: "pa".into(),
-            timestamp: now,
-        });
+        emit_audit(
+            ctx,
+            aivyx_audit::AuditEvent::ScheduleFired {
+                schedule_name: name.clone(),
+                agent_name: "pa".into(),
+                timestamp: now,
+            },
+        );
 
         let body = execute_schedule_turn(
             ctx.provider.as_ref(),
@@ -1713,26 +1789,33 @@ async fn evaluate_schedules(
             &tool_defs,
             ctx.schedule_tools.as_ref(),
             name,
-        ).await;
+        )
+        .await;
 
         // Audit: schedule completed
-        emit_audit(ctx, aivyx_audit::AuditEvent::ScheduleCompleted {
-            schedule_name: name.clone(),
-            success: true,
-            result_summary: crate::truncate(&body, 200).to_string(),
-        });
+        emit_audit(
+            ctx,
+            aivyx_audit::AuditEvent::ScheduleCompleted {
+                schedule_name: name.clone(),
+                success: true,
+                result_summary: crate::truncate(&body, 200).to_string(),
+            },
+        );
 
         if *notify {
-            send_notification(tx, Notification {
-                id: uuid::Uuid::new_v4().to_string(),
-                kind: NotificationKind::ActionTaken,
-                title: format!("Scheduled: {name}"),
-                body,
-                source: "schedule".into(),
-                timestamp: now,
-                requires_approval: false,
-                goal_id: None,
-            });
+            send_notification(
+                tx,
+                Notification {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    kind: NotificationKind::ActionTaken,
+                    title: format!("Scheduled: {name}"),
+                    body,
+                    source: "schedule".into(),
+                    timestamp: now,
+                    requires_approval: false,
+                    goal_id: None,
+                },
+            );
         }
 
         // Record that this schedule fired so it doesn't fire again until
@@ -1770,14 +1853,14 @@ async fn execute_schedule_turn(
         let response = match aivyx_actions::retry::retry(
             &aivyx_actions::retry::RetryConfig::llm(),
             || async {
-                tokio::time::timeout(
-                    std::time::Duration::from_secs(60),
-                    provider.chat(&request),
-                ).await
-                .map_err(|_| aivyx_core::AivyxError::LlmProvider("timeout after 60s".into()))?
+                tokio::time::timeout(std::time::Duration::from_secs(60), provider.chat(&request))
+                    .await
+                    .map_err(|_| aivyx_core::AivyxError::LlmProvider("timeout after 60s".into()))?
             },
             aivyx_actions::retry::is_transient,
-        ).await {
+        )
+        .await
+        {
             Ok(response) => response,
             Err(e) => {
                 tracing::warn!("Schedule '{schedule_name}' LLM call failed: {e}");
@@ -1810,10 +1893,7 @@ async fn execute_schedule_turn(
             let result = if let Some(tool) = registry.get_by_name(&tc.name) {
                 match tool.execute(tc.arguments.clone()).await {
                     Ok(output) => {
-                        tracing::info!(
-                            "Schedule '{schedule_name}' tool '{}'  OK",
-                            tc.name
-                        );
+                        tracing::info!("Schedule '{schedule_name}' tool '{}'  OK", tc.name);
                         aivyx_llm::ToolResult {
                             tool_call_id: tc.id.clone(),
                             content: output,
@@ -1821,10 +1901,7 @@ async fn execute_schedule_turn(
                         }
                     }
                     Err(e) => {
-                        tracing::warn!(
-                            "Schedule '{schedule_name}' tool '{}' failed: {e}",
-                            tc.name
-                        );
+                        tracing::warn!("Schedule '{schedule_name}' tool '{}' failed: {e}", tc.name);
                         aivyx_llm::ToolResult {
                             tool_call_id: tc.id.clone(),
                             content: serde_json::json!({"error": e.to_string()}),
@@ -1873,10 +1950,7 @@ enum CheckOutcome {
 /// For each goal, determines the right source to check (email, web, etc.),
 /// executes the check, emits notifications if something relevant is found,
 /// and records success/failure outcomes back to the goal for cooldown/backoff.
-async fn evaluate_goals(
-    ctx: &LoopContext,
-    tx: &mpsc::Sender<Notification>,
-) -> Result<()> {
+async fn evaluate_goals(ctx: &LoopContext, tx: &mpsc::Sender<Notification>) -> Result<()> {
     use aivyx_brain::GoalFilter;
 
     let goals = ctx.brain_store.list_goals(
@@ -1903,15 +1977,9 @@ async fn evaluate_goals(
         let action = match_goal_to_action(&goal);
 
         let outcome = match action {
-            GoalAction::CheckEmail { query } => {
-                check_email_for_goal(ctx, tx, &goal, &query).await
-            }
-            GoalAction::CheckWeb { url } => {
-                check_web_for_goal(tx, &goal, &url).await
-            }
-            GoalAction::CheckReminders => {
-                check_reminders_for_goal(ctx, tx, &goal)
-            }
+            GoalAction::CheckEmail { query } => check_email_for_goal(ctx, tx, &goal, &query).await,
+            GoalAction::CheckWeb { url } => check_web_for_goal(tx, &goal, &url).await,
+            GoalAction::CheckReminders => check_reminders_for_goal(ctx, tx, &goal),
             GoalAction::NoAction => {
                 tracing::trace!("Goal '{}': no automated action", goal.description);
                 CheckOutcome::Skipped
@@ -1944,20 +2012,26 @@ async fn evaluate_goals(
                         updated.description,
                         updated.consecutive_failures
                     );
-                    send_notification(tx, Notification {
-                        id: uuid::Uuid::new_v4().to_string(),
-                        kind: NotificationKind::Info,
-                        title: format!("Goal abandoned: {}", truncate(&updated.description, 50)),
-                        body: format!(
-                            "Automatically abandoned after {} consecutive failures. \
+                    send_notification(
+                        tx,
+                        Notification {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            kind: NotificationKind::Info,
+                            title: format!(
+                                "Goal abandoned: {}",
+                                truncate(&updated.description, 50)
+                            ),
+                            body: format!(
+                                "Automatically abandoned after {} consecutive failures. \
                              Use brain_update_goal to reactivate if needed.",
-                            updated.consecutive_failures
-                        ),
-                        source: "goal".into(),
-                        timestamp: Utc::now(),
-                        requires_approval: false,
-                        goal_id: Some(updated.id.to_string()),
-                    });
+                                updated.consecutive_failures
+                            ),
+                            source: "goal".into(),
+                            timestamp: Utc::now(),
+                            requires_approval: false,
+                            goal_id: Some(updated.id.to_string()),
+                        },
+                    );
                 } else {
                     tracing::debug!(
                         "Goal '{}': recorded failure #{} (cooldown until {:?})",
@@ -1984,7 +2058,10 @@ async fn check_email_for_goal(
     query: &str,
 ) -> CheckOutcome {
     let Some(ref email_config) = ctx.email_config else {
-        tracing::debug!("Goal '{}': email not configured, skipping", goal.description);
+        tracing::debug!(
+            "Goal '{}': email not configured, skipping",
+            goal.description
+        );
         return CheckOutcome::Skipped;
     };
 
@@ -2020,16 +2097,19 @@ async fn check_email_for_goal(
             }
 
             for email in &matches {
-                send_notification(tx, Notification {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    kind: NotificationKind::Info,
-                    title: format!("Email from {}: {}", email.from, email.subject),
-                    body: email.preview.clone(),
-                    source: "email".into(),
-                    timestamp: Utc::now(),
-                    requires_approval: false,
-                    goal_id: Some(goal.id.to_string()),
-                });
+                send_notification(
+                    tx,
+                    Notification {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        kind: NotificationKind::Info,
+                        title: format!("Email from {}: {}", email.from, email.subject),
+                        body: email.preview.clone(),
+                        source: "email".into(),
+                        timestamp: Utc::now(),
+                        requires_approval: false,
+                        goal_id: Some(goal.id.to_string()),
+                    },
+                );
 
                 tracing::info!(
                     "Goal '{}': found matching email from {}",
@@ -2041,10 +2121,7 @@ async fn check_email_for_goal(
             CheckOutcome::Success
         }
         Err(e) => {
-            tracing::warn!(
-                "Goal '{}': email check failed: {e}",
-                goal.description
-            );
+            tracing::warn!("Goal '{}': email check failed: {e}", goal.description);
             CheckOutcome::Failure
         }
     }
@@ -2078,24 +2155,24 @@ async fn check_web_for_goal(
                 return CheckOutcome::NoMatch;
             }
 
-            send_notification(tx, Notification {
-                id: uuid::Uuid::new_v4().to_string(),
-                kind: NotificationKind::Info,
-                title: format!("Web update for: {}", truncate(&goal.description, 50)),
-                body: preview,
-                source: "web".into(),
-                timestamp: Utc::now(),
-                requires_approval: false,
-                goal_id: Some(goal.id.to_string()),
-            });
+            send_notification(
+                tx,
+                Notification {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    kind: NotificationKind::Info,
+                    title: format!("Web update for: {}", truncate(&goal.description, 50)),
+                    body: preview,
+                    source: "web".into(),
+                    timestamp: Utc::now(),
+                    requires_approval: false,
+                    goal_id: Some(goal.id.to_string()),
+                },
+            );
 
             CheckOutcome::Success
         }
         Err(e) => {
-            tracing::warn!(
-                "Goal '{}': web check failed: {e}",
-                goal.description
-            );
+            tracing::warn!("Goal '{}': web check failed: {e}", goal.description);
             CheckOutcome::Failure
         }
     }
@@ -2126,7 +2203,10 @@ fn check_reminders_for_goal(
     for reminder in &pending {
         let msg_lower = reminder.message.to_lowercase();
         // Simple keyword overlap check — does the reminder relate to this goal?
-        if desc_lower.split_whitespace().any(|w| w.len() > 3 && msg_lower.contains(w)) {
+        if desc_lower
+            .split_whitespace()
+            .any(|w| w.len() > 3 && msg_lower.contains(w))
+        {
             found = true;
             let due_label = if reminder.due_at <= Utc::now() {
                 "DUE NOW".to_string()
@@ -2134,20 +2214,30 @@ fn check_reminders_for_goal(
                 format!("due {}", reminder.due_at.format("%b %d %H:%M"))
             };
 
-            send_notification(tx, Notification {
-                id: uuid::Uuid::new_v4().to_string(),
-                kind: NotificationKind::Info,
-                title: format!("Reminder ({due_label}): {}", truncate(&reminder.message, 50)),
-                body: reminder.message.clone(),
-                source: "reminder".into(),
-                timestamp: Utc::now(),
-                requires_approval: false,
-                goal_id: Some(goal.id.to_string()),
-            });
+            send_notification(
+                tx,
+                Notification {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    kind: NotificationKind::Info,
+                    title: format!(
+                        "Reminder ({due_label}): {}",
+                        truncate(&reminder.message, 50)
+                    ),
+                    body: reminder.message.clone(),
+                    source: "reminder".into(),
+                    timestamp: Utc::now(),
+                    requires_approval: false,
+                    goal_id: Some(goal.id.to_string()),
+                },
+            );
         }
     }
 
-    if found { CheckOutcome::Success } else { CheckOutcome::NoMatch }
+    if found {
+        CheckOutcome::Success
+    } else {
+        CheckOutcome::NoMatch
+    }
 }
 
 // ── Goal → Action classification ───────────────────────────────
@@ -2184,7 +2274,8 @@ fn match_goal_to_action(goal: &Goal) -> GoalAction {
     }
 
     // Web monitoring — look for URLs in description or criteria
-    if let Some(url) = extract_url(&goal.description).or_else(|| extract_url(&goal.success_criteria))
+    if let Some(url) =
+        extract_url(&goal.description).or_else(|| extract_url(&goal.success_criteria))
     {
         return GoalAction::CheckWeb { url };
     }
@@ -2304,7 +2395,6 @@ mod tests {
         assert!(secs <= 86400); // at most 24 hours
     }
 
-
     // ── interval floor test ───────────────────────────────────
 
     #[test]
@@ -2419,7 +2509,10 @@ mod tests {
             GoalAction::CheckEmail { query } => {
                 assert_eq!(query, "from:accounting");
             }
-            other => panic!("Expected CheckEmail, got {:?}", std::mem::discriminant(&other)),
+            other => panic!(
+                "Expected CheckEmail, got {:?}",
+                std::mem::discriminant(&other)
+            ),
         }
     }
 
@@ -2447,7 +2540,10 @@ mod tests {
             GoalAction::CheckWeb { url } => {
                 assert_eq!(url, "https://shop.example.com/widget");
             }
-            other => panic!("Expected CheckWeb, got {:?}", std::mem::discriminant(&other)),
+            other => panic!(
+                "Expected CheckWeb, got {:?}",
+                std::mem::discriminant(&other)
+            ),
         }
     }
 
@@ -2471,7 +2567,10 @@ mod tests {
             consecutive_failures: 0,
             cooldown_until: None,
         };
-        assert!(matches!(match_goal_to_action(&goal), GoalAction::CheckReminders));
+        assert!(matches!(
+            match_goal_to_action(&goal),
+            GoalAction::CheckReminders
+        ));
     }
 
     // ── InteractionSignals tests ──────────────────────────────

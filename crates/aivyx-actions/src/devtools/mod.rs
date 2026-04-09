@@ -40,7 +40,10 @@ impl fmt::Debug for DevToolsConfig {
             .field("forge", &self.forge)
             .field("forge_api_url", &self.forge_api_url)
             .field("forge_repo", &self.forge_repo)
-            .field("forge_token", &self.forge_token.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "forge_token",
+                &self.forge_token.as_ref().map(|_| "[REDACTED]"),
+            )
             .finish()
     }
 }
@@ -130,21 +133,17 @@ fn forge_base_url(config: &DevToolsConfig) -> aivyx_core::Result<String> {
 
 /// Resolve the owner/repo string, returning an error if not configured.
 fn forge_repo(config: &DevToolsConfig) -> aivyx_core::Result<&str> {
-    config
-        .forge_repo
-        .as_deref()
-        .ok_or_else(|| aivyx_core::AivyxError::Validation(
+    config.forge_repo.as_deref().ok_or_else(|| {
+        aivyx_core::AivyxError::Validation(
             "No repo configured — set repo in [devtools] (e.g. 'owner/repo')".into(),
-        ))
+        )
+    })
 }
 
 /// Make an authenticated GET request to the forge API.
 ///
 /// Returns the parsed JSON body. Handles auth headers for GitHub and Gitea.
-async fn forge_get(
-    config: &DevToolsConfig,
-    path: &str,
-) -> aivyx_core::Result<serde_json::Value> {
+async fn forge_get(config: &DevToolsConfig, path: &str) -> aivyx_core::Result<serde_json::Value> {
     let base = forge_base_url(config)?;
     let url = format!("{base}{path}");
 
@@ -164,19 +163,15 @@ async fn forge_get(
     req = req.header("User-Agent", "aivyx-pa/0.1");
     req = req.header("Accept", "application/json");
 
-    let resp = tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        req.send(),
-    )
-    .await
-    .map_err(|_| aivyx_core::AivyxError::Other("Forge API request timed out after 30s".into()))?
-    .map_err(|e| aivyx_core::AivyxError::Channel(format!("Forge API request failed: {e}")))?;
+    let resp = tokio::time::timeout(std::time::Duration::from_secs(30), req.send())
+        .await
+        .map_err(|_| aivyx_core::AivyxError::Other("Forge API request timed out after 30s".into()))?
+        .map_err(|e| aivyx_core::AivyxError::Channel(format!("Forge API request failed: {e}")))?;
 
     let status = resp.status();
-    let body: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| aivyx_core::AivyxError::Channel(format!("Forge API response parse error: {e}")))?;
+    let body: serde_json::Value = resp.json().await.map_err(|e| {
+        aivyx_core::AivyxError::Channel(format!("Forge API response parse error: {e}"))
+    })?;
 
     if !status.is_success() {
         let msg = body["message"].as_str().unwrap_or("unknown error");
@@ -190,10 +185,7 @@ async fn forge_get(
 }
 
 /// Make an authenticated GET request that returns raw text (for log downloads).
-async fn forge_get_text(
-    config: &DevToolsConfig,
-    path: &str,
-) -> aivyx_core::Result<String> {
+async fn forge_get_text(config: &DevToolsConfig, path: &str) -> aivyx_core::Result<String> {
     let base = forge_base_url(config)?;
     let url = format!("{base}{path}");
 
@@ -210,13 +202,10 @@ async fn forge_get_text(
 
     req = req.header("User-Agent", "aivyx-pa/0.1");
 
-    let resp = tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        req.send(),
-    )
-    .await
-    .map_err(|_| aivyx_core::AivyxError::Other("Forge API request timed out after 30s".into()))?
-    .map_err(|e| aivyx_core::AivyxError::Channel(format!("Forge API request failed: {e}")))?;
+    let resp = tokio::time::timeout(std::time::Duration::from_secs(30), req.send())
+        .await
+        .map_err(|_| aivyx_core::AivyxError::Other("Forge API request timed out after 30s".into()))?
+        .map_err(|e| aivyx_core::AivyxError::Channel(format!("Forge API request failed: {e}")))?;
 
     let status = resp.status();
     if !status.is_success() {
@@ -226,10 +215,9 @@ async fn forge_get_text(
         )));
     }
 
-    let text = resp
-        .text()
-        .await
-        .map_err(|e| aivyx_core::AivyxError::Channel(format!("Forge API response read error: {e}")))?;
+    let text = resp.text().await.map_err(|e| {
+        aivyx_core::AivyxError::Channel(format!("Forge API response read error: {e}"))
+    })?;
 
     // Cap log output
     if text.len() > MAX_GIT_OUTPUT {
@@ -268,19 +256,15 @@ async fn forge_post(
     req = req.header("User-Agent", "aivyx-pa/0.1");
     req = req.header("Accept", "application/json");
 
-    let resp = tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        req.json(body).send(),
-    )
-    .await
-    .map_err(|_| aivyx_core::AivyxError::Other("Forge API request timed out after 30s".into()))?
-    .map_err(|e| aivyx_core::AivyxError::Channel(format!("Forge API request failed: {e}")))?;
+    let resp = tokio::time::timeout(std::time::Duration::from_secs(30), req.json(body).send())
+        .await
+        .map_err(|_| aivyx_core::AivyxError::Other("Forge API request timed out after 30s".into()))?
+        .map_err(|e| aivyx_core::AivyxError::Channel(format!("Forge API request failed: {e}")))?;
 
     let status = resp.status();
-    let resp_body: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| aivyx_core::AivyxError::Channel(format!("Forge API response parse error: {e}")))?;
+    let resp_body: serde_json::Value = resp.json().await.map_err(|e| {
+        aivyx_core::AivyxError::Channel(format!("Forge API response parse error: {e}"))
+    })?;
 
     if !status.is_success() {
         let msg = resp_body["message"].as_str().unwrap_or("unknown error");

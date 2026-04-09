@@ -53,10 +53,7 @@ pub struct IndexedFile {
 const INDEX_PREFIX: &str = "vault-index:";
 
 /// Load the vault index from the encrypted store.
-fn load_index(
-    store: &EncryptedStore,
-    key: &MasterKey,
-) -> Result<Vec<IndexedFile>> {
+fn load_index(store: &EncryptedStore, key: &MasterKey) -> Result<Vec<IndexedFile>> {
     let keys = store.list_keys()?;
     let mut entries = Vec::new();
     for k in &keys {
@@ -74,14 +71,9 @@ fn load_index(
 }
 
 /// Save a single index entry.
-fn save_index_entry(
-    store: &EncryptedStore,
-    key: &MasterKey,
-    entry: &IndexedFile,
-) -> Result<()> {
+fn save_index_entry(store: &EncryptedStore, key: &MasterKey, entry: &IndexedFile) -> Result<()> {
     let path_hash = hex_hash(entry.relative_path.as_bytes());
-    let json = serde_json::to_vec(entry)
-        .map_err(aivyx_core::AivyxError::Serialization)?;
+    let json = serde_json::to_vec(entry).map_err(aivyx_core::AivyxError::Serialization)?;
     store.put(&format!("{INDEX_PREFIX}{path_hash}"), &json, key)
 }
 
@@ -206,9 +198,7 @@ pub fn chunk_text(text: &str, source_path: &str) -> Vec<String> {
 
 /// Format a chunk with metadata header for better retrieval context.
 fn format_chunk(text: &str, source_path: &str, chunk_num: usize, total_chunks: usize) -> String {
-    format!(
-        "[Document: {source_path} | Chunk {chunk_num}/{total_chunks}]\n{text}"
-    )
+    format!("[Document: {source_path} | Chunk {chunk_num}/{total_chunks}]\n{text}")
 }
 
 // ── Vault indexing ───────────────────────────────────────────────
@@ -269,10 +259,11 @@ pub async fn index_vault(
 
         // Skip if already indexed and unchanged.
         if let Some(prev) = existing_map.get(relative.as_str())
-            && prev.content_hash == content_hash {
-                result.skipped += 1;
-                continue;
-            }
+            && prev.content_hash == content_hash
+        {
+            result.skipped += 1;
+            continue;
+        }
 
         // Extract text.
         let text = match extract_text(file_path) {
@@ -357,8 +348,8 @@ fn collect_files_recursive(
         .map_err(|e| aivyx_core::AivyxError::Other(format!("Read dir error: {e}")))?;
 
     for entry in entries {
-        let entry = entry
-            .map_err(|e| aivyx_core::AivyxError::Other(format!("Dir entry error: {e}")))?;
+        let entry =
+            entry.map_err(|e| aivyx_core::AivyxError::Other(format!("Dir entry error: {e}")))?;
         let path = entry.path();
 
         if path.is_dir() {
@@ -436,9 +427,7 @@ impl Action for SearchDocuments {
         let limit = input["limit"].as_u64().unwrap_or(5) as usize;
 
         let mut mgr = self.memory.lock().await;
-        let results = mgr
-            .recall(query, limit, None, &["document".into()])
-            .await?;
+        let results = mgr.recall(query, limit, None, &["document".into()]).await?;
 
         let entries: Vec<serde_json::Value> = results
             .iter()
@@ -623,13 +612,7 @@ impl Action for IndexVault {
     }
 
     async fn execute(&self, _input: serde_json::Value) -> Result<serde_json::Value> {
-        let result = index_vault(
-            &self.config,
-            &self.memory,
-            &self.store,
-            &self.vault_key,
-        )
-        .await?;
+        let result = index_vault(&self.config, &self.memory, &self.store, &self.vault_key).await?;
 
         Ok(serde_json::json!({
             "status": "complete",
@@ -652,7 +635,9 @@ pub struct DeleteDocument {
 
 #[async_trait::async_trait]
 impl Action for DeleteDocument {
-    fn name(&self) -> &str { "delete_document" }
+    fn name(&self) -> &str {
+        "delete_document"
+    }
 
     fn description(&self) -> &str {
         "Delete a document from the vault. Removes the file, its index entry, and all \
@@ -673,7 +658,8 @@ impl Action for DeleteDocument {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let path = input["path"].as_str()
+        let path = input["path"]
+            .as_str()
             .ok_or_else(|| aivyx_core::AivyxError::Validation("'path' is required".into()))?;
 
         // Reject path traversal
@@ -743,7 +729,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("aivyx-doc-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("test.md");
-        std::fs::write(&path, "# Title\n\nSome **bold** text.\n\n- Item 1\n- Item 2").unwrap();
+        std::fs::write(
+            &path,
+            "# Title\n\nSome **bold** text.\n\n- Item 1\n- Item 2",
+        )
+        .unwrap();
 
         let text = extract_text(&path).unwrap();
         assert!(text.contains("Title"));
@@ -787,7 +777,11 @@ mod tests {
         assert!(text.len() > CHUNK_MAX_CHARS);
 
         let chunks = chunk_text(&text, "long.txt");
-        assert!(chunks.len() > 1, "Expected multiple chunks, got {}", chunks.len());
+        assert!(
+            chunks.len() > 1,
+            "Expected multiple chunks, got {}",
+            chunks.len()
+        );
 
         // Each chunk should have the document header.
         for chunk in &chunks {
@@ -914,7 +908,13 @@ mod tests {
             },
             "required": ["query"]
         });
-        assert!(schema["required"].as_array().unwrap().iter().any(|v| v == "query"));
+        assert!(
+            schema["required"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v == "query")
+        );
     }
 
     #[test]
@@ -980,10 +980,20 @@ mod tests {
         struct DummyEmbed;
         #[async_trait::async_trait]
         impl aivyx_llm::EmbeddingProvider for DummyEmbed {
-            fn name(&self) -> &str { "dummy" }
-            fn dimensions(&self) -> usize { 128 }
-            async fn embed(&self, _text: &str) -> std::result::Result<aivyx_llm::Embedding, aivyx_core::AivyxError> {
-                Ok(aivyx_llm::Embedding { vector: vec![0.1; 128], dimensions: 128 })
+            fn name(&self) -> &str {
+                "dummy"
+            }
+            fn dimensions(&self) -> usize {
+                128
+            }
+            async fn embed(
+                &self,
+                _text: &str,
+            ) -> std::result::Result<aivyx_llm::Embedding, aivyx_core::AivyxError> {
+                Ok(aivyx_llm::Embedding {
+                    vector: vec![0.1; 128],
+                    dimensions: 128,
+                })
             }
         }
 
@@ -1003,9 +1013,14 @@ mod tests {
         };
 
         let input = serde_json::json!({ "path": "../../../etc/passwd" });
-        let result = tokio::runtime::Runtime::new().unwrap().block_on(tool.execute(input));
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(tool.execute(input));
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains(".."), "Error should mention path traversal: {err}");
+        assert!(
+            err.contains(".."),
+            "Error should mention path traversal: {err}"
+        );
     }
 }

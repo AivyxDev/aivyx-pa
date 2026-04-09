@@ -12,11 +12,11 @@
 
 use crate::Action;
 use aivyx_core::Result;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 // ── Task Registry ───────────────────────────────────────────────
@@ -74,7 +74,10 @@ pub fn load_registry(path: &Path) -> HashMap<String, BackgroundTask> {
         return HashMap::new();
     };
     let Ok(mut tasks) = serde_json::from_slice::<HashMap<String, BackgroundTask>>(&bytes) else {
-        tracing::warn!("task_registry: failed to parse {}, starting fresh", path.display());
+        tracing::warn!(
+            "task_registry: failed to parse {}, starting fresh",
+            path.display()
+        );
         return HashMap::new();
     };
     // Any task that was Running is implicitly dead — mark as TimedOut.
@@ -89,7 +92,9 @@ pub fn load_registry(path: &Path) -> HashMap<String, BackgroundTask> {
         }
     }
     if recovered > 0 {
-        tracing::info!("task_registry: recovered {recovered} tasks from previous session (marked TimedOut)");
+        tracing::info!(
+            "task_registry: recovered {recovered} tasks from previous session (marked TimedOut)"
+        );
     }
     tasks
 }
@@ -142,7 +147,9 @@ pub struct SpawnTask {
 
 #[async_trait::async_trait]
 impl Action for SpawnTask {
-    fn name(&self) -> &str { "spawn_task" }
+    fn name(&self) -> &str {
+        "spawn_task"
+    }
 
     fn description(&self) -> &str {
         "Run a shell command in the background and return a task ID immediately. \
@@ -177,29 +184,48 @@ impl Action for SpawnTask {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let command = input["command"].as_str()
-            .ok_or_else(|| aivyx_core::AivyxError::Validation("spawn_task: 'command' is required".into()))?
+        let command = input["command"]
+            .as_str()
+            .ok_or_else(|| {
+                aivyx_core::AivyxError::Validation("spawn_task: 'command' is required".into())
+            })?
             .to_string();
-        let label = input["label"].as_str()
-            .ok_or_else(|| aivyx_core::AivyxError::Validation("spawn_task: 'label' is required".into()))?
+        let label = input["label"]
+            .as_str()
+            .ok_or_else(|| {
+                aivyx_core::AivyxError::Validation("spawn_task: 'label' is required".into())
+            })?
             .to_string();
 
         if command.trim().is_empty() {
-            return Err(aivyx_core::AivyxError::Validation("command must not be empty".into()));
+            return Err(aivyx_core::AivyxError::Validation(
+                "command must not be empty".into(),
+            ));
         }
 
         // Reject obviously dangerous commands (reuse shell.rs denylist patterns)
         let denied = [
-            "rm -rf /", "rm -rf /*", "mkfs", "dd if=", "> /dev/sd",
-            "cat /etc/shadow", "chmod 777 /", "chown root", "shutdown", "reboot",
-            "poweroff", "halt", "init 0", "init 6",
+            "rm -rf /",
+            "rm -rf /*",
+            "mkfs",
+            "dd if=",
+            "> /dev/sd",
+            "cat /etc/shadow",
+            "chmod 777 /",
+            "chown root",
+            "shutdown",
+            "reboot",
+            "poweroff",
+            "halt",
+            "init 0",
+            "init 6",
         ];
         let lower = command.to_lowercase();
         for pattern in denied {
             if lower.contains(pattern) {
-                return Err(aivyx_core::AivyxError::CapabilityDenied(
-                    format!("Command blocked by safety denylist (matched: {pattern})")
-                ));
+                return Err(aivyx_core::AivyxError::CapabilityDenied(format!(
+                    "Command blocked by safety denylist (matched: {pattern})"
+                )));
             }
         }
 
@@ -209,7 +235,7 @@ impl Action for SpawnTask {
         if let Some(ref dir) = working_dir {
             if !std::path::Path::new(dir).is_absolute() {
                 return Err(aivyx_core::AivyxError::Validation(
-                    "working_dir must be an absolute path".into()
+                    "working_dir must be an absolute path".into(),
                 ));
             }
         }
@@ -232,7 +258,8 @@ impl Action for SpawnTask {
             let mut reg = self.registry.lock().unwrap();
             // Prune old completed tasks if registry is at limit
             if reg.len() >= MAX_REGISTRY_SIZE {
-                let to_remove: Vec<String> = reg.iter()
+                let to_remove: Vec<String> = reg
+                    .iter()
                     .filter(|(_, t)| t.state != TaskState::Running)
                     .map(|(id, _)| id.clone())
                     .take(10)
@@ -256,10 +283,9 @@ impl Action for SpawnTask {
                 cmd.current_dir(dir);
             }
 
-            let result = tokio::time::timeout(
-                std::time::Duration::from_secs(timeout_secs),
-                cmd.output(),
-            ).await;
+            let result =
+                tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), cmd.output())
+                    .await;
 
             let mut reg = registry_clone.lock().unwrap();
             if let Some(task) = reg.get_mut(&tid) {
@@ -322,7 +348,9 @@ pub struct GetTaskStatus {
 
 #[async_trait::async_trait]
 impl Action for GetTaskStatus {
-    fn name(&self) -> &str { "get_task_status" }
+    fn name(&self) -> &str {
+        "get_task_status"
+    }
 
     fn description(&self) -> &str {
         "Check the status of a background task by its ID. \
@@ -343,13 +371,14 @@ impl Action for GetTaskStatus {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let task_id = input["task_id"].as_str()
-            .ok_or_else(|| aivyx_core::AivyxError::Validation("get_task_status: 'task_id' is required".into()))?;
+        let task_id = input["task_id"].as_str().ok_or_else(|| {
+            aivyx_core::AivyxError::Validation("get_task_status: 'task_id' is required".into())
+        })?;
 
         let reg = self.registry.lock().unwrap();
-        let task = reg.get(task_id).ok_or_else(|| {
-            aivyx_core::AivyxError::Other(format!("Task '{task_id}' not found"))
-        })?;
+        let task = reg
+            .get(task_id)
+            .ok_or_else(|| aivyx_core::AivyxError::Other(format!("Task '{task_id}' not found")))?;
 
         Ok(serde_json::json!({
             "task_id": task.id,
@@ -374,7 +403,9 @@ pub struct ListTasks {
 
 #[async_trait::async_trait]
 impl Action for ListTasks {
-    fn name(&self) -> &str { "list_tasks" }
+    fn name(&self) -> &str {
+        "list_tasks"
+    }
 
     fn description(&self) -> &str {
         "List all background tasks — both currently running and recently completed. \
@@ -398,30 +429,34 @@ impl Action for ListTasks {
         let filter = input["state_filter"].as_str().unwrap_or("all");
         let reg = self.registry.lock().unwrap();
 
-        let mut tasks: Vec<serde_json::Value> = reg.values()
+        let mut tasks: Vec<serde_json::Value> = reg
+            .values()
             .filter(|t| match filter {
-                "running"    => t.state == TaskState::Running,
-                "succeeded"  => t.state == TaskState::Succeeded,
-                "failed"     => t.state == TaskState::Failed,
-                "cancelled"  => t.state == TaskState::Cancelled,
-                "timed_out"  => t.state == TaskState::TimedOut,
-                _            => true,
+                "running" => t.state == TaskState::Running,
+                "succeeded" => t.state == TaskState::Succeeded,
+                "failed" => t.state == TaskState::Failed,
+                "cancelled" => t.state == TaskState::Cancelled,
+                "timed_out" => t.state == TaskState::TimedOut,
+                _ => true,
             })
-            .map(|t| serde_json::json!({
-                "task_id": t.id,
-                "label": t.label,
-                "state": format!("{:?}", t.state),
-                "started_at": t.started_at.to_rfc3339(),
-                "finished_at": t.finished_at.map(|f| f.to_rfc3339()),
-                "exit_code": t.exit_code,
-            }))
+            .map(|t| {
+                serde_json::json!({
+                    "task_id": t.id,
+                    "label": t.label,
+                    "state": format!("{:?}", t.state),
+                    "started_at": t.started_at.to_rfc3339(),
+                    "finished_at": t.finished_at.map(|f| f.to_rfc3339()),
+                    "exit_code": t.exit_code,
+                })
+            })
             .collect();
 
         // Sort: running first, then by start time descending
         tasks.sort_by(|a, b| {
             let a_running = a["state"] == "Running";
             let b_running = b["state"] == "Running";
-            b_running.cmp(&a_running)
+            b_running
+                .cmp(&a_running)
                 .then(b["started_at"].as_str().cmp(&a["started_at"].as_str()))
         });
 
@@ -451,7 +486,9 @@ pub struct CancelTask {
 
 #[async_trait::async_trait]
 impl Action for CancelTask {
-    fn name(&self) -> &str { "cancel_task" }
+    fn name(&self) -> &str {
+        "cancel_task"
+    }
 
     fn description(&self) -> &str {
         "Cancel a running background task. The task will be marked as cancelled immediately. \
@@ -472,13 +509,14 @@ impl Action for CancelTask {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let task_id = input["task_id"].as_str()
-            .ok_or_else(|| aivyx_core::AivyxError::Validation("cancel_task: 'task_id' is required".into()))?;
+        let task_id = input["task_id"].as_str().ok_or_else(|| {
+            aivyx_core::AivyxError::Validation("cancel_task: 'task_id' is required".into())
+        })?;
 
         let mut reg = self.registry.lock().unwrap();
-        let task = reg.get_mut(task_id).ok_or_else(|| {
-            aivyx_core::AivyxError::Other(format!("Task '{task_id}' not found"))
-        })?;
+        let task = reg
+            .get_mut(task_id)
+            .ok_or_else(|| aivyx_core::AivyxError::Other(format!("Task '{task_id}' not found")))?;
 
         if task.state != TaskState::Running {
             return Ok(serde_json::json!({

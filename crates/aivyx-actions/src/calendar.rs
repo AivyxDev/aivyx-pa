@@ -100,10 +100,7 @@ pub async fn fetch_events(
 }
 
 /// Discover the first calendar URL via PROPFIND.
-async fn discover_calendar(
-    client: &reqwest::Client,
-    config: &CalendarConfig,
-) -> Result<String> {
+async fn discover_calendar(client: &reqwest::Client, config: &CalendarConfig) -> Result<String> {
     let propfind_body = r#"<?xml version="1.0" encoding="UTF-8"?>
 <d:propfind xmlns:d="DAV:" xmlns:cs="urn:ietf:params:xml:ns:caldav">
   <d:prop>
@@ -131,19 +128,21 @@ async fn discover_calendar(
         .map_err(|e| aivyx_core::AivyxError::Http(e.to_string()))?;
 
     // Parse the multistatus XML to find a calendar resource.
-    let doc = roxmltree::Document::parse(&body).map_err(|e| {
-        aivyx_core::AivyxError::Http(format!("CalDAV XML parse error: {e}"))
-    })?;
+    let doc = roxmltree::Document::parse(&body)
+        .map_err(|e| aivyx_core::AivyxError::Http(format!("CalDAV XML parse error: {e}")))?;
 
     // Look for <response> elements that have <resourcetype><calendar/> inside.
     for response_node in doc.descendants().filter(|n| n.has_tag_name("response")) {
-        let is_calendar = response_node.descendants().any(|n| n.has_tag_name("calendar"));
+        let is_calendar = response_node
+            .descendants()
+            .any(|n| n.has_tag_name("calendar"));
         if is_calendar
             && let Some(href_node) = response_node.descendants().find(|n| n.has_tag_name("href"))
-                && let Some(href) = href_node.text() {
-                    // Convert relative href to absolute URL.
-                    return Ok(resolve_url(&config.url, href));
-                }
+            && let Some(href) = href_node.text()
+        {
+            // Convert relative href to absolute URL.
+            return Ok(resolve_url(&config.url, href));
+        }
     }
 
     Err(aivyx_core::AivyxError::Http(
@@ -180,9 +179,8 @@ use crate::resolve_url;
 
 /// Parse a CalDAV multistatus XML response and extract VEVENT data.
 fn parse_multistatus_events(xml: &str) -> Result<Vec<CalendarEvent>> {
-    let doc = roxmltree::Document::parse(xml).map_err(|e| {
-        aivyx_core::AivyxError::Http(format!("CalDAV XML parse error: {e}"))
-    })?;
+    let doc = roxmltree::Document::parse(xml)
+        .map_err(|e| aivyx_core::AivyxError::Http(format!("CalDAV XML parse error: {e}")))?;
 
     let mut events = Vec::new();
 
@@ -190,9 +188,10 @@ fn parse_multistatus_events(xml: &str) -> Result<Vec<CalendarEvent>> {
     for node in doc.descendants() {
         if node.has_tag_name("calendar-data")
             && let Some(ical_text) = node.text()
-                && let Ok(parsed) = parse_ical_events(ical_text) {
-                    events.extend(parsed);
-                }
+            && let Ok(parsed) = parse_ical_events(ical_text)
+        {
+            events.extend(parsed);
+        }
     }
 
     // Sort by start time.
@@ -205,38 +204,27 @@ fn parse_ical_events(ical_text: &str) -> Result<Vec<CalendarEvent>> {
     use icalendar::{Calendar, CalendarComponent, Component};
     use std::str::FromStr;
 
-    let calendar = Calendar::from_str(ical_text).map_err(|e| {
-        aivyx_core::AivyxError::Other(format!("iCal parse error: {e}"))
-    })?;
+    let calendar = Calendar::from_str(ical_text)
+        .map_err(|e| aivyx_core::AivyxError::Other(format!("iCal parse error: {e}")))?;
 
     let mut events = Vec::new();
 
     for component in calendar.iter() {
         if let CalendarComponent::Event(event) = component {
-            let uid = event
-                .get_uid()
-                .unwrap_or("unknown")
-                .to_string();
+            let uid = event.get_uid().unwrap_or("unknown").to_string();
 
-            let summary = event
-                .get_summary()
-                .unwrap_or("(No title)")
-                .to_string();
+            let summary = event.get_summary().unwrap_or("(No title)").to_string();
 
             let (start, all_day) = match event.get_start() {
                 Some(icalendar::DatePerhapsTime::DateTime(dt)) => {
                     (date_perhaps_to_utc_dt(dt), false)
                 }
-                Some(icalendar::DatePerhapsTime::Date(d)) => {
-                    (naive_date_to_utc(d), true)
-                }
+                Some(icalendar::DatePerhapsTime::Date(d)) => (naive_date_to_utc(d), true),
                 None => continue, // Skip events without a start time.
             };
 
             let end = match event.get_end() {
-                Some(icalendar::DatePerhapsTime::DateTime(dt)) => {
-                    Some(date_perhaps_to_utc_dt(dt))
-                }
+                Some(icalendar::DatePerhapsTime::DateTime(dt)) => Some(date_perhaps_to_utc_dt(dt)),
                 Some(icalendar::DatePerhapsTime::Date(d)) => Some(naive_date_to_utc(d)),
                 None => None,
             };
@@ -306,7 +294,12 @@ impl Action for TodayAgenda {
     async fn execute(&self, _input: serde_json::Value) -> Result<serde_json::Value> {
         let today = chrono::Local::now().date_naive();
         let from = today.and_hms_opt(0, 0, 0).unwrap().and_utc();
-        let to = today.succ_opt().unwrap().and_hms_opt(0, 0, 0).unwrap().and_utc();
+        let to = today
+            .succ_opt()
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc();
 
         let events = fetch_events(&self.config, from, to).await?;
         Ok(serde_json::to_value(&events)?)
@@ -466,7 +459,12 @@ impl Action for CheckConflicts {
             .unwrap_or(today);
 
         let from = from_date.and_hms_opt(0, 0, 0).unwrap().and_utc();
-        let to = to_date.succ_opt().unwrap().and_hms_opt(0, 0, 0).unwrap().and_utc();
+        let to = to_date
+            .succ_opt()
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc();
 
         let events = fetch_events(&self.config, from, to).await?;
         let conflicts = detect_conflicts(&events);
@@ -571,11 +569,7 @@ async fn caldav_put_event(
 }
 
 /// DELETE an event from the CalDAV server.
-async fn caldav_delete_event(
-    config: &CalendarConfig,
-    calendar_url: &str,
-    uid: &str,
-) -> Result<()> {
+async fn caldav_delete_event(config: &CalendarConfig, calendar_url: &str, uid: &str) -> Result<()> {
     let client = crate::http_client();
     let event_url = format!("{}/{}.ics", calendar_url.trim_end_matches('/'), uid);
 
@@ -613,7 +607,9 @@ pub struct CreateCalendarEvent {
 
 #[async_trait::async_trait]
 impl Action for CreateCalendarEvent {
-    fn name(&self) -> &str { "create_calendar_event" }
+    fn name(&self) -> &str {
+        "create_calendar_event"
+    }
 
     fn description(&self) -> &str {
         "Create a new calendar event. Specify summary, start, and end times. \
@@ -636,11 +632,14 @@ impl Action for CreateCalendarEvent {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let summary = input["summary"].as_str()
+        let summary = input["summary"]
+            .as_str()
             .ok_or_else(|| aivyx_core::AivyxError::Validation("'summary' is required".into()))?;
-        let start_str = input["start"].as_str()
+        let start_str = input["start"]
+            .as_str()
             .ok_or_else(|| aivyx_core::AivyxError::Validation("'start' is required".into()))?;
-        let end_str = input["end"].as_str()
+        let end_str = input["end"]
+            .as_str()
             .ok_or_else(|| aivyx_core::AivyxError::Validation("'end' is required".into()))?;
         let all_day = input["all_day"].as_bool().unwrap_or(false);
 
@@ -648,7 +647,10 @@ impl Action for CreateCalendarEvent {
 
         let uid = uuid::Uuid::new_v4().to_string();
         let ical = build_vevent_ical(
-            &uid, summary, start, end,
+            &uid,
+            summary,
+            start,
+            end,
             input["location"].as_str(),
             input["description"].as_str(),
             all_day,
@@ -674,7 +676,9 @@ pub struct UpdateCalendarEvent {
 
 #[async_trait::async_trait]
 impl Action for UpdateCalendarEvent {
-    fn name(&self) -> &str { "update_calendar_event" }
+    fn name(&self) -> &str {
+        "update_calendar_event"
+    }
 
     fn description(&self) -> &str {
         "Update an existing calendar event by UID. Only the fields you provide will be changed. \
@@ -697,7 +701,8 @@ impl Action for UpdateCalendarEvent {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let uid = input["uid"].as_str()
+        let uid = input["uid"]
+            .as_str()
             .ok_or_else(|| aivyx_core::AivyxError::Validation("'uid' is required".into()))?;
 
         // Fetch the existing event to merge fields.
@@ -705,8 +710,9 @@ impl Action for UpdateCalendarEvent {
         let from = Utc::now() - chrono::Duration::days(365);
         let to = Utc::now() + chrono::Duration::days(365);
         let events = fetch_events(&self.config, from, to).await?;
-        let existing = events.iter().find(|e| e.uid == uid)
-            .ok_or_else(|| aivyx_core::AivyxError::Validation(format!("Event '{uid}' not found")))?;
+        let existing = events.iter().find(|e| e.uid == uid).ok_or_else(|| {
+            aivyx_core::AivyxError::Validation(format!("Event '{uid}' not found"))
+        })?;
 
         let summary = input["summary"].as_str().unwrap_or(&existing.summary);
         let all_day = existing.all_day;
@@ -752,7 +758,9 @@ pub struct DeleteCalendarEvent {
 
 #[async_trait::async_trait]
 impl Action for DeleteCalendarEvent {
-    fn name(&self) -> &str { "delete_calendar_event" }
+    fn name(&self) -> &str {
+        "delete_calendar_event"
+    }
 
     fn description(&self) -> &str {
         "Permanently delete a calendar event by UID."
@@ -769,7 +777,8 @@ impl Action for DeleteCalendarEvent {
     }
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
-        let uid = input["uid"].as_str()
+        let uid = input["uid"]
+            .as_str()
             .ok_or_else(|| aivyx_core::AivyxError::Validation("'uid' is required".into()))?;
 
         let calendar_url = resolve_calendar_url(&self.config).await?;
@@ -783,7 +792,11 @@ impl Action for DeleteCalendarEvent {
 }
 
 /// Parse start/end strings into DateTime<Utc>.
-fn parse_event_times(start: &str, end: &str, all_day: bool) -> Result<(DateTime<Utc>, DateTime<Utc>)> {
+fn parse_event_times(
+    start: &str,
+    end: &str,
+    all_day: bool,
+) -> Result<(DateTime<Utc>, DateTime<Utc>)> {
     if all_day {
         let s = NaiveDate::parse_from_str(start, "%Y-%m-%d")
             .map_err(|e| aivyx_core::AivyxError::Validation(format!("Invalid start date: {e}")))?;
@@ -832,7 +845,7 @@ pub fn events_needing_reminder(
         .filter(|e| {
             !e.all_day
                 && e.start > now       // hasn't started yet
-                && e.start <= horizon   // within lead time
+                && e.start <= horizon // within lead time
         })
         .collect()
 }
@@ -1088,8 +1101,18 @@ END:VCALENDAR"#;
         events.push(CalendarEvent {
             uid: "holiday@test".into(),
             summary: "Public Holiday".into(),
-            start: NaiveDate::from_ymd_opt(2026, 4, 2).unwrap().and_hms_opt(0, 0, 0).unwrap().and_utc(),
-            end: Some(NaiveDate::from_ymd_opt(2026, 4, 3).unwrap().and_hms_opt(0, 0, 0).unwrap().and_utc()),
+            start: NaiveDate::from_ymd_opt(2026, 4, 2)
+                .unwrap()
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_utc(),
+            end: Some(
+                NaiveDate::from_ymd_opt(2026, 4, 3)
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap()
+                    .and_utc(),
+            ),
             location: None,
             description: None,
             all_day: true,
@@ -1101,10 +1124,7 @@ END:VCALENDAR"#;
     #[test]
     fn detect_conflicts_contained_event() {
         // B is entirely within A
-        let events = vec![
-            make_event("A", 9, 17),
-            make_event("B", 10, 11),
-        ];
+        let events = vec![make_event("A", 9, 17), make_event("B", 10, 11)];
         let conflicts = detect_conflicts(&events);
         assert_eq!(conflicts.len(), 1);
         // Overlap window should be the inner event's range
@@ -1124,15 +1144,21 @@ END:VCALENDAR"#;
         assert_eq!(tool.name(), "check_calendar_conflicts");
         // from/to are optional, so no "required" field
         let schema = tool.input_schema();
-        assert!(schema["required"].is_null() || schema["required"].as_array().map_or(true, |a| a.is_empty()));
+        assert!(
+            schema["required"].is_null()
+                || schema["required"].as_array().map_or(true, |a| a.is_empty())
+        );
     }
 
     // ── Auto-reminder helper tests ───────────────────────────────
 
     #[test]
     fn events_needing_reminder_within_lead_time() {
-        let now = NaiveDate::from_ymd_opt(2026, 4, 2).unwrap()
-            .and_hms_opt(9, 45, 0).unwrap().and_utc();
+        let now = NaiveDate::from_ymd_opt(2026, 4, 2)
+            .unwrap()
+            .and_hms_opt(9, 45, 0)
+            .unwrap()
+            .and_utc();
 
         let make_upcoming = |summary: &str, offset_minutes: i64| -> CalendarEvent {
             let start = now + chrono::Duration::minutes(offset_minutes);
@@ -1148,8 +1174,8 @@ END:VCALENDAR"#;
         };
 
         let events = vec![
-            make_upcoming("In 10 min", 10),   // starts 9:55 — within 15 min
-            make_upcoming("In 30 min", 30),   // starts 10:15 — outside 15 min
+            make_upcoming("In 10 min", 10),        // starts 9:55 — within 15 min
+            make_upcoming("In 30 min", 30),        // starts 10:15 — outside 15 min
             make_upcoming("Already started", -15), // started 9:30 — past
         ];
         let need = events_needing_reminder(&events, now, 15);
@@ -1159,8 +1185,11 @@ END:VCALENDAR"#;
 
     #[test]
     fn events_needing_reminder_ignores_all_day() {
-        let now = NaiveDate::from_ymd_opt(2026, 4, 2).unwrap()
-            .and_hms_opt(0, 5, 0).unwrap().and_utc();
+        let now = NaiveDate::from_ymd_opt(2026, 4, 2)
+            .unwrap()
+            .and_hms_opt(0, 5, 0)
+            .unwrap()
+            .and_utc();
         let events = vec![CalendarEvent {
             uid: "allday@test".into(),
             summary: "Holiday".into(),
@@ -1194,7 +1223,9 @@ END:VCALENDAR"#;
 
     #[test]
     fn create_calendar_event_schema() {
-        let tool = CreateCalendarEvent { config: test_config() };
+        let tool = CreateCalendarEvent {
+            config: test_config(),
+        };
         assert_eq!(tool.name(), "create_calendar_event");
         let schema = tool.input_schema();
         let required = schema["required"].as_array().unwrap();
@@ -1207,7 +1238,9 @@ END:VCALENDAR"#;
 
     #[test]
     fn update_calendar_event_schema() {
-        let tool = UpdateCalendarEvent { config: test_config() };
+        let tool = UpdateCalendarEvent {
+            config: test_config(),
+        };
         assert_eq!(tool.name(), "update_calendar_event");
         let schema = tool.input_schema();
         let required = schema["required"].as_array().unwrap();
@@ -1221,7 +1254,9 @@ END:VCALENDAR"#;
 
     #[test]
     fn delete_calendar_event_schema() {
-        let tool = DeleteCalendarEvent { config: test_config() };
+        let tool = DeleteCalendarEvent {
+            config: test_config(),
+        };
         assert_eq!(tool.name(), "delete_calendar_event");
         let schema = tool.input_schema();
         let required = schema["required"].as_array().unwrap();
@@ -1231,14 +1266,25 @@ END:VCALENDAR"#;
 
     #[test]
     fn build_vevent_ical_contains_required_fields() {
-        let start = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap()
-            .and_hms_opt(14, 0, 0).unwrap().and_utc();
-        let end = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap()
-            .and_hms_opt(15, 0, 0).unwrap().and_utc();
+        let start = NaiveDate::from_ymd_opt(2026, 4, 10)
+            .unwrap()
+            .and_hms_opt(14, 0, 0)
+            .unwrap()
+            .and_utc();
+        let end = NaiveDate::from_ymd_opt(2026, 4, 10)
+            .unwrap()
+            .and_hms_opt(15, 0, 0)
+            .unwrap()
+            .and_utc();
 
         let ical = build_vevent_ical(
-            "test-uid-123", "Team standup", start, end,
-            Some("Room 42"), Some("Daily sync"), false,
+            "test-uid-123",
+            "Team standup",
+            start,
+            end,
+            Some("Room 42"),
+            Some("Daily sync"),
+            false,
         );
 
         assert!(ical.contains("BEGIN:VCALENDAR"), "missing VCALENDAR");
@@ -1254,15 +1300,18 @@ END:VCALENDAR"#;
 
     #[test]
     fn build_vevent_ical_all_day_uses_date_format() {
-        let start = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap()
-            .and_hms_opt(0, 0, 0).unwrap().and_utc();
-        let end = NaiveDate::from_ymd_opt(2026, 4, 11).unwrap()
-            .and_hms_opt(0, 0, 0).unwrap().and_utc();
+        let start = NaiveDate::from_ymd_opt(2026, 4, 10)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc();
+        let end = NaiveDate::from_ymd_opt(2026, 4, 11)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc();
 
-        let ical = build_vevent_ical(
-            "allday-uid", "Conference", start, end,
-            None, None, true,
-        );
+        let ical = build_vevent_ical("allday-uid", "Conference", start, end, None, None, true);
 
         // All-day events use VALUE=DATE format, not datetime with T/Z
         assert!(ical.contains("BEGIN:VEVENT"), "missing VEVENT");
@@ -1273,9 +1322,8 @@ END:VCALENDAR"#;
 
     #[test]
     fn parse_event_times_iso8601() {
-        let (start, end) = parse_event_times(
-            "2026-04-10T14:00:00Z", "2026-04-10T15:00:00Z", false,
-        ).unwrap();
+        let (start, end) =
+            parse_event_times("2026-04-10T14:00:00Z", "2026-04-10T15:00:00Z", false).unwrap();
         assert_eq!(start.hour(), 14);
         assert_eq!(end.hour(), 15);
     }
@@ -1283,8 +1331,14 @@ END:VCALENDAR"#;
     #[test]
     fn parse_event_times_all_day() {
         let (start, end) = parse_event_times("2026-04-10", "2026-04-11", true).unwrap();
-        assert_eq!(start.date_naive(), NaiveDate::from_ymd_opt(2026, 4, 10).unwrap());
-        assert_eq!(end.date_naive(), NaiveDate::from_ymd_opt(2026, 4, 11).unwrap());
+        assert_eq!(
+            start.date_naive(),
+            NaiveDate::from_ymd_opt(2026, 4, 10).unwrap()
+        );
+        assert_eq!(
+            end.date_naive(),
+            NaiveDate::from_ymd_opt(2026, 4, 11).unwrap()
+        );
     }
 
     #[test]
@@ -1297,7 +1351,10 @@ END:VCALENDAR"#;
     #[test]
     fn parse_datetime_or_date_date_only() {
         let dt = parse_datetime_or_date("2026-04-10").unwrap();
-        assert_eq!(dt.date_naive(), NaiveDate::from_ymd_opt(2026, 4, 10).unwrap());
+        assert_eq!(
+            dt.date_naive(),
+            NaiveDate::from_ymd_opt(2026, 4, 10).unwrap()
+        );
         assert_eq!(dt.hour(), 0);
     }
 
@@ -1314,7 +1371,9 @@ END:VCALENDAR"#;
             password: "p".into(),
             calendar_path: Some("https://other.com/dav/personal/".into()),
         };
-        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
         let result = rt.block_on(resolve_calendar_url(&config)).unwrap();
         assert_eq!(result, "https://other.com/dav/personal/");
     }
@@ -1327,7 +1386,9 @@ END:VCALENDAR"#;
             password: "p".into(),
             calendar_path: Some("/dav/calendars/personal/".into()),
         };
-        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
         let result = rt.block_on(resolve_calendar_url(&config)).unwrap();
         assert_eq!(result, "https://cal.example.com/dav/calendars/personal/");
     }
