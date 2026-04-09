@@ -126,6 +126,11 @@ const PA_PROMPT_SUFFIX: &str = concat!(
     "fake or placeholder tool output — call the real tool and use its real results. ",
     "Do NOT ask clarifying questions when the request is clear enough to act on. ",
     "Act first, then report what you found or did.\n\n",
+    "TOOL CALLING PROTOCOL: When you call a tool, STOP writing immediately after the ",
+    "tool call. The system will execute the tool and return the real result in the next ",
+    "message. NEVER write [TOOL_OUTPUT], [SYSTEM INFO], or any simulated/imagined result ",
+    "after a tool call — this corrupts your conversation. Call ONE tool, stop, wait for ",
+    "the result, then respond or call another tool.\n\n",
     "IMPORTANT: You have many tools — always check your full tool list before ",
     "claiming you cannot do something. If a user asks you to perform an action, ",
     "look for a tool that can accomplish it. Only say you cannot do something ",
@@ -623,7 +628,13 @@ pub const PA_PROMPT_DELEGATION: &str = concat!(
     "- Only delegate tasks that are genuinely complex (research + analysis, code + review)\n",
     "- Provide clear, detailed task descriptions — the team works best with context\n",
     "- Simple questions or single-step tasks are faster handled by you directly\n",
-    "- Default timeout is 5 minutes; increase with timeout_secs for larger tasks",
+    "- Default timeout is 5 minutes; increase with timeout_secs for larger tasks\n\n",
+    "CRITICAL TOOL CALLING RULES:\n",
+    "- When you call a tool, STOP generating immediately. Do NOT continue writing.\n",
+    "- NEVER fabricate or imagine tool output. The system executes the tool and provides ",
+    "the real result in the next message. Wait for it.\n",
+    "- Do NOT write [TOOL_OUTPUT], [SYSTEM INFO], or any simulated response after a tool call.\n",
+    "- Call ONE tool at a time. After the system returns the result, you may call another.",
 );
 
 pub const PA_PROMPT_DESKTOP: &str = concat!(

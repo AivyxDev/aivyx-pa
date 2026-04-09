@@ -2426,12 +2426,7 @@ impl App {
                         let resume = aivyx_pa::sessions::ResumeToken::from_snapshot(
                             agent.export_resume_state(),
                         );
-                        aivyx_pa::sessions::save_resume_token(
-                            &store,
-                            &conv_key,
-                            &meta.id,
-                            &resume,
-                        );
+                        aivyx_pa::sessions::save_resume_token(&store, &conv_key, &meta.id, &resume);
                     });
                 }
 

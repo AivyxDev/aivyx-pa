@@ -567,9 +567,7 @@ async fn chat_stream(
         crate::sessions::save_chat_session(&store, &conv_key, &meta, &messages);
 
         // Persist the agent's ephemeral learned state alongside the conversation.
-        let resume = crate::sessions::ResumeToken::from_snapshot(
-            agent.export_resume_state(),
-        );
+        let resume = crate::sessions::ResumeToken::from_snapshot(agent.export_resume_state());
         crate::sessions::save_resume_token(&store, &conv_key, &sid, &resume);
 
         // Send done event with session ID
