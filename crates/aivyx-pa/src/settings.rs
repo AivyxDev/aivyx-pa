@@ -1051,6 +1051,7 @@ pub fn reload_settings_snapshot(config_path: &Path) -> Result<SettingsSnapshot, 
         provider_label: match &core_config.provider {
             aivyx_config::ProviderConfig::Claude { .. } => "Claude".into(),
             aivyx_config::ProviderConfig::OpenAI { .. } => "OpenAI".into(),
+            aivyx_config::ProviderConfig::Gemini { .. } => "Gemini".into(),
             aivyx_config::ProviderConfig::Ollama { .. } => "Ollama".into(),
             aivyx_config::ProviderConfig::OpenAICompatible { .. } => "OpenAI-Compatible".into(),
         },
