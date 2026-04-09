@@ -4681,8 +4681,8 @@ mod tests {
         app.poll_chat_tokens(); // should not panic
     }
 
-    #[test]
-    fn poll_chat_tokens_receives_and_appends() {
+    #[tokio::test]
+    async fn poll_chat_tokens_receives_and_appends() {
         let mut app = App::new_test();
         let (tx, rx) = mpsc::channel::<String>(16);
         app.chat_token_rx = Some(rx);
