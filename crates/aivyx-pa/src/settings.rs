@@ -1441,18 +1441,18 @@ prompt = \"Second task\"
         write_app_access(f.path(), "firefox", "Full").unwrap();
         let content = std::fs::read_to_string(f.path()).unwrap();
         assert!(content.contains("[desktop.app_access]"));
-        assert!(content.contains("firefox = \"Full\""));
+        assert!(content.contains("\"firefox\" = \"Full\""));
     }
 
     #[test]
     fn write_app_access_updates_existing_key() {
         let f = temp_config(
-            "[desktop]\nclipboard = true\n\n[desktop.app_access]\nfirefox = \"Full\"\n",
+            "[desktop]\nclipboard = true\n\n[desktop.app_access]\n\"firefox\" = \"Full\"\n",
         );
         write_app_access(f.path(), "firefox", "Blocked").unwrap();
         let content = std::fs::read_to_string(f.path()).unwrap();
-        assert!(content.contains("firefox = \"Blocked\""));
-        assert!(!content.contains("firefox = \"Full\""));
+        assert!(content.contains("\"firefox\" = \"Blocked\""));
+        assert!(!content.contains("\"firefox\" = \"Full\""));
     }
 
     /// write_integration_config must write booleans unquoted and comma-separated
