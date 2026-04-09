@@ -232,7 +232,8 @@ fn check_disk_space(path: &std::path::Path) -> SubsystemHealth {
         unsafe {
             let mut stat: libc::statvfs = std::mem::zeroed();
             if libc::statvfs(c_path.as_ptr(), &mut stat) == 0 {
-                let free_bytes = stat.f_bavail * stat.f_frsize;
+                #[allow(clippy::unnecessary_cast)]
+                let free_bytes = (stat.f_bavail as u64) * (stat.f_frsize as u64);
                 let free_mb = free_bytes / (1024 * 1024);
                 if free_mb < 100 {
                     SubsystemHealth::Degraded(format!("low disk space: {free_mb} MB free"))
