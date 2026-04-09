@@ -199,8 +199,36 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             });
 
             // ── Content lines with gutter + Markdown-lite ─────
+            let mut in_tool_block = false;
             for line in msg.content.lines() {
                 let trimmed = line.trim_start();
+
+                // Hide raw system boundaries to prevent UI bleed
+                if trimmed.starts_with("[TOOL_OUTPUT]") || trimmed.starts_with("[SYSTEM INFO]") {
+                    continue;
+                }
+
+                // Collapse raw JSON tool blocks entirely into a clean UI indicator
+                if trimmed.starts_with("```json") || trimmed.starts_with("`json") {
+                    in_tool_block = true;
+                    all_lines.push(ChatLine {
+                        spans: vec![
+                            Span::styled("▎ ", gutter.bar_style),
+                            Span::styled(
+                                "  [⚙ System execution context generated]",
+                                Style::default().fg(theme::SURFACE_HIGHEST).add_modifier(Modifier::ITALIC),
+                            ),
+                        ],
+                        indent: 1,
+                    });
+                    continue;
+                }
+                if in_tool_block {
+                    if trimmed.starts_with("```") || trimmed == "`" {
+                        in_tool_block = false;
+                    }
+                    continue;
+                }
 
                 // Tool result lines: ✓/✗ get colored gutter
                 let result_style: Option<Style> = if trimmed.starts_with('✓') {
