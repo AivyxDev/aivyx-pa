@@ -1,3 +1,5 @@
+#![allow(clippy::if_same_then_else, clippy::collapsible_if)]
+
 //! Activity view — real-time notification timeline with agent monitoring.
 
 use ratatui::{

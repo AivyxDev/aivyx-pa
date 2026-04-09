@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 //! Aivyx Personal Assistant — main entry point.
 //!
 //! Usage:
