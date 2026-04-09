@@ -893,7 +893,7 @@ pub fn poll_approval(ctx: &mut LoopContext, notification_id: &str) -> Option<App
 /// user approves or denies, or `None` if the timeout elapses.
 ///
 /// **Example (heartbeat):**
-/// ```rust
+/// ```rust,ignore
 /// let notif_id = uuid::Uuid::new_v4().to_string();
 /// send_notification(&tx, Notification {
 ///     id: notif_id.clone(),
