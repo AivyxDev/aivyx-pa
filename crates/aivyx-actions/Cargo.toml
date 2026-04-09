@@ -75,6 +75,7 @@ windows = { version = "0.58", features = [
     "Win32_System_WinRT",
     # Volume control (WASAPI)
     "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
     # Shell (ShellExecuteW)
     "Win32_UI_Shell",
     # Media control (SMTC) — WinRT

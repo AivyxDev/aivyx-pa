@@ -211,10 +211,10 @@ fn find_window_handle(title: Option<&str>) -> Result<HWND> {
     match title {
         None => unsafe {
             let hwnd = GetForegroundWindow();
-            if hwnd.unwrap_or(HWND::default()).0 == std::ptr::null_mut() {
+            if hwnd.0 == std::ptr::null_mut() {
                 Err(AivyxError::Other("No foreground window".into()))
             } else {
-                Ok(hwnd?)
+                Ok(hwnd)
             }
         },
         Some(search) => {
@@ -228,11 +228,12 @@ fn find_window_handle(title: Option<&str>) -> Result<HWND> {
                     windows::core::PCWSTR::null(),
                     windows::core::PCWSTR(wide.as_ptr()),
                 )
-            };
-            if hwnd.unwrap_or(HWND::default()).0 == std::ptr::null_mut() {
+            }
+            .unwrap_or_default();
+            if hwnd.0 == std::ptr::null_mut() {
                 Err(AivyxError::Other(format!("Window not found: '{search}'")))
             } else {
-                Ok(hwnd?)
+                Ok(hwnd)
             }
         }
     }

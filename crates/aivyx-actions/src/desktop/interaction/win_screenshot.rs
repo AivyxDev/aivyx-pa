@@ -31,10 +31,10 @@ pub async fn capture_window() -> Result<String> {
     #[cfg(target_os = "windows")]
     {
         let hwnd = unsafe { GetForegroundWindow() };
-        if hwnd.unwrap_or_default().0 == std::ptr::null_mut() {
+        if hwnd.0 == std::ptr::null_mut() {
             return Err(AivyxError::Other("No foreground window".into()));
         }
-        capture_hwnd(hwnd.unwrap_or_default()).await
+        capture_hwnd(hwnd).await
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -56,11 +56,12 @@ pub async fn capture_window_by_title(title: &str) -> Result<String> {
         }
 
         let wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
-        let hwnd = unsafe { FindWindowW(PCWSTR::null(), PCWSTR(wide.as_ptr())) };
-        if hwnd.unwrap_or_default().0 == std::ptr::null_mut() {
+        let hwnd =
+            unsafe { FindWindowW(PCWSTR::null(), PCWSTR(wide.as_ptr())) }.unwrap_or_default();
+        if hwnd.0 == std::ptr::null_mut() {
             return Err(AivyxError::Other(format!("Window not found: '{title}'")));
         }
-        capture_hwnd(hwnd?).await
+        capture_hwnd(hwnd).await
     }
     #[cfg(not(target_os = "windows"))]
     {
