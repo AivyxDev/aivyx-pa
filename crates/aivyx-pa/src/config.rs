@@ -2618,9 +2618,6 @@ impl PaConsolidationConfig {
             pattern_min_occurrences: self.pattern_min_occurrences,
             pattern_min_success_rate: self.pattern_min_success_rate,
             confidence_half_life_days: 180.0, // upstream default
-            auto_crystallize: true,
-            crystallize_min_confidence: 0.65,
-            skills_dir: None, // will use procedure-memory-only path
         }
     }
 }
