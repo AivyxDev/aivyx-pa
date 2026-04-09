@@ -63,7 +63,7 @@ jobs:
         if: matrix.os != 'windows-latest'
         working-directory: aivyx-pa
         run: |
-          tar -czf aivyx-pa-${{ github.ref_name }}-${{ matrix.target }}${{ matrix.archive_ext }} -C target/${{ matrix.target }}/release aivyx-pa
+          tar -czf aivyx-pa-${{ github.ref_name }}-${{ matrix.target }}${{ matrix.archive_ext }} -C target/${{ matrix.target }}/release aivyx
           mkdir -p artifacts
           mv aivyx-pa-${{ github.ref_name }}-${{ matrix.target }}${{ matrix.archive_ext }} artifacts/
 
@@ -72,7 +72,7 @@ jobs:
         working-directory: aivyx-pa
         run: |
           New-Item -ItemType Directory -Force -Path artifacts
-          Compress-Archive -Path target\${{ matrix.target }}\release\aivyx-pa.exe -DestinationPath artifacts\aivyx-pa-${{ github.ref_name }}-${{ matrix.target }}${{ matrix.archive_ext }}
+          Compress-Archive -Path target\${{ matrix.target }}\release\aivyx.exe -DestinationPath artifacts\aivyx-pa-${{ github.ref_name }}-${{ matrix.target }}${{ matrix.archive_ext }}
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
