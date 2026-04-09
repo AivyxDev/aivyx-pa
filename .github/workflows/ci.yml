@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout aivyx-pa
+        uses: actions/checkout@v4
+        with:
+          path: aivyx-pa
+
+      # Needs to checkout private dependencies so Cargo [patch] works
+      - name: Checkout aivyx-core
+        uses: actions/checkout@v4
+        with:
+          repository: AivyxDev/aivyx-core
+          path: aivyx-core
+          token: ${{ secrets.AIVYX_CI_PAT }}
+
+      - name: Checkout aivyx-factory
+        uses: actions/checkout@v4
+        with:
+          repository: AivyxDev/aivyx-factory
+          path: aivyx-factory
+          token: ${{ secrets.AIVYX_CI_PAT }}
+
+      - name: Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: aivyx-pa
+
+      - name: Format Check
+        working-directory: aivyx-pa
+        run: cargo fmt --check
+
+      - name: Clippy
+        working-directory: aivyx-pa
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Run Tests
+        working-directory: aivyx-pa
+        run: cargo test --workspace
+
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout aivyx-pa
+        uses: actions/checkout@v4
+        with:
+          path: aivyx-pa
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+      - name: Run audit
+        working-directory: aivyx-pa
+        run: cargo audit
