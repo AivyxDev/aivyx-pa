@@ -200,9 +200,8 @@ impl ImapPool {
         let result =
             fetch_inbox_with_conn(&mut reader, &mut writer, &mut tag_num, limit, unread_only).await;
 
-        match &result {
-            Ok(_) => self.checkin(reader, writer, tag_num).await,
-            Err(_) => {} // Don't return broken connections to pool
+        if result.is_ok() {
+            self.checkin(reader, writer, tag_num).await;
         }
 
         result

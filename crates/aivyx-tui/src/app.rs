@@ -267,6 +267,51 @@ pub struct ToolStatusEntry {
     pub denied: bool,
 }
 
+// ── Agent monitor display types ──────────────────────────────
+
+/// Live status of a specialist agent during team delegation.
+#[derive(Debug, Clone)]
+pub struct AgentStatus {
+    /// Specialist name (e.g. "researcher", "coder").
+    pub name: String,
+    /// Current state: "idle", "running", "completed", "error".
+    pub state: String,
+    /// The task currently delegated to this agent, if any.
+    pub current_task: Option<String>,
+    /// When the current delegation started.
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Duration of the last completed delegation in milliseconds.
+    pub last_duration_ms: Option<u64>,
+    /// Recent tool calls by this specialist (most recent first, capped).
+    pub tool_log: Vec<SpecialistToolEntry>,
+}
+
+/// A tool call made by a specialist during delegation.
+#[derive(Debug, Clone)]
+pub struct SpecialistToolEntry {
+    pub tool_name: String,
+    /// "started", "completed", "failed", "denied".
+    pub status: String,
+    pub duration_ms: Option<u64>,
+    pub error: Option<String>,
+}
+
+impl AgentStatus {
+    fn new(name: String) -> Self {
+        Self {
+            name,
+            state: "idle".into(),
+            current_task: None,
+            started_at: None,
+            last_duration_ms: None,
+            tool_log: Vec::new(),
+        }
+    }
+}
+
+/// Maximum tool call entries kept per specialist in the agent monitor.
+const MAX_SPECIALIST_TOOL_LOG: usize = 20;
+
 /// A conversation snapshot entry for the branching UI.
 #[derive(Debug, Clone)]
 pub struct SnapshotEntry {
@@ -360,7 +405,13 @@ pub struct App {
     // ── Activity state (notifications from loop) ───────────────
     pub notifications: Vec<Notification>,
     pub activity_selected: usize,
-    pub activity_filter: usize, // 0=all, 1=schedule, 2=heartbeat
+    pub activity_filter: usize, // 0=all, 1=agents, 2=schedule, 3=heartbeat, 4=triage
+
+    // ── Agent monitor state ──────────────────────────────────
+    /// Live status of specialist agents during team delegations.
+    pub agent_statuses: Vec<AgentStatus>,
+    /// Selected agent index in the Agents filter tab.
+    pub agent_monitor_selected: usize,
 
     // ── Missions state (cached from TaskEngine) ─────────────────
     pub missions: Vec<TaskMetadata>,
@@ -486,6 +537,8 @@ impl App {
             notifications: Vec::new(),
             activity_selected: 0,
             activity_filter: 0,
+            agent_statuses: Vec::new(),
+            agent_monitor_selected: 0,
 
             missions: Vec::new(),
             mission_selected: 0,
@@ -582,13 +635,17 @@ impl App {
     }
 
     /// Filtered notifications for the current activity filter.
+    ///
+    /// Filter indices: 0=all, 1=agents (handled separately in render),
+    /// 2=schedule, 3=heartbeat, 4=triage.
     pub fn filtered_notifications(&self) -> Vec<&Notification> {
         self.notifications
             .iter()
             .filter(|n| match self.activity_filter {
-                1 => n.source == "schedule" || n.source == "briefing",
-                2 => n.source.contains("heartbeat"),
-                3 => n.source == "triage" || n.source == "email",
+                1 => n.source == "agent", // Agents tab: only agent notifications
+                2 => n.source == "schedule" || n.source == "briefing",
+                3 => n.source.contains("heartbeat"),
+                4 => n.source == "triage" || n.source == "email",
                 _ => true,
             })
             .collect()
@@ -2548,6 +2605,113 @@ impl App {
                     // clear compaction flag since we're past it.
                     self.chat_compacting = false;
                 }
+
+                // ── Team delegation events → agent monitor ───────
+                AgentEvent::DelegationStarted {
+                    specialist, task, ..
+                } => {
+                    let status = self
+                        .agent_statuses
+                        .iter_mut()
+                        .find(|a| a.name == specialist);
+                    if let Some(status) = status {
+                        status.state = "running".into();
+                        status.current_task = Some(task.clone());
+                        status.started_at = Some(chrono::Utc::now());
+                        status.tool_log.clear();
+                    } else {
+                        let mut s = AgentStatus::new(specialist.clone());
+                        s.state = "running".into();
+                        s.current_task = Some(task.clone());
+                        s.started_at = Some(chrono::Utc::now());
+                        self.agent_statuses.push(s);
+                    }
+                    // Push as notification for "All" timeline
+                    self.notifications.insert(
+                        0,
+                        Notification {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            kind: aivyx_loop::NotificationKind::Info,
+                            title: format!("Delegated to {specialist}"),
+                            body: task,
+                            source: "agent".into(),
+                            timestamp: chrono::Utc::now(),
+                            requires_approval: false,
+                            goal_id: None,
+                        },
+                    );
+                }
+                AgentEvent::DelegationCompleted {
+                    specialist,
+                    status,
+                    duration_ms,
+                    ..
+                } => {
+                    if let Some(agent) = self
+                        .agent_statuses
+                        .iter_mut()
+                        .find(|a| a.name == specialist)
+                    {
+                        agent.state = status.clone();
+                        agent.last_duration_ms = Some(duration_ms);
+                        agent.current_task = None;
+                        agent.started_at = None;
+                    }
+                    // Push completion notification
+                    let icon = if status == "completed" { "✓" } else { "✗" };
+                    self.notifications.insert(
+                        0,
+                        Notification {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            kind: aivyx_loop::NotificationKind::Info,
+                            title: format!("{icon} {specialist} {status}"),
+                            body: format!("Finished in {duration_ms}ms"),
+                            source: "agent".into(),
+                            timestamp: chrono::Utc::now(),
+                            requires_approval: false,
+                            goal_id: None,
+                        },
+                    );
+                }
+                AgentEvent::SpecialistToolCall {
+                    specialist,
+                    tool_name,
+                    status,
+                    duration_ms,
+                    error,
+                    ..
+                } => {
+                    if let Some(agent) = self
+                        .agent_statuses
+                        .iter_mut()
+                        .find(|a| a.name == specialist)
+                    {
+                        if status == "started" {
+                            // Add new entry at front
+                            agent.tool_log.insert(
+                                0,
+                                SpecialistToolEntry {
+                                    tool_name,
+                                    status,
+                                    duration_ms,
+                                    error,
+                                },
+                            );
+                            agent.tool_log.truncate(MAX_SPECIALIST_TOOL_LOG);
+                        } else {
+                            // Update existing entry for this tool
+                            if let Some(entry) = agent
+                                .tool_log
+                                .iter_mut()
+                                .find(|e| e.tool_name == tool_name && e.status == "started")
+                            {
+                                entry.status = status;
+                                entry.duration_ms = duration_ms;
+                                entry.error = error;
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -3507,6 +3671,8 @@ impl App {
             notifications: Vec::new(),
             activity_selected: 0,
             activity_filter: 0,
+            agent_statuses: Vec::new(),
+            agent_monitor_selected: 0,
             missions: Vec::new(),
             mission_selected: 0,
             mission_filter: 0,
