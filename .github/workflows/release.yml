@@ -85,6 +85,8 @@ jobs:
     name: Publish GitHub Release
     needs: build-release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout aivyx-pa
         uses: actions/checkout@v4
