@@ -83,6 +83,7 @@ windows = { version = "0.58", features = [
     "Media_Ocr",
     # Screenshot bitmap — WinRT
     "Graphics_Imaging",
+    "Foundation_Collections",
 ] }
 
 [features]

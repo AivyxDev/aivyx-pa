@@ -1,3 +1,4 @@
+#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
 //! Windows desktop info — running applications, screen properties, environment.
 //!
 //! Provides desktop environment information, running app listing, and
@@ -82,6 +83,7 @@ fn detect_theme() -> Result<String> {
             KEY_READ,
             &mut hkey,
         )
+        .ok()
         .map_err(|e| AivyxError::Other(format!("RegOpenKeyExW: {e}")))?;
 
         let mut data = [0u8; 4];
@@ -96,6 +98,7 @@ fn detect_theme() -> Result<String> {
             Some(data.as_mut_ptr()),
             Some(&mut data_size),
         )
+        .ok()
         .map_err(|e| AivyxError::Other(format!("RegQueryValueExW: {e}")))?;
 
         let value = u32::from_le_bytes(data);

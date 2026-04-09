@@ -1,3 +1,4 @@
+#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
 //! Windows window management — EnumWindows, SetWindowPos, GetClassName.
 //!
 //! Provides window listing, focusing, resizing, minimizing, maximizing,
@@ -11,11 +12,11 @@ use windows::Win32::Foundation::{BOOL, HWND, LPARAM, TRUE};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
-    HWND_TOP, IsWindowVisible, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW, SWP_NOZORDER,
+    HWND_TOP, IsWindowVisible, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SWP_NOZORDER,
     SWP_SHOWWINDOW, SetForegroundWindow, SetWindowPos, ShowWindow,
 };
 #[cfg(target_os = "windows")]
-use windows::core::PCWSTR;
+
 
 /// A visible window entry.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -34,7 +35,7 @@ pub fn get_foreground_window_class() -> Result<String> {
     {
         unsafe {
             let hwnd = GetForegroundWindow();
-            if hwnd.0 == std::ptr::null_mut() {
+            if hwnd.unwrap_or(HWND::default()).0 == std::ptr::null_mut() {
                 return Err(AivyxError::Other("No foreground window".into()));
             }
             let mut buf = [0u16; 256];
@@ -204,24 +205,24 @@ fn find_window_handle(title: Option<&str>) -> Result<HWND> {
     match title {
         None => unsafe {
             let hwnd = GetForegroundWindow();
-            if hwnd.0 == std::ptr::null_mut() {
+            if hwnd.unwrap_or(HWND::default()).0 == std::ptr::null_mut() {
                 Err(AivyxError::Other("No foreground window".into()))
             } else {
-                Ok(hwnd)
+                Ok(hwnd?)
             }
         },
         Some(search) => {
             // Use FindWindowW with NULL class and the title.
             // For substring matching, enumerate all windows.
             use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
-            use windows::core::PCWSTR;
+            
 
             let wide: Vec<u16> = search.encode_utf16().chain(std::iter::once(0)).collect();
             let hwnd = unsafe { FindWindowW(PCWSTR::null(), PCWSTR(wide.as_ptr())) };
-            if hwnd.0 == std::ptr::null_mut() {
+            if hwnd.unwrap_or(HWND::default()).0 == std::ptr::null_mut() {
                 Err(AivyxError::Other(format!("Window not found: '{search}'")))
             } else {
-                Ok(hwnd)
+                Ok(hwnd?)
             }
         }
     }

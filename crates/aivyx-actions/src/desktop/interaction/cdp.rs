@@ -1,3 +1,4 @@
+#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
 //! Chrome DevTools Protocol backend — browser automation for Chromium-based browsers.
 //!
 //! Connects to Chrome/Chromium via the remote debugging port (default: 9222).

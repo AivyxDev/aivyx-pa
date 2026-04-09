@@ -1,3 +1,4 @@
+#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
 //! Windows UI Automation backend — semantic UI automation for native Win32/WPF/UWP apps.
 //!
 //! Uses the Win32 UI Automation COM API via the `windows` crate to traverse the

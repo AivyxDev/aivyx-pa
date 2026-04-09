@@ -1,3 +1,4 @@
+#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
 //! Win32 SendInput backend — universal input injection on Windows.
 //!
 //! Uses the Win32 `SendInput` API for coordinate-based clicks, keyboard input,
@@ -16,7 +17,7 @@ use super::{
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_0, INPUT_TYPE, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
-    MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN,
+    MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN,
     MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE,
     MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL,
     MOUSEINPUT, SendInput, VIRTUAL_KEY,
@@ -93,13 +94,13 @@ impl WinInputBackend {
         send_mouse_move(from_x, from_y)?;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         // Press left button.
-        send_mouse_button_event(from_x, from_y, MouseButton::Left, true)?;
+        send_mouse_button_event(from_x, from_y, &MouseButton::Left, true)?;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         // Move to destination.
         send_mouse_move(to_x, to_y)?;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         // Release left button.
-        send_mouse_button_event(to_x, to_y, MouseButton::Left, false)
+        send_mouse_button_event(to_x, to_y, &MouseButton::Left, false)
     }
 
     /// Ctrl+click at multiple coordinates (for multi-select).

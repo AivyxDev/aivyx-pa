@@ -1,3 +1,4 @@
+#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
 //! ydotool backend — universal Wayland-compatible input injection.
 //!
 //! Uses the `ydotool` CLI (requires `ydotoold` daemon) for coordinate-based

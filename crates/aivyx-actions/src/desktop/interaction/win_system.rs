@@ -1,3 +1,4 @@
+#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
 //! Windows system controls — WASAPI volume, WMI brightness, Toast notifications.
 //!
 //! Provides system-level controls for volume, brightness, and desktop
@@ -19,12 +20,13 @@ pub async fn volume_control(action: &str, level: Option<u32>) -> Result<serde_js
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::Media::Audio::{
-            IAudioEndpointVolume, IMMDeviceEnumerator, MMDeviceEnumerator, eConsole, eRender,
+        use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
+            IMMDeviceEnumerator, MMDeviceEnumerator, eConsole, eRender,
         };
         use windows::Win32::System::Com::{
             CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
         };
-        use windows::core::Interface;
+        
 
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);

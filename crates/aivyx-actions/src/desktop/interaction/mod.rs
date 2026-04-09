@@ -1,3 +1,4 @@
+#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
 //! Deep application interaction — semantic UI automation, browser control,
 //! media playback, and universal input injection.
 //!

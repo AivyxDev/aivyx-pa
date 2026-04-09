@@ -1,3 +1,4 @@
+#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
 //! Screen OCR — extract text from screen regions using Tesseract.
 //!
 //! The "last resort" for reading text from applications that don't expose

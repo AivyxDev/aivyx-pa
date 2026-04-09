@@ -48,6 +48,7 @@ async fn jsonrpc_call(
 }
 
 /// Send JSON-RPC over a Unix domain socket.
+#[cfg(unix)]
 async fn jsonrpc_unix(socket_path: &str, payload: &serde_json::Value) -> Result<String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -450,4 +451,9 @@ mod tests {
             .await;
         assert!(result.is_err());
     }
+}
+
+#[cfg(not(unix))]
+async fn jsonrpc_unix(_socket_path: &str, _payload: &serde_json::Value) -> Result<String> {
+    Err(AivyxError::Channel("Signal Unix Sockets are not supported on Windows. TCP bindings not yet established.".into()))
 }

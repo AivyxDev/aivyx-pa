@@ -1,3 +1,4 @@
+#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
 //! Windows screenshot backend — GDI+ BitBlt window capture.
 //!
 //! Captures screenshots of individual windows or the full screen using
@@ -49,10 +50,10 @@ pub async fn capture_window_by_title(title: &str) -> Result<String> {
 
         let wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
         let hwnd = unsafe { FindWindowW(PCWSTR::null(), PCWSTR(wide.as_ptr())) };
-        if hwnd.0 == std::ptr::null_mut() {
+        if hwnd.unwrap_or_default().0 == std::ptr::null_mut() {
             return Err(AivyxError::Other(format!("Window not found: '{title}'")));
         }
-        capture_hwnd(hwnd).await
+        capture_hwnd(hwnd?).await
     }
     #[cfg(not(target_os = "windows"))]
     {

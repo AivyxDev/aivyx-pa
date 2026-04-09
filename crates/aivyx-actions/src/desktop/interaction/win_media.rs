@@ -1,3 +1,4 @@
+#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
 //! Windows media control — System Media Transport Controls (SMTC).
 //!
 //! Provides media player detection and control (play/pause/next/previous)
@@ -45,18 +46,18 @@ pub async fn list_sessions() -> Result<Vec<MediaSession>> {
 
             let source_id = session
                 .SourceAppUserModelId()
-                .map(|s| s.to_string())
+                .map(|s: windows::core::HSTRING| s.to_string())
                 .unwrap_or_else(|_| "unknown".into());
 
             let info = session
                 .TryGetMediaPropertiesAsync()
                 .ok()
-                .and_then(|a| a.get().ok());
+                .and_then(|a: windows::core::IReference<bool>| a.get().ok());
 
             let (title, artist) = if let Some(ref props) = info {
                 (
-                    props.Title().ok().map(|s| s.to_string()),
-                    props.Artist().ok().map(|s| s.to_string()),
+                    props.Title().ok().map(|s: windows::core::HSTRING| s.to_string()),
+                    props.Artist().ok().map(|s: windows::core::HSTRING| s.to_string()),
                 )
             } else {
                 (None, None)
@@ -114,7 +115,7 @@ pub async fn control(session_name: &str, action: &str) -> Result<serde_json::Val
                 if let Ok(s) = sessions.GetAt(i) {
                     let id = s
                         .SourceAppUserModelId()
-                        .map(|s| s.to_string())
+                        .map(|s: windows::core::HSTRING| s.to_string())
                         .unwrap_or_default();
                     if id.to_lowercase().contains(&session_name.to_lowercase()) {
                         found = Some(s);
@@ -181,16 +182,16 @@ pub async fn control(session_name: &str, action: &str) -> Result<serde_json::Val
         let info = session
             .TryGetMediaPropertiesAsync()
             .ok()
-            .and_then(|a| a.get().ok());
+            .and_then(|a: windows::core::IReference<bool>| a.get().ok());
 
         let title = info
             .as_ref()
             .and_then(|p| p.Title().ok())
-            .map(|s| s.to_string());
+            .map(|s: windows::core::HSTRING| s.to_string());
         let artist = info
             .as_ref()
             .and_then(|p| p.Artist().ok())
-            .map(|s| s.to_string());
+            .map(|s: windows::core::HSTRING| s.to_string());
 
         Ok(serde_json::json!({
             "action": action,

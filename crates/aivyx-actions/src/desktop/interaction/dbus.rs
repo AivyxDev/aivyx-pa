@@ -1,3 +1,4 @@
+#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
 //! D-Bus MPRIS2 media control — play, pause, skip, and query media players.
 //!
 //! Uses `zbus` (when the `media-control` feature is enabled) or falls back

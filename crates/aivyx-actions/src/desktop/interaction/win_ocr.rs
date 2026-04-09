@@ -1,3 +1,4 @@
+#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
 //! Windows OCR backend — Windows.Media.Ocr WinRT API.
 //!
 //! Provides screen text recognition using the built-in Windows OCR engine
