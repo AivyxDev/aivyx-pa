@@ -593,8 +593,9 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                             app.audit_selected = 0;
                         }
                         View::Activity => {
-                            app.activity_filter = (app.activity_filter + 2) % 3;
+                            app.activity_filter = (app.activity_filter + 4) % 5;
                             app.activity_selected = 0;
+                            app.agent_monitor_selected = 0;
                         }
                         _ => {}
                     }
@@ -614,8 +615,9 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                         app.audit_selected = 0;
                     }
                     View::Activity => {
-                        app.activity_filter = (app.activity_filter + 1) % 3;
+                        app.activity_filter = (app.activity_filter + 1) % 5;
                         app.activity_selected = 0;
+                        app.agent_monitor_selected = 0;
                     }
                     _ => {}
                 },
@@ -823,7 +825,12 @@ fn content_up(app: &mut App) {
             }
         }
         View::Activity => {
-            if app.activity_selected > 0 {
+            if app.activity_filter == 1 {
+                // Agents tab
+                if app.agent_monitor_selected > 0 {
+                    app.agent_monitor_selected -= 1;
+                }
+            } else if app.activity_selected > 0 {
                 app.activity_selected -= 1;
             }
         }
@@ -894,9 +901,17 @@ fn content_down(app: &mut App) {
             }
         }
         View::Activity => {
-            let max = app.filtered_notifications().len().saturating_sub(1);
-            if app.activity_selected < max {
-                app.activity_selected += 1;
+            if app.activity_filter == 1 {
+                // Agents tab
+                let max = app.agent_statuses.len().saturating_sub(1);
+                if app.agent_monitor_selected < max {
+                    app.agent_monitor_selected += 1;
+                }
+            } else {
+                let max = app.filtered_notifications().len().saturating_sub(1);
+                if app.activity_selected < max {
+                    app.activity_selected += 1;
+                }
             }
         }
         View::Audit => {

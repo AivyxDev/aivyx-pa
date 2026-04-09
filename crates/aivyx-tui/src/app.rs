@@ -4023,6 +4023,21 @@ mod tests {
     }
 
     #[test]
+    fn filtered_notifications_agents() {
+        let mut app = App::new_test();
+        app.notifications = vec![
+            notif("agent"),
+            notif("schedule"),
+            notif("agent"),
+            notif("other"),
+        ];
+        app.activity_filter = 1;
+        let filtered = app.filtered_notifications();
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.iter().all(|n| n.source == "agent"));
+    }
+
+    #[test]
     fn filtered_notifications_schedule() {
         let mut app = App::new_test();
         app.notifications = vec![
@@ -4031,7 +4046,7 @@ mod tests {
             notif("heartbeat"),
             notif("other"),
         ];
-        app.activity_filter = 1;
+        app.activity_filter = 2;
         let filtered = app.filtered_notifications();
         assert_eq!(filtered.len(), 2);
         assert!(
@@ -4049,7 +4064,7 @@ mod tests {
             notif("heartbeat-check"),
             notif("schedule"),
         ];
-        app.activity_filter = 2;
+        app.activity_filter = 3;
         let filtered = app.filtered_notifications();
         assert_eq!(filtered.len(), 2);
         assert!(filtered.iter().all(|n| n.source.contains("heartbeat")));
