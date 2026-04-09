@@ -1,4 +1,11 @@
-#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
+#![allow(
+    unsafe_op_in_unsafe_fn,
+    unused_imports,
+    unreachable_code,
+    unused_variables,
+    dead_code,
+    clippy::all
+)]
 //! Native window screenshot backend using grim (Wayland) or import (X11).
 //!
 //! Provides `capture_window` which takes a screenshot of a specific window

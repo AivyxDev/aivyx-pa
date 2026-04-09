@@ -1,4 +1,11 @@
-#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
+#![allow(
+    unsafe_op_in_unsafe_fn,
+    unused_imports,
+    unreachable_code,
+    unused_variables,
+    dead_code,
+    clippy::all
+)]
 //! System controls — volume, brightness, notifications, file manager.
 //!
 //! Each function shells out to the appropriate Linux utility:

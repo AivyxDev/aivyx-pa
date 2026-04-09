@@ -1,4 +1,11 @@
-#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
+#![allow(
+    unsafe_op_in_unsafe_fn,
+    unused_imports,
+    unreachable_code,
+    unused_variables,
+    dead_code,
+    clippy::all
+)]
 //! Windows screenshot backend — GDI+ BitBlt window capture.
 //!
 //! Captures screenshots of individual windows or the full screen using
@@ -212,7 +219,7 @@ fn capture_region(hwnd: HWND, x: i32, y: i32, w: i32, h: i32) -> Result<String> 
         }
 
         // Base64 encode.
-                let b64 = base64_encode(&bmp_data);
+        let b64 = base64_encode(&bmp_data);
         Ok(b64)
     }
 }

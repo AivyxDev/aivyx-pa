@@ -1,4 +1,11 @@
-#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
+#![allow(
+    unsafe_op_in_unsafe_fn,
+    unused_imports,
+    unreachable_code,
+    unused_variables,
+    dead_code,
+    clippy::all
+)]
 //! Windows desktop info — running applications, screen properties, environment.
 //!
 //! Provides desktop environment information, running app listing, and

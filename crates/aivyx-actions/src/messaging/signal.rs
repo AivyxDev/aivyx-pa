@@ -455,5 +455,8 @@ mod tests {
 
 #[cfg(not(unix))]
 async fn jsonrpc_unix(_socket_path: &str, _payload: &serde_json::Value) -> Result<String> {
-    Err(AivyxError::Channel("Signal Unix Sockets are not supported on Windows. TCP bindings not yet established.".into()))
+    Err(AivyxError::Channel(
+        "Signal Unix Sockets are not supported on Windows. TCP bindings not yet established."
+            .into(),
+    ))
 }

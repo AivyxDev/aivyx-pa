@@ -1,4 +1,11 @@
-#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
+#![allow(
+    unsafe_op_in_unsafe_fn,
+    unused_imports,
+    unreachable_code,
+    unused_variables,
+    dead_code,
+    clippy::all
+)]
 //! AT-SPI2 accessibility backend — semantic UI automation for GTK/Qt/Electron.
 //!
 //! Uses the `atspi` crate (pure Rust, D-Bus based) to traverse the accessibility

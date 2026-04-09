@@ -1,4 +1,11 @@
-#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
+#![allow(
+    unsafe_op_in_unsafe_fn,
+    unused_imports,
+    unreachable_code,
+    unused_variables,
+    dead_code,
+    clippy::all
+)]
 //! Windows window management — EnumWindows, SetWindowPos, GetClassName.
 //!
 //! Provides window listing, focusing, resizing, minimizing, maximizing,
@@ -12,11 +19,10 @@ use windows::Win32::Foundation::{BOOL, HWND, LPARAM, TRUE};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
-    HWND_TOP, IsWindowVisible, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SWP_NOZORDER,
-    SWP_SHOWWINDOW, SetForegroundWindow, SetWindowPos, ShowWindow,
+    HWND_TOP, IsWindowVisible, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SWP_NOZORDER, SWP_SHOWWINDOW,
+    SetForegroundWindow, SetWindowPos, ShowWindow,
 };
 #[cfg(target_os = "windows")]
-
 
 /// A visible window entry.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -215,10 +221,14 @@ fn find_window_handle(title: Option<&str>) -> Result<HWND> {
             // Use FindWindowW with NULL class and the title.
             // For substring matching, enumerate all windows.
             use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
-            
 
             let wide: Vec<u16> = search.encode_utf16().chain(std::iter::once(0)).collect();
-            let hwnd = unsafe { FindWindowW(windows::core::PCWSTR::null(), windows::core::PCWSTR(wide.as_ptr())) };
+            let hwnd = unsafe {
+                FindWindowW(
+                    windows::core::PCWSTR::null(),
+                    windows::core::PCWSTR(wide.as_ptr()),
+                )
+            };
             if hwnd.unwrap_or(HWND::default()).0 == std::ptr::null_mut() {
                 Err(AivyxError::Other(format!("Window not found: '{search}'")))
             } else {

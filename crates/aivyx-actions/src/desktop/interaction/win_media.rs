@@ -1,4 +1,11 @@
-#![allow(unsafe_op_in_unsafe_fn, unused_imports, unreachable_code, unused_variables, dead_code, clippy::all)]
+#![allow(
+    unsafe_op_in_unsafe_fn,
+    unused_imports,
+    unreachable_code,
+    unused_variables,
+    dead_code,
+    clippy::all
+)]
 //! Windows media control — System Media Transport Controls (SMTC).
 //!
 //! Provides media player detection and control (play/pause/next/previous)
@@ -56,14 +63,22 @@ pub async fn list_sessions() -> Result<Vec<MediaSession>> {
 
             let (title, artist) = if let Some(ref props) = info {
                 (
-                    props.Title().ok().map(|s: windows::core::HSTRING| s.to_string()),
-                    props.Artist().ok().map(|s: windows::core::HSTRING| s.to_string()),
+                    props
+                        .Title()
+                        .ok()
+                        .map(|s: windows::core::HSTRING| s.to_string()),
+                    props
+                        .Artist()
+                        .ok()
+                        .map(|s: windows::core::HSTRING| s.to_string()),
                 )
             } else {
                 (None, None)
             };
 
-            let playback_info: Option<windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackInfo> = session.GetPlaybackInfo().ok();
+            let playback_info: Option<
+                windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackInfo,
+            > = session.GetPlaybackInfo().ok();
             let status = playback_info
                 .and_then(|pi| pi.PlaybackStatus().ok())
                 .map(|s| format!("{s:?}"))
@@ -179,10 +194,13 @@ pub async fn control(session_name: &str, action: &str) -> Result<serde_json::Val
         }
 
         // Return current state after the action.
-        let info: Option<windows::Media::Control::GlobalSystemMediaTransportControlsSessionMediaProperties> = session
-            .TryGetMediaPropertiesAsync()
-            .ok()
-            .and_then(|a: windows::Foundation::IAsyncOperation<windows::Media::Control::GlobalSystemMediaTransportControlsSessionMediaProperties>| a.get().ok());
+        let info: Option<
+            windows::Media::Control::GlobalSystemMediaTransportControlsSessionMediaProperties,
+        > = session.TryGetMediaPropertiesAsync().ok().and_then(
+            |a: windows::Foundation::IAsyncOperation<
+                windows::Media::Control::GlobalSystemMediaTransportControlsSessionMediaProperties,
+            >| a.get().ok(),
+        );
 
         let title = info
             .as_ref()
