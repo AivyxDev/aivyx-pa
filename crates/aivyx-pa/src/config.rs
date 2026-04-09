@@ -2366,18 +2366,15 @@ impl PaConfig {
         for key in table.keys() {
             if !KNOWN_SECTIONS.contains(&key.as_str()) {
                 // Find closest match for helpful suggestion.
-                let suggestion = KNOWN_SECTIONS
-                    .iter()
-                    .filter(|s| {
-                        let k = key.to_lowercase();
-                        let s = s.to_lowercase();
-                        // Simple similarity: shared prefix ≥ 3 or edit distance ≤ 2
-                        s.starts_with(&k[..k.len().min(3).min(s.len())])
-                            || k.starts_with(&s[..s.len().min(3).min(k.len())])
-                            || (k.len().abs_diff(s.len()) <= 2
-                                && k.chars().zip(s.chars()).filter(|(a, b)| a != b).count() <= 2)
-                    })
-                    .next();
+                let suggestion = KNOWN_SECTIONS.iter().find(|s| {
+                    let k = key.to_lowercase();
+                    let s = s.to_lowercase();
+                    // Simple similarity: shared prefix ≥ 3 or edit distance ≤ 2
+                    s.starts_with(&k[..k.len().min(3).min(s.len())])
+                        || k.starts_with(&s[..s.len().min(3).min(k.len())])
+                        || (k.len().abs_diff(s.len()) <= 2
+                            && k.chars().zip(s.chars()).filter(|(a, b)| a != b).count() <= 2)
+                });
                 let hint = suggestion
                     .map(|s| format!(" (did you mean [{s}]?)"))
                     .unwrap_or_default();

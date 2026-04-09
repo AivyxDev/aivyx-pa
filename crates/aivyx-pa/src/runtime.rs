@@ -193,6 +193,7 @@ pub fn build_schedule_tools(
 ///
 /// Returns `Some(LoopContext)` if the brain is available (brain_store present),
 /// `None` otherwise. The agent loop requires a brain to function.
+#[allow(clippy::too_many_arguments)]
 pub fn build_loop_context(
     built: &mut BuiltAgent,
     keys: &mut DerivedKeys,

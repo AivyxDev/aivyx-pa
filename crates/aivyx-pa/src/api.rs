@@ -232,7 +232,7 @@ fn check_disk_space(path: &std::path::Path) -> SubsystemHealth {
         unsafe {
             let mut stat: libc::statvfs = std::mem::zeroed();
             if libc::statvfs(c_path.as_ptr(), &mut stat) == 0 {
-                let free_bytes = (stat.f_bavail as u64) * (stat.f_frsize as u64);
+                let free_bytes = stat.f_bavail * stat.f_frsize;
                 let free_mb = free_bytes / (1024 * 1024);
                 if free_mb < 100 {
                     SubsystemHealth::Degraded(format!("low disk space: {free_mb} MB free"))
@@ -774,6 +774,7 @@ async fn list_goals(
 const MAX_GOAL_TEXT_LEN: usize = 2_048;
 
 /// Helper: get brain store and key or return 404.
+#[allow(clippy::type_complexity)]
 fn brain_store_or_err(
     state: &AppState,
 ) -> Result<(&Arc<BrainStore>, &Arc<MasterKey>), (StatusCode, String)> {

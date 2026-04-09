@@ -924,6 +924,7 @@ pub struct BuiltAgent {
 }
 
 /// Build an Agent from the unlocked key + provider. Shared by TUI and one-shot chat.
+#[allow(clippy::too_many_arguments)]
 pub async fn build_agent(
     dirs: &AivyxDirs,
     config: &AivyxConfig,
