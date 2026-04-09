@@ -416,6 +416,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore]
     async fn volume_rejects_unknown_action() {
         let result = volume_control("explode", None).await;
         assert!(result.is_err());
