@@ -19,6 +19,7 @@ use aivyx_core::{AivyxError, Result};
 pub async fn volume_control(action: &str, level: Option<u32>) -> Result<serde_json::Value> {
     #[cfg(target_os = "windows")]
     {
+        use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
         use windows::Win32::Media::Audio::{
         use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
             IMMDeviceEnumerator, MMDeviceEnumerator, eConsole, eRender,

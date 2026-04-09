@@ -218,7 +218,7 @@ fn find_window_handle(title: Option<&str>) -> Result<HWND> {
             
 
             let wide: Vec<u16> = search.encode_utf16().chain(std::iter::once(0)).collect();
-            let hwnd = unsafe { FindWindowW(PCWSTR::null(), PCWSTR(wide.as_ptr())) };
+            let hwnd = unsafe { FindWindowW(windows::core::PCWSTR::null(), windows::core::PCWSTR(wide.as_ptr())) };
             if hwnd.unwrap_or(HWND::default()).0 == std::ptr::null_mut() {
                 Err(AivyxError::Other(format!("Window not found: '{search}'")))
             } else {

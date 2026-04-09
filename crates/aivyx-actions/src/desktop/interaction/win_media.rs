@@ -49,10 +49,10 @@ pub async fn list_sessions() -> Result<Vec<MediaSession>> {
                 .map(|s: windows::core::HSTRING| s.to_string())
                 .unwrap_or_else(|_| "unknown".into());
 
-            let info = session
+            let info: Option<windows::Media::Control::GlobalSystemMediaTransportControlsSessionMediaProperties> = session
                 .TryGetMediaPropertiesAsync()
                 .ok()
-                .and_then(|a: windows::core::IReference<bool>| a.get().ok());
+                .and_then(|a: windows::Foundation::IAsyncOperation<windows::Media::Control::GlobalSystemMediaTransportControlsSessionMediaProperties>| a.get().ok());
 
             let (title, artist) = if let Some(ref props) = info {
                 (
@@ -63,7 +63,7 @@ pub async fn list_sessions() -> Result<Vec<MediaSession>> {
                 (None, None)
             };
 
-            let playback_info = session.GetPlaybackInfo().ok();
+            let playback_info: Option<windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackInfo> = session.GetPlaybackInfo().ok();
             let status = playback_info
                 .and_then(|pi| pi.PlaybackStatus().ok())
                 .map(|s| format!("{s:?}"))
@@ -179,10 +179,10 @@ pub async fn control(session_name: &str, action: &str) -> Result<serde_json::Val
         }
 
         // Return current state after the action.
-        let info = session
+        let info: Option<windows::Media::Control::GlobalSystemMediaTransportControlsSessionMediaProperties> = session
             .TryGetMediaPropertiesAsync()
             .ok()
-            .and_then(|a: windows::core::IReference<bool>| a.get().ok());
+            .and_then(|a: windows::Foundation::IAsyncOperation<windows::Media::Control::GlobalSystemMediaTransportControlsSessionMediaProperties>| a.get().ok());
 
         let title = info
             .as_ref()

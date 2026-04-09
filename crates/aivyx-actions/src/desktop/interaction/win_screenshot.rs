@@ -24,10 +24,10 @@ pub async fn capture_window() -> Result<String> {
     #[cfg(target_os = "windows")]
     {
         let hwnd = unsafe { GetForegroundWindow() };
-        if hwnd.0 == std::ptr::null_mut() {
+        if hwnd.unwrap_or_default().0 == std::ptr::null_mut() {
             return Err(AivyxError::Other("No foreground window".into()));
         }
-        capture_hwnd(hwnd).await
+        capture_hwnd(hwnd.unwrap_or_default()).await
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -212,8 +212,7 @@ fn capture_region(hwnd: HWND, x: i32, y: i32, w: i32, h: i32) -> Result<String> 
         }
 
         // Base64 encode.
-        use std::fmt::Write as FmtWrite;
-        let b64 = base64_encode(&bmp_data);
+                let b64 = base64_encode(&bmp_data);
         Ok(b64)
     }
 }

@@ -888,6 +888,7 @@ pub async fn dispatch_actions(
                                                     memories_pruned: report.memories_pruned,
                                                     triples_decayed: 0,
                                                     patterns_mined: 0,
+                                                    skills_crystallized: report.skills_crystallized,
                                                 },
                                             );
 
