@@ -1,3 +1,5 @@
+#![allow(clippy::useless_vec, clippy::redundant_closure, unused_imports)]
+
 //! Issue tracking action tools — list, read, and create issues.
 //!
 //! Provides `list_issues`, `get_issue`, and `create_issue` actions that

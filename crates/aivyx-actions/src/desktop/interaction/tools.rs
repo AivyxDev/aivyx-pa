@@ -3095,10 +3095,13 @@ mod tests {
     use super::*;
 
     fn test_ctx() -> Arc<InteractionContext> {
-        InteractionContext::new(super::super::InteractionConfig {
-            enabled: true,
-            ..Default::default()
-        })
+        InteractionContext::new(
+            super::super::InteractionConfig {
+                enabled: true,
+                ..Default::default()
+            },
+            crate::desktop::DesktopConfig::default(),
+        )
     }
 
     #[tokio::test]

@@ -565,9 +565,9 @@ async fn all_personas_seed_two_goals() {
         };
 
         let built = env.build(&pa_config).await.unwrap();
-        let store = built.brain_store.expect(&format!(
-            "Brain should be available for persona '{persona}'"
-        ));
+        let store = built
+            .brain_store
+            .unwrap_or_else(|| panic!("Brain should be available for persona '{persona}'"));
         let key = aivyx_crypto::derive_brain_key(&env.master_key());
         let goals = store
             .list_goals(

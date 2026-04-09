@@ -1,0 +1,83 @@
+    Checking aivyx-actions v0.1.0 (/home/julian/Projects/aivyx-pa/crates/aivyx-actions)
+    Checking aivyx-loop v0.1.0 (/home/julian/Projects/aivyx-pa/crates/aivyx-loop)
+    Checking aivyx-pa v0.1.0 (/home/julian/Projects/aivyx-pa/crates/aivyx-pa)
+error: manual `RangeInclusive::contains` implementation
+   --> crates/aivyx-loop/src/priority.rs:213:17
+    |
+213 |         assert!(score >= 0.1 && score <= 0.5);
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: use: `(0.1..=0.5).contains(&score)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#manual_range_contains
+    = note: `-D clippy::manual-range-contains` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::manual_range_contains)]`
+
+error: could not compile `aivyx-loop` (lib test) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: called `iter().copied().collect()` on a slice to create a `Vec`. Calling `to_vec()` is both faster and more readable
+    --> crates/aivyx-pa/src/init.rs:1555:54
+     |
+1555 |                 let skills: Vec<&str> = bundle.skills.iter().copied().collect();
+     |                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `.to_vec()`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#iter_cloned_collect
+     = note: `-D clippy::iter-cloned-collect` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::iter_cloned_collect)]`
+
+error: could not compile `aivyx-pa` (lib test) due to 1 previous error
+error: this `map_or` can be simplified
+    --> crates/aivyx-actions/src/calendar.rs:1149:20
+     |
+1149 |                 || schema["required"].as_array().map_or(true, |a| a.is_empty())
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#unnecessary_map_or
+     = note: `-D clippy::unnecessary-map-or` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::unnecessary_map_or)]`
+help: use is_none_or instead
+     |
+1149 -                 || schema["required"].as_array().map_or(true, |a| a.is_empty())
+1149 +                 || schema["required"].as_array().is_none_or(|a| a.is_empty())
+     |
+
+error: redundant closure
+   --> crates/aivyx-actions/src/devtools/issues.rs:627:18
+    |
+627 |             .map(|i| normalize_issue(i))
+    |                  ^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the function itself: `normalize_issue`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#redundant_closure
+    = note: `-D clippy::redundant-closure` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::redundant_closure)]`
+
+error: useless use of `vec!`
+   --> crates/aivyx-actions/src/devtools/issues.rs:610:22
+    |
+610 |           let issues = vec![
+    |  ______________________^
+611 | |             serde_json::json!({
+612 | |                 "number": 1, "title": "Real issue", "state": "open",
+613 | |                 "user": { "login": "a" }, "labels": [], "assignees": [],
+...   |
+621 | |             }),
+622 | |         ];
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.94.0/index.html#useless_vec
+    = note: `-D clippy::useless-vec` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::useless_vec)]`
+help: you can use an array directly
+    |
+610 ~         let issues = [serde_json::json!({
+611 +                 "number": 1, "title": "Real issue", "state": "open",
+612 +                 "user": { "login": "a" }, "labels": [], "assignees": [],
+613 +                 "milestone": null, "created_at": "", "updated_at": "", "html_url": "",
+614 +             }),
+615 +             serde_json::json!({
+616 +                 "number": 2, "title": "This is a PR", "state": "open",
+617 +                 "pull_request": { "url": "..." },
+618 +                 "user": { "login": "b" }, "labels": [], "assignees": [],
+619 +                 "milestone": null, "created_at": "", "updated_at": "", "html_url": "",
+620 ~             })];
+    |
+
+error: could not compile `aivyx-actions` (lib test) due to 3 previous errors

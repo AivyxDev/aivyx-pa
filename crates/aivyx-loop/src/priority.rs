@@ -1,3 +1,5 @@
+#![allow(clippy::manual_range_contains)]
+
 //! Priority scoring — ranks items from multiple sources by urgency.
 //!
 //! The priority scorer takes signals from different context sources
