@@ -1,3 +1,5 @@
+#![allow(clippy::unnecessary_map_or)]
+
 //! Calendar integration — CalDAV client for reading/writing events.
 //!
 //! Supports any CalDAV-compliant server (Google Calendar, Nextcloud,

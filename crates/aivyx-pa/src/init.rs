@@ -1552,7 +1552,7 @@ model = "deepseek/deepseek-r1""#,
                 ));
                 config.push_str(&format_soul_line(bundle.soul_template));
                 config.push('\n');
-                let skills: Vec<&str> = bundle.skills.iter().copied().collect();
+                let skills: Vec<&str> = bundle.skills.to_vec();
                 config.push_str(&format_skills_line(&skills));
                 config.push('\n');
 
