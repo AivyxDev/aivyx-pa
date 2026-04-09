@@ -68,7 +68,7 @@ use std::sync::Arc;
 // ── Config ────────────────────────────────────────────────────────
 
 /// Top-level interaction configuration, deserialized from `[desktop.interaction]`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct InteractionConfig {
     /// Master switch — all interaction tools disabled when false.
     #[serde(default)]
@@ -89,18 +89,6 @@ pub struct InteractionConfig {
     /// ydotool input injection config.
     #[serde(default)]
     pub input: InputConfig,
-}
-
-impl Default for InteractionConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            accessibility: AccessibilityConfig::default(),
-            browser: BrowserConfig::default(),
-            media: MediaConfig::default(),
-            input: InputConfig::default(),
-        }
-    }
 }
 
 /// AT-SPI2 accessibility backend configuration.
@@ -446,12 +434,12 @@ impl BackendRouter {
     /// Pick the best backend for a window. Falls back to ydotool.
     pub(crate) async fn route(&self, window: &WindowRef) -> &dyn UiBackend {
         // Try to detect window class for smart routing.
-        if let Some(ref cdp_backend) = self.cdp {
-            if let Ok(Some(class)) = get_window_class(window).await {
-                let lower = class.to_lowercase();
-                if is_browser_class(&lower) {
-                    return cdp_backend;
-                }
+        if let Some(ref cdp_backend) = self.cdp
+            && let Ok(Some(class)) = get_window_class(window).await
+        {
+            let lower = class.to_lowercase();
+            if is_browser_class(&lower) {
+                return cdp_backend;
             }
         }
 

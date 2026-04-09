@@ -686,10 +686,10 @@ pub fn register_desktop_actions(
     }
 
     // Deep interaction tools (AT-SPI2/UIA, CDP, MPRIS/SMTC, ydotool/SendInput).
-    if let Some(ref ic) = config.interaction {
-        if ic.enabled {
-            register_interaction_actions(registry, ic.clone(), config.clone());
-        }
+    if let Some(ref ic) = config.interaction
+        && ic.enabled
+    {
+        register_interaction_actions(registry, ic.clone(), config.clone());
     }
 }
 

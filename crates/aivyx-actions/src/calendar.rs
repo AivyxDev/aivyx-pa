@@ -512,7 +512,7 @@ fn build_vevent_ical(
         event.all_day(start.date_naive());
         // Set DTEND as the next day for all-day events
         if let Some(next) = end.date_naive().succ_opt() {
-            event.add_property("DTEND;VALUE=DATE", &next.format("%Y%m%d").to_string());
+            event.add_property("DTEND;VALUE=DATE", next.format("%Y%m%d").to_string());
         }
     } else {
         event.starts(start);

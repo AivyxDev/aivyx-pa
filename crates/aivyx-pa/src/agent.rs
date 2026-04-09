@@ -2291,41 +2291,43 @@ fn seed_nonagon_team(dirs: &AivyxDirs) -> anyhow::Result<usize> {
     std::fs::create_dir_all(&teams_dir)?;
 
     // 1. Seed agent profiles for all 9 Nonagon specialists.
+    // Always overwrite: capabilities and soul text evolve with code updates.
+    // Nonagon profiles are auto-generated, not user-customized, so overwriting
+    // is safe and ensures capability fixes (e.g. coordinator gaining Shell scope
+    // for proper attenuation) take effect immediately.
     let profiles = aivyx_team::nonagon::all_nonagon_profiles();
     for profile in &profiles {
         let path = agents_dir.join(format!("{}.toml", profile.name));
-        if !path.exists() {
-            profile.save(&path)?;
+        let is_new = !path.exists();
+        profile.save(&path)?;
+        if is_new {
             tracing::debug!("Seeded Nonagon agent profile: {}", profile.name);
-            written += 1;
         }
-    }
-
-    // 2. Seed the nonagon team config.
-    let team_path = teams_dir.join("nonagon.toml");
-    if !team_path.exists() {
-        let members: Vec<aivyx_team::TeamMemberConfig> = aivyx_team::nonagon::NONAGON_ROLES
-            .iter()
-            .map(|r| aivyx_team::TeamMemberConfig {
-                name: r.name.to_string(),
-                role: r.role.to_string(),
-            })
-            .collect();
-
-        let config = aivyx_team::TeamConfig {
-            name: "nonagon".to_string(),
-            description: "The Nonagon — 9 specialist sub-agents for complex multi-agent tasks"
-                .to_string(),
-            orchestration: aivyx_team::OrchestrationMode::LeadAgent {
-                lead: "coordinator".to_string(),
-            },
-            members,
-            dialogue: aivyx_team::DialogueConfig::default(),
-        };
-        config.save(&team_path)?;
-        tracing::debug!("Seeded Nonagon team config");
         written += 1;
     }
+
+    // 2. Seed the nonagon team config (always overwrite for same reason as profiles).
+    let team_path = teams_dir.join("nonagon.toml");
+    let members: Vec<aivyx_team::TeamMemberConfig> = aivyx_team::nonagon::NONAGON_ROLES
+        .iter()
+        .map(|r| aivyx_team::TeamMemberConfig {
+            name: r.name.to_string(),
+            role: r.role.to_string(),
+        })
+        .collect();
+
+    let config = aivyx_team::TeamConfig {
+        name: "nonagon".to_string(),
+        description: "The Nonagon — 9 specialist sub-agents for complex multi-agent tasks"
+            .to_string(),
+        orchestration: aivyx_team::OrchestrationMode::LeadAgent {
+            lead: "coordinator".to_string(),
+        },
+        members,
+        dialogue: aivyx_team::DialogueConfig::default(),
+    };
+    config.save(&team_path)?;
+    written += 1;
 
     Ok(written)
 }

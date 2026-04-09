@@ -28,6 +28,12 @@ pub struct AtSpiBackend {
     ydotool: YdotoolBackend,
 }
 
+impl Default for AtSpiBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AtSpiBackend {
     pub fn new() -> Self {
         Self {
@@ -113,10 +119,10 @@ impl AtSpiBackend {
                             Err(_) => continue,
                         };
                         // Check if window has Active state.
-                        if let Ok(states) = win.get_state().await {
-                            if states.contains(State::Active) {
-                                return Ok(win);
-                            }
+                        if let Ok(states) = win.get_state().await
+                            && states.contains(State::Active)
+                        {
+                            return Ok(win);
                         }
                     }
                 }
@@ -146,17 +152,17 @@ impl AtSpiBackend {
                             Ok(p) => p,
                             Err(_) => continue,
                         };
-                        if let Ok(name) = win.name().await {
-                            if name.to_lowercase().contains(&lower) {
-                                return Ok(win);
-                            }
+                        if let Ok(name) = win.name().await
+                            && name.to_lowercase().contains(&lower)
+                        {
+                            return Ok(win);
                         }
                     }
                     // Also check app-level name.
-                    if let Ok(name) = app.name().await {
-                        if name.to_lowercase().contains(&lower) {
-                            return Ok(app);
-                        }
+                    if let Ok(name) = app.name().await
+                        && name.to_lowercase().contains(&lower)
+                    {
+                        return Ok(app);
                     }
                 }
                 Err(AivyxError::Other(format!(
@@ -477,15 +483,15 @@ impl AtSpiBackend {
 
 /// Check if an element matches the query filters.
 fn matches_query(el: &UiElement, query: &ElementQuery) -> bool {
-    if let Some(ref role) = query.role {
-        if !el.role.to_lowercase().contains(&role.to_lowercase()) {
-            return false;
-        }
+    if let Some(ref role) = query.role
+        && !el.role.to_lowercase().contains(&role.to_lowercase())
+    {
+        return false;
     }
-    if let Some(ref name) = query.name {
-        if !el.name.to_lowercase().contains(&name.to_lowercase()) {
-            return false;
-        }
+    if let Some(ref name) = query.name
+        && !el.name.to_lowercase().contains(&name.to_lowercase())
+    {
+        return false;
     }
     if let Some(ref text) = query.text {
         if let Some(ref el_text) = el.text {

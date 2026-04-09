@@ -13,6 +13,12 @@ use super::{
 /// ydotool-based input backend. Always available (subprocess, no crate deps).
 pub struct YdotoolBackend;
 
+impl Default for YdotoolBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl YdotoolBackend {
     pub fn new() -> Self {
         Self

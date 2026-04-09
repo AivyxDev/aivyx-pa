@@ -69,12 +69,10 @@ impl Action for OpenApplication {
 
         // URLs and existing files → xdg-open (respects default handlers)
         if is_url || is_file {
-            if is_file {
-                if let Some(frag) = is_path_denied(target) {
-                    return Err(aivyx_core::AivyxError::CapabilityDenied(format!(
-                        "Cannot open sensitive path (matched: {frag})"
-                    )));
-                }
+            if is_file && let Some(frag) = is_path_denied(target) {
+                return Err(aivyx_core::AivyxError::CapabilityDenied(format!(
+                    "Cannot open sensitive path (matched: {frag})"
+                )));
             }
 
             let mut cmd = tokio::process::Command::new("xdg-open");

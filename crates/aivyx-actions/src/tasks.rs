@@ -232,12 +232,12 @@ impl Action for SpawnTask {
         let timeout_secs = input["timeout_secs"].as_u64().unwrap_or(300).min(3600);
         let working_dir = input["working_dir"].as_str().map(|s| s.to_string());
 
-        if let Some(ref dir) = working_dir {
-            if !std::path::Path::new(dir).is_absolute() {
-                return Err(aivyx_core::AivyxError::Validation(
-                    "working_dir must be an absolute path".into(),
-                ));
-            }
+        if let Some(ref dir) = working_dir
+            && !std::path::Path::new(dir).is_absolute()
+        {
+            return Err(aivyx_core::AivyxError::Validation(
+                "working_dir must be an absolute path".into(),
+            ));
         }
 
         let task_id = Uuid::new_v4().to_string();

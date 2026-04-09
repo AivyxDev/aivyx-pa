@@ -98,10 +98,11 @@ async fn capture_region(region: &str) -> Result<Vec<u8>> {
         .output()
         .await;
 
-    if let Ok(output) = grim_result {
-        if output.status.success() && !output.stdout.is_empty() {
-            return Ok(output.stdout);
-        }
+    if let Ok(output) = grim_result
+        && output.status.success()
+        && !output.stdout.is_empty()
+    {
+        return Ok(output.stdout);
     }
 
     // Fallback: import (ImageMagick) — crop from full screenshot.

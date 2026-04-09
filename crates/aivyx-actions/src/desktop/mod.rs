@@ -35,7 +35,7 @@ const DEFAULT_TIMEOUT_SECS: u64 = 5;
 /// nautilus = "ViewOnly"
 /// steam = "Blocked"
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum AppAccess {
     /// Agent cannot interact with or launch the app at all.
     Blocked,
@@ -46,13 +46,8 @@ pub enum AppAccess {
     /// but cannot close or force-manage its windows.
     Interact,
     /// Full access — launch, interact, close, resize, manage.
+    #[default]
     Full,
-}
-
-impl Default for AppAccess {
-    fn default() -> Self {
-        Self::Full
-    }
 }
 
 impl std::fmt::Display for AppAccess {

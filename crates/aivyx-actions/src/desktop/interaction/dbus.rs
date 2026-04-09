@@ -208,12 +208,12 @@ fn extract_variant_string(output: &str) -> Option<String> {
     //    variant       string "Playing"
     for line in output.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("string \"") || trimmed.starts_with("variant") {
-            if let Some(start) = trimmed.find('"') {
-                let rest = &trimmed[start + 1..];
-                if let Some(end) = rest.find('"') {
-                    return Some(rest[..end].to_string());
-                }
+        if (trimmed.starts_with("string \"") || trimmed.starts_with("variant"))
+            && let Some(start) = trimmed.find('"')
+        {
+            let rest = &trimmed[start + 1..];
+            if let Some(end) = rest.find('"') {
+                return Some(rest[..end].to_string());
             }
         }
     }
@@ -235,12 +235,12 @@ fn extract_metadata_field(output: &str, field: &str) -> Option<String> {
                 return Some(val);
             }
             // Also check for array entries.
-            if trimmed.starts_with("string \"") {
-                if let Some(start) = trimmed.find('"') {
-                    let rest = &trimmed[start + 1..];
-                    if let Some(end) = rest.find('"') {
-                        return Some(rest[..end].to_string());
-                    }
+            if trimmed.starts_with("string \"")
+                && let Some(start) = trimmed.find('"')
+            {
+                let rest = &trimmed[start + 1..];
+                if let Some(end) = rest.find('"') {
+                    return Some(rest[..end].to_string());
                 }
             }
             // If it's a different dict entry, stop.

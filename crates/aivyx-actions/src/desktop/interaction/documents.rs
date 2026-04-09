@@ -38,7 +38,7 @@ pub async fn create_text_file(path: &str, content: &str) -> Result<String> {
 
     tokio::fs::write(path, content)
         .await
-        .map_err(|e| AivyxError::Io(e))?;
+        .map_err(AivyxError::Io)?;
 
     let bytes = content.len();
     Ok(format!("Created {path} ({bytes} bytes)"))
@@ -83,7 +83,7 @@ pub async fn create_spreadsheet(
     if ext == "csv" {
         tokio::fs::write(path, &csv_content)
             .await
-            .map_err(|e| AivyxError::Io(e))?;
+            .map_err(AivyxError::Io)?;
         return Ok(format!(
             "Created {path} ({} rows, {} columns)",
             rows.len(),
@@ -95,7 +95,7 @@ pub async fn create_spreadsheet(
     let temp_csv = format!("{}.tmp.csv", path);
     tokio::fs::write(&temp_csv, &csv_content)
         .await
-        .map_err(|e| AivyxError::Io(e))?;
+        .map_err(AivyxError::Io)?;
 
     let convert_result = convert_csv_to(&temp_csv, path, &ext).await;
 
@@ -134,10 +134,10 @@ async fn convert_csv_to(csv_path: &str, output_path: &str, ext: &str) -> Result<
         .output()
         .await;
 
-    if let Ok(output) = ssconvert_result {
-        if output.status.success() {
-            return Ok(());
-        }
+    if let Ok(output) = ssconvert_result
+        && output.status.success()
+    {
+        return Ok(());
     }
 
     // Fallback: libreoffice --convert-to.
@@ -187,7 +187,7 @@ async fn convert_csv_to(csv_path: &str, output_path: &str, ext: &str) -> Result<
     if lo_output != Path::new(output_path) {
         tokio::fs::rename(&lo_output, output_path)
             .await
-            .map_err(|e| AivyxError::Io(e))?;
+            .map_err(AivyxError::Io)?;
     }
 
     Ok(())
@@ -226,22 +226,22 @@ pub async fn create_pdf(path: &str, content: &str, source_format: &str) -> Resul
     let temp_input = format!("{path}.tmp.{temp_ext}");
     tokio::fs::write(&temp_input, content)
         .await
-        .map_err(|e| AivyxError::Io(e))?;
+        .map_err(AivyxError::Io)?;
 
     let result = try_pandoc_pdf(&temp_input, path, format)
         .await
-        .or_else(|_| {
+        .map_err(|_| {
             // Block on weasyprint fallback only for HTML.
             if format == "html" {
                 // We can't nest await in or_else, so return the error
                 // and handle weasyprint separately.
-                Err(AivyxError::Other("pandoc failed, trying weasyprint".into()))
+                AivyxError::Other("pandoc failed, trying weasyprint".into())
             } else {
-                Err(AivyxError::Other(
+                AivyxError::Other(
                     "pandoc is required for non-HTML PDF creation. \
                      Install pandoc (sudo apt install pandoc)."
                         .into(),
-                ))
+                )
             }
         });
 
@@ -326,7 +326,7 @@ pub async fn edit_text_file(
     // Read existing file.
     let content = tokio::fs::read_to_string(path)
         .await
-        .map_err(|e| AivyxError::Io(e))?;
+        .map_err(AivyxError::Io)?;
 
     let new_content = match operation {
         "find_replace" => {
@@ -347,7 +347,7 @@ pub async fn edit_text_file(
                 let result = content.replace(find, replace);
                 tokio::fs::write(path, &result)
                     .await
-                    .map_err(|e| AivyxError::Io(e))?;
+                    .map_err(AivyxError::Io)?;
                 return Ok(format!("Replaced {count} occurrences in {path}"));
             } else {
                 let result = content.replacen(find, replace, 1);
@@ -426,9 +426,7 @@ pub async fn edit_text_file(
             }
             let deleted = to.min(lines.len()).saturating_sub(from.saturating_sub(1));
             let new = result.join("\n") + "\n";
-            tokio::fs::write(path, &new)
-                .await
-                .map_err(|e| AivyxError::Io(e))?;
+            tokio::fs::write(path, &new).await.map_err(AivyxError::Io)?;
             return Ok(format!("Deleted {deleted} lines ({from}-{to}) from {path}"));
         }
         other => {
@@ -442,7 +440,7 @@ pub async fn edit_text_file(
     validate_content_size(&new_content)?;
     tokio::fs::write(path, &new_content)
         .await
-        .map_err(|e| AivyxError::Io(e))?;
+        .map_err(AivyxError::Io)?;
 
     Ok(format!("Edited {path} ({operation})"))
 }
@@ -614,7 +612,7 @@ async fn try_libreoffice_convert(input: &str, output: &str, to_format: &str) -> 
     if lo_output != Path::new(output) {
         tokio::fs::rename(&lo_output, output)
             .await
-            .map_err(|e| AivyxError::Io(e))?;
+            .map_err(AivyxError::Io)?;
     }
 
     let size = tokio::fs::metadata(output)
@@ -645,9 +643,7 @@ pub async fn read_pdf(
     }
 
     // Check file size.
-    let metadata = tokio::fs::metadata(path)
-        .await
-        .map_err(|e| AivyxError::Io(e))?;
+    let metadata = tokio::fs::metadata(path).await.map_err(AivyxError::Io)?;
     if metadata.len() as usize > MAX_PDF_READ_BYTES {
         return Err(AivyxError::Validation(format!(
             "PDF too large ({} bytes, max {MAX_PDF_READ_BYTES}). \
@@ -735,12 +731,12 @@ fn validate_content_size(content: &str) -> Result<()> {
 
 /// Ensure the parent directory of a path exists.
 async fn ensure_parent_dir(path: &str) -> Result<()> {
-    if let Some(parent) = Path::new(path).parent() {
-        if !parent.exists() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(|e| AivyxError::Io(e))?;
-        }
+    if let Some(parent) = Path::new(path).parent()
+        && !parent.exists()
+    {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(AivyxError::Io)?;
     }
     Ok(())
 }

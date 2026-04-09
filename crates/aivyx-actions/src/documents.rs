@@ -689,11 +689,11 @@ impl Action for DeleteDocument {
         let memory_ids = mgr.list_memories()?;
         let mut removed_chunks = 0u32;
         for mid in &memory_ids {
-            if let Some(entry) = mgr.load_memory(mid)? {
-                if entry.tags.contains(&doc_tag) {
-                    mgr.forget(mid)?;
-                    removed_chunks += 1;
-                }
+            if let Some(entry) = mgr.load_memory(mid)?
+                && entry.tags.contains(&doc_tag)
+            {
+                mgr.forget(mid)?;
+                removed_chunks += 1;
             }
         }
 

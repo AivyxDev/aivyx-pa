@@ -230,7 +230,7 @@ impl Action for CheckProcess {
         if running {
             for line in stdout.lines() {
                 let parts: Vec<&str> = line.splitn(2, ' ').collect();
-                if let (Some(pid), Some(cmd)) = (parts.get(0), parts.get(1)) {
+                if let (Some(pid), Some(cmd)) = (parts.first(), parts.get(1)) {
                     processes.push(serde_json::json!({
                         "pid": pid,
                         "command": cmd,
@@ -521,7 +521,7 @@ impl Action for SystemStats {
             .await
             .unwrap_or_default();
         let load_parts: Vec<&str> = loadavg.split_whitespace().collect();
-        let load_1 = load_parts.get(0).copied().unwrap_or("?");
+        let load_1 = load_parts.first().copied().unwrap_or("?");
         let load_5 = load_parts.get(1).copied().unwrap_or("?");
         let load_15 = load_parts.get(2).copied().unwrap_or("?");
 

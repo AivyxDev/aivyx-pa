@@ -1700,12 +1700,10 @@ impl Action for BrowserNewTab {
 
     async fn execute(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         let url = input["url"].as_str().unwrap_or("about:blank");
-        if url != "about:blank" {
-            if !ALLOWED_URL_SCHEMES.iter().any(|s| url.starts_with(s)) {
-                return Err(AivyxError::Validation(format!(
-                    "URL scheme not allowed. Only http://, https://, file:// permitted. Got: {url}"
-                )));
-            }
+        if url != "about:blank" && !ALLOWED_URL_SCHEMES.iter().any(|s| url.starts_with(s)) {
+            return Err(AivyxError::Validation(format!(
+                "URL scheme not allowed. Only http://, https://, file:// permitted. Got: {url}"
+            )));
         }
         let cdp = require_cdp(&self.ctx)?;
         let result = cdp.new_tab(url).await?;

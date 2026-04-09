@@ -34,12 +34,11 @@ pub fn scan_applications() -> BTreeMap<String, DesktopApp> {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().is_some_and(|ext| ext == "desktop") {
-                    if let Some(app) = parse_desktop_file(&path) {
-                        if app.visible {
-                            apps.insert(app.exec.clone(), app);
-                        }
-                    }
+                if path.extension().is_some_and(|ext| ext == "desktop")
+                    && let Some(app) = parse_desktop_file(&path)
+                    && app.visible
+                {
+                    apps.insert(app.exec.clone(), app);
                 }
             }
         }
