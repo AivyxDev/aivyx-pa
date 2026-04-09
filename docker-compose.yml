@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  aivyx-pa:
+    image: ghcr.io/aivyxdev/aivyx-pa:latest
+    container_name: aivyx-agent
+    restart: unless-stopped
+    ports:
+      # Optional: Bind local UI/API port if Aivyx spins up a local server.
+      - "5050:5050"
+    volumes:
+      # Persist configuration and encrypted memory vault strictly to host
+      - ${AIVYX_CFG_DIR:-./.aivyx}:/root/.aivyx
+    environment:
+      - RUST_LOG=info
+      # Optionally explicitly define environment variables needed without the Genesis Wizard
+      - AIVYX_TELEMETRY=0
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    networks:
+      - aivyx-net
+
+networks:
+  aivyx-net:
+    driver: bridge
