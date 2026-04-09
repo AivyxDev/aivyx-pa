@@ -498,6 +498,11 @@ async fn chat_stream(
                         agent.restore_conversation(history);
                     }
                 }
+                // Restore ephemeral learned state (tool results, domain
+                // confidence, cost tracking, etc.) from the resume token.
+                if let Some(token) = crate::sessions::load_resume_token(&store, &conv_key, sid) {
+                    agent.apply_resume_state(token.into_snapshot());
+                }
             }
         }
 
@@ -560,6 +565,12 @@ async fn chat_stream(
         meta.turn_count = crate::sessions::count_turns(&messages);
         meta.updated_at = chrono::Utc::now();
         crate::sessions::save_chat_session(&store, &conv_key, &meta, &messages);
+
+        // Persist the agent's ephemeral learned state alongside the conversation.
+        let resume = crate::sessions::ResumeToken::from_snapshot(
+            agent.export_resume_state(),
+        );
+        crate::sessions::save_resume_token(&store, &conv_key, &sid, &resume);
 
         // Send done event with session ID
         let done_data = serde_json::json!({ "session_id": sid });

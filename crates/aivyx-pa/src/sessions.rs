@@ -10,6 +10,10 @@
 //! compatibility with the legacy `Vec<(String, String)>` format (v1), the
 //! [`load_chat_messages`] function auto-detects and upgrades on read.
 
+use std::collections::{HashMap, HashSet};
+
+use aivyx_agent::cost_tracker::CostSnapshot;
+use aivyx_agent::AgentStateSnapshot;
 use aivyx_crypto::{EncryptedStore, MasterKey};
 use aivyx_llm::message::{ChatMessage, Role, ToolResult};
 
@@ -222,10 +226,11 @@ pub fn load_chat_messages(
     None
 }
 
-/// Delete a chat session (messages + metadata).
+/// Delete a chat session (messages + metadata + resume token).
 pub fn delete_chat_session(store: &EncryptedStore, session_id: &str) {
     let _ = store.delete(&format!("chat:{session_id}:meta"));
     let _ = store.delete(&format!("chat:{session_id}:messages"));
+    let _ = store.delete(&format!("chat:{session_id}:resume"));
 }
 
 // ── Conversion helpers ─────────────────────────────────────────
@@ -431,6 +436,108 @@ pub fn rename_chat_session(
     if let Ok(json) = serde_json::to_vec(&meta) {
         let _ = store.put(&meta_key, &json, key);
     }
+}
+
+// ── Resume tokens ─────────────────────────────────────────────
+
+/// Serializable resume token that captures an agent's ephemeral learned
+/// state at session save time.
+///
+/// Maps 1:1 with [`AgentStateSnapshot`] but owns its own serde representation
+/// so the persistence format is decoupled from the in-memory agent struct.
+/// Stored alongside conversation messages under key `chat:{session_id}:resume`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ResumeToken {
+    /// Full tool results stashed by the summarization system.
+    #[serde(default)]
+    pub tool_result_store: HashMap<String, serde_json::Value>,
+    /// Per-domain confidence scores affecting tier escalation.
+    #[serde(default)]
+    pub domain_confidence: HashMap<String, f32>,
+    /// Per-MCP-server success counters: `(total_calls, success_count)`.
+    #[serde(default)]
+    pub server_success_counters: HashMap<String, (u32, u32)>,
+    /// Tools currently auto-disabled due to low success rates.
+    #[serde(default)]
+    pub disabled_tools: HashSet<String>,
+    /// Tools permanently blocked on this agent.
+    #[serde(default)]
+    pub blocked_tools: HashSet<String>,
+    /// Tool discovery miss counts for adaptive auto-promotion.
+    #[serde(default)]
+    pub discovery_miss_counts: HashMap<String, u32>,
+    /// Cost tracking snapshot.
+    #[serde(default)]
+    pub cost_snapshot: CostSnapshot,
+    /// Accumulated tool call statistics.
+    #[serde(default)]
+    pub tool_call_stats: Vec<aivyx_agent::ToolCallStat>,
+}
+
+impl ResumeToken {
+    /// Create a resume token from an agent state snapshot.
+    pub fn from_snapshot(snap: AgentStateSnapshot) -> Self {
+        Self {
+            tool_result_store: snap.tool_result_store,
+            domain_confidence: snap.domain_confidence,
+            server_success_counters: snap.server_success_counters,
+            disabled_tools: snap.disabled_tools,
+            blocked_tools: snap.blocked_tools,
+            discovery_miss_counts: snap.discovery_miss_counts,
+            cost_snapshot: snap.cost_snapshot,
+            tool_call_stats: snap.tool_call_stats,
+        }
+    }
+
+    /// Convert back into an agent state snapshot for restoration.
+    pub fn into_snapshot(self) -> AgentStateSnapshot {
+        AgentStateSnapshot {
+            tool_result_store: self.tool_result_store,
+            domain_confidence: self.domain_confidence,
+            server_success_counters: self.server_success_counters,
+            disabled_tools: self.disabled_tools,
+            blocked_tools: self.blocked_tools,
+            discovery_miss_counts: self.discovery_miss_counts,
+            cost_snapshot: self.cost_snapshot,
+            tool_call_stats: self.tool_call_stats,
+        }
+    }
+}
+
+/// Save a resume token for a session.
+pub fn save_resume_token(
+    store: &EncryptedStore,
+    key: &MasterKey,
+    session_id: &str,
+    token: &ResumeToken,
+) {
+    let store_key = format!("chat:{session_id}:resume");
+    match serde_json::to_vec(token) {
+        Ok(json) => {
+            if let Err(e) = store.put(&store_key, &json, key) {
+                tracing::warn!("Failed to save resume token: {e}");
+            }
+        }
+        Err(e) => tracing::warn!("Failed to serialize resume token: {e}"),
+    }
+}
+
+/// Load a resume token for a session, if one exists.
+pub fn load_resume_token(
+    store: &EncryptedStore,
+    key: &MasterKey,
+    session_id: &str,
+) -> Option<ResumeToken> {
+    let store_key = format!("chat:{session_id}:resume");
+    match store.get(&store_key, key) {
+        Ok(Some(bytes)) => serde_json::from_slice(&bytes).ok(),
+        _ => None,
+    }
+}
+
+/// Delete a resume token (called when deleting a session).
+pub fn delete_resume_token(store: &EncryptedStore, session_id: &str) {
+    let _ = store.delete(&format!("chat:{session_id}:resume"));
 }
 
 // ── Tests ──────────────────────────────────────────────────────

@@ -2420,6 +2420,18 @@ impl App {
                             &meta,
                             &session_msgs,
                         );
+
+                        // Persist the agent's ephemeral learned state alongside
+                        // the conversation so it can be restored on session load.
+                        let resume = aivyx_pa::sessions::ResumeToken::from_snapshot(
+                            agent.export_resume_state(),
+                        );
+                        aivyx_pa::sessions::save_resume_token(
+                            &store,
+                            &conv_key,
+                            &meta.id,
+                            &resume,
+                        );
                     });
                 }
 
@@ -3271,11 +3283,20 @@ impl App {
             session_id,
         ) {
             // Restore agent conversation history (includes tool results)
+            // and ephemeral learned state (resume token) if available.
             let agent = state.agent.clone();
             let history = aivyx_pa::sessions::to_chat_messages(&messages);
+            let resume_token = aivyx_pa::sessions::load_resume_token(
+                &state.store,
+                &state.conversation_key,
+                session_id,
+            );
             tokio::spawn(async move {
                 let mut agent = agent.lock().await;
                 agent.restore_conversation(history);
+                if let Some(token) = resume_token {
+                    agent.apply_resume_state(token.into_snapshot());
+                }
             });
 
             // Display only user/assistant messages in the chat view
