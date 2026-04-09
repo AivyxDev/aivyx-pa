@@ -133,6 +133,7 @@ pub async fn gather_context(
 }
 
 /// Synchronous inner implementation of context gathering.
+#[allow(clippy::too_many_arguments)]
 fn gather_context_sync(
     config: &HeartbeatConfig,
     brain_store: &BrainStore,
@@ -1858,6 +1859,7 @@ fn dispatch_plan_review(
 }
 
 /// Dispatch strategy review — store as memory, update self-model, notify.
+#[allow(clippy::too_many_arguments)]
 async fn dispatch_strategy_review(
     period_summary: &str,
     goals_completed: u32,
