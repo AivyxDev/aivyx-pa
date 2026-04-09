@@ -1,3 +1,5 @@
+#![allow(unused_variables, unreachable_code)]
+
 //! Action implementations for all 14 interaction tools.
 //!
 //! Each tool is a struct implementing `crate::Action`. They delegate to the
