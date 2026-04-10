@@ -561,11 +561,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                     let clamped = val.clamp(0.0, 1.0);
                     let filled = ((clamped * bar_w as f32) as usize).min(bar_w);
                     // High-contrast █/░ matching goals/missions
-                    let bar = format!(
-                        "{}{}",
-                        "█".repeat(filled),
-                        "░".repeat(bar_w - filled)
-                    );
+                    let bar = format!("{}{}", "█".repeat(filled), "░".repeat(bar_w - filled));
                     let name_style = if is_sel {
                         theme::highlight()
                     } else {

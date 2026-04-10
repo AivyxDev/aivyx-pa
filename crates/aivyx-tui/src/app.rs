@@ -1084,7 +1084,9 @@ impl App {
             });
 
         let Some(stt_model) = stt_model else {
-            tracing::warn!("STT model not configured and default not found; skipping transcription");
+            tracing::warn!(
+                "STT model not configured and default not found; skipping transcription"
+            );
             if let Some(tx) = &self.voice_transcript_tx {
                 let _ = tx.send("__CLEAR_TRANSCRIBING__".into());
             }
@@ -1329,9 +1331,8 @@ impl App {
                 // snapshot's copy — defense-in-depth against clock skew
                 // between the two paths).
                 for expired_id in &expired_ids {
-                    if let Some(shared) = queue
-                        .iter_mut()
-                        .find(|a| &a.notification.id == expired_id)
+                    if let Some(shared) =
+                        queue.iter_mut().find(|a| &a.notification.id == expired_id)
                         && shared.status == ApprovalStatus::Pending
                         && let Some(expires) = shared.expires_at
                         && sweep_now >= expires
@@ -5040,12 +5041,8 @@ mod tests {
         // TUI snapshot captured *before* X arrived — user pressed Enter
         // on position 1, which in the snapshot was B.
         let now = chrono::Utc::now();
-        let updated = App::apply_resolution_by_id(
-            &mut shared,
-            "B-target",
-            ApprovalStatus::Approved,
-            now,
-        );
+        let updated =
+            App::apply_resolution_by_id(&mut shared, "B-target", ApprovalStatus::Approved, now);
 
         assert!(updated, "should have matched the target");
         // The correct item — B — was resolved.

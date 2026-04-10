@@ -2539,11 +2539,7 @@ fn finalize(state: &GenesisState, dirs: &AivyxDirs) -> anyhow::Result<()> {
     // (hour 0..=23, interval 1..=10_080), so these `.unwrap_or` defaults
     // only fire on a truly empty buffer — no silent clamping of user input.
     let briefing_hour: u8 = state.briefing_hour.parse().unwrap_or(8);
-    let check_interval: u32 = state
-        .check_interval
-        .parse()
-        .unwrap_or(15)
-        .max(1);
+    let check_interval: u32 = state.check_interval.parse().unwrap_or(15).max(1);
     config.push_str(&format!(
         "\n[loop]\ncheck_interval_minutes = {check_interval}\nmorning_briefing = true\nbriefing_hour = {briefing_hour}\n"
     ));
