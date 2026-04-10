@@ -1419,7 +1419,7 @@ pub async fn build_agent(
         Err(e) => tracing::warn!("Failed to seed Nonagon team: {e}"),
     }
     registry.register(Box::new(aivyx_team::TeamDelegateTool::new(
-        &session,
+        Arc::clone(&session),
         dirs.clone(),
     )));
     system_prompt.push_str(crate::config::PA_PROMPT_DELEGATION);

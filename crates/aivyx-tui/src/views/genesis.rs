@@ -100,6 +100,12 @@ impl Step {
 
 // ── Constants ─────────────────────────────────────────────────────
 
+/// Base URL for the OpenRouter "OpenAI-compatible" endpoint.
+///
+/// Hoisted to a constant so the URL is discoverable in one place and
+/// doesn't get copy-pasted across the config writer.
+const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api";
+
 const PROVIDERS: &[(&str, &str, &[&str])] = &[
     (
         "Ollama",
@@ -729,10 +735,31 @@ fn handle_schedule(state: &mut GenesisState, key: event::KeyEvent) -> Action {
             }
         }
         KeyCode::Char(c) if c.is_ascii_digit() => {
+            // Eagerly reject out-of-range keystrokes so the user sees the
+            // constraint immediately rather than silently getting their
+            // value clamped at config-write time.
             if state.focused_field == 0 {
-                state.briefing_hour.push(c);
+                // Briefing hour: 0..=23 (max 2 digits).
+                let mut candidate = state.briefing_hour.clone();
+                candidate.push(c);
+                if candidate.len() <= 2
+                    && let Ok(v) = candidate.parse::<u8>()
+                    && v <= 23
+                {
+                    state.briefing_hour = candidate;
+                }
             } else if state.focused_field == 1 {
-                state.check_interval.push(c);
+                // Poll interval: 1..=10_080 minutes (one week cap — anything
+                // larger would make the loop effectively off and is almost
+                // certainly a typo). Max 5 digits.
+                let mut candidate = state.check_interval.clone();
+                candidate.push(c);
+                if candidate.len() <= 5
+                    && let Ok(v) = candidate.parse::<u32>()
+                    && v <= 10_080
+                {
+                    state.check_interval = candidate;
+                }
             }
         }
         KeyCode::Enter => {
@@ -2457,9 +2484,19 @@ fn finalize(state: &GenesisState, dirs: &AivyxDirs) -> anyhow::Result<()> {
             "[provider]\ntype = \"Claude\"\napi_key_ref = \"ANTHROPIC_API_KEY\"\nmodel = \"{safe_model}\""
         ),
         "OpenAICompatible" => format!(
-            "[provider]\ntype = \"OpenAICompatible\"\napi_key_ref = \"OPENROUTER_API_KEY\"\nbase_url = \"https://openrouter.ai/api\"\nmodel = \"{safe_model}\""
+            "[provider]\ntype = \"OpenAICompatible\"\napi_key_ref = \"OPENROUTER_API_KEY\"\nbase_url = \"{OPENROUTER_BASE_URL}\"\nmodel = \"{safe_model}\""
         ),
-        _ => unreachable!(),
+        // `current_provider_type()` indexes into PROVIDERS which only
+        // contains the four strings above, so this branch is unreachable
+        // by construction. We still handle it gracefully rather than
+        // panicking — if PROVIDERS grows a fifth entry in the future and
+        // someone forgets to update this match, the wizard will fail
+        // with a clean error instead of crashing the TUI mid-genesis.
+        other => {
+            return Err(anyhow::anyhow!(
+                "unsupported provider type {other:?} — config.toml not written"
+            ));
+        }
     };
 
     let mut config = format!("# Aivyx Personal Assistant Configuration\n\n{provider_section}\n");
@@ -2498,9 +2535,15 @@ fn finalize(state: &GenesisState, dirs: &AivyxDirs) -> anyhow::Result<()> {
         config.push('\n');
     }
 
-    // Loop config
-    let briefing_hour: u8 = state.briefing_hour.parse().unwrap_or(8).min(23);
-    let check_interval: u32 = state.check_interval.parse().unwrap_or(15).max(1);
+    // Loop config. The schedule step restricts keystrokes to valid ranges
+    // (hour 0..=23, interval 1..=10_080), so these `.unwrap_or` defaults
+    // only fire on a truly empty buffer — no silent clamping of user input.
+    let briefing_hour: u8 = state.briefing_hour.parse().unwrap_or(8);
+    let check_interval: u32 = state
+        .check_interval
+        .parse()
+        .unwrap_or(15)
+        .max(1);
     config.push_str(&format!(
         "\n[loop]\ncheck_interval_minutes = {check_interval}\nmorning_briefing = true\nbriefing_hour = {briefing_hour}\n"
     ));

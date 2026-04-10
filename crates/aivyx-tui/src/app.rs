@@ -358,6 +358,15 @@ pub struct App {
     pub chat_messages: Vec<ChatMessage>,
     pub chat_streaming: bool,
     pub chat_scroll: usize,
+    /// Cancellation handle for the in-flight `turn_stream` call.
+    ///
+    /// Populated while a chat turn is streaming, cleared when it
+    /// finishes or is cancelled. Any code path that needs to lock
+    /// `state.agent` (load a session, branch a snapshot, clear the
+    /// conversation) calls `cancel_chat_stream()` first so the running
+    /// turn releases the agent mutex promptly rather than making the
+    /// competing action wait up to 5 minutes for the stream to finish.
+    pub chat_cancel: Option<tokio_util::sync::CancellationToken>,
     /// Channel for receiving streamed tokens from the agent.
     pub chat_token_rx: Option<mpsc::Receiver<String>>,
     /// Current session ID (None = unsaved ephemeral chat).
@@ -437,7 +446,7 @@ pub struct App {
     // ── Settings state (cached SettingsSnapshot) ───────────────
     pub settings: Option<SettingsSnapshot>,
     pub settings_error: Option<String>,
-    pub settings_card_index: usize, // 0-7: which card is focused
+    pub settings_card_index: usize, // 0-9: which card is focused (see views::settings)
     pub settings_item_index: usize, // row within the focused card
     pub settings_popup: Option<SettingsPopup>,
 
@@ -504,6 +513,7 @@ impl App {
             chat_input: String::new(),
             chat_messages: Vec::new(),
             chat_streaming: false,
+            chat_cancel: None,
             chat_scroll: 0,
             chat_token_rx: None,
             chat_session_id: None,
@@ -579,6 +589,18 @@ impl App {
     /// Switch to a view by index (0-8).
     pub fn go_to_view(&mut self, idx: usize) {
         if let Some(&view) = View::ALL.get(idx) {
+            self.view = view;
+            self.nav_index = idx;
+        }
+    }
+
+    /// Navigate to a specific view by value rather than index.
+    ///
+    /// Prefer this over `go_to_view(idx)` + a `// View::Foo` comment —
+    /// the enum value is checked at compile time, so reordering
+    /// `View::ALL` can't silently break call sites.
+    pub fn go_to(&mut self, view: View) {
+        if let Some(idx) = View::ALL.iter().position(|v| *v == view) {
             self.view = view;
             self.nav_index = idx;
         }
@@ -893,26 +915,30 @@ impl App {
             self.missions = list;
         }
 
-        // Memory count
-        if let Some(ref mm) = state.memory_manager {
-            let mm_guard = mm.lock().await;
-            if let Ok(ids) = mm_guard.list_memories() {
-                self.memory_count = ids.len() as u64;
-                self.memory_total = ids.len();
+        // Memory count — use `try_lock` so a contended memory manager
+        // (e.g. mid-heartbeat consolidation) doesn't stall the render
+        // task. If the lock is held, we simply skip this refresh cycle
+        // and keep whatever data we loaded last time; `refresh_data`
+        // runs every 2s, so the UI catches up on the next tick.
+        if let Some(ref mm) = state.memory_manager
+            && let Ok(mm_guard) = mm.try_lock()
+            && let Ok(ids) = mm_guard.list_memories()
+        {
+            self.memory_count = ids.len() as u64;
+            self.memory_total = ids.len();
 
-                let mut entries = Vec::new();
-                for id in ids.iter().take(100) {
-                    if let Ok(Some(entry)) = mm_guard.load_memory(id) {
-                        entries.push(MemoryEntry {
-                            id: format!("{id}"),
-                            content: entry.content.clone(),
-                            tags: entry.tags.clone(),
-                            updated_at: entry.updated_at.to_rfc3339(),
-                        });
-                    }
+            let mut entries = Vec::new();
+            for id in ids.iter().take(100) {
+                if let Ok(Some(entry)) = mm_guard.load_memory(id) {
+                    entries.push(MemoryEntry {
+                        id: format!("{id}"),
+                        content: entry.content.clone(),
+                        tags: entry.tags.clone(),
+                        updated_at: entry.updated_at.to_rfc3339(),
+                    });
                 }
-                self.memories = entries;
             }
+            self.memories = entries;
         }
 
         // Settings
@@ -954,6 +980,25 @@ impl App {
         }
     }
 
+    /// Resolve the per-user runtime directory for voice pipeline artifacts.
+    ///
+    /// Returns `<dirs.root>/runtime/` after ensuring it exists. Returning
+    /// `None` means the app state (and therefore the directory layout) isn't
+    /// initialized yet — callers must treat that as "skip voice operation".
+    ///
+    /// Using a per-user path under the encrypted store root replaces the
+    /// previous hardcoded `/tmp/aivyx-*.wav` paths, which were vulnerable to
+    /// symlink attacks and cross-user observation on shared machines.
+    fn voice_runtime_dir(&self) -> Option<std::path::PathBuf> {
+        let state = self.state.as_ref()?;
+        let dir = state.dirs.root().join("runtime");
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            tracing::error!("Failed to create voice runtime dir {}: {e}", dir.display());
+            return None;
+        }
+        Some(dir)
+    }
+
     pub fn start_voice_recording(&mut self) {
         if self.chat_streaming
             || self.voice_recording
@@ -965,6 +1010,12 @@ impl App {
         {
             return;
         }
+
+        let Some(runtime_dir) = self.voice_runtime_dir() else {
+            tracing::error!("Voice recording skipped: runtime directory unavailable");
+            return;
+        };
+        let voice_wav = runtime_dir.join("voice.wav");
 
         // Initialize the transcriber channels if missing
         if self.voice_transcript_tx.is_none() {
@@ -981,7 +1032,7 @@ impl App {
             .arg("S16_LE")
             .arg("-c1")
             .arg("-r16000")
-            .arg("/tmp/aivyx-voice.wav")
+            .arg(&voice_wav)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()
@@ -1008,11 +1059,37 @@ impl App {
             let _ = child.wait();
         }
 
+        let Some(runtime_dir) = self.voice_runtime_dir() else {
+            self.voice_transcribing = false;
+            return;
+        };
+        let voice_wav = runtime_dir.join("voice.wav");
+
+        // Resolve STT model: explicit setting wins, otherwise look under the
+        // per-user models directory. A missing file is not fatal — we log and
+        // skip rather than invoke whisper-cli on a path that won't exist off
+        // the developer's machine.
         let stt_model = self
             .settings
             .as_ref()
             .and_then(|s| s.stt_model_path.clone())
-            .unwrap_or_else(|| "/home/julian/.local/share/aivyx-pa/models/ggml-base.en.bin".into());
+            .or_else(|| {
+                let candidate = self
+                    .state
+                    .as_ref()?
+                    .dirs
+                    .root()
+                    .join("models/ggml-base.en.bin");
+                candidate.exists().then(|| candidate.display().to_string())
+            });
+
+        let Some(stt_model) = stt_model else {
+            tracing::warn!("STT model not configured and default not found; skipping transcription");
+            if let Some(tx) = &self.voice_transcript_tx {
+                let _ = tx.send("__CLEAR_TRANSCRIBING__".into());
+            }
+            return;
+        };
 
         if let Some(tx) = &self.voice_transcript_tx {
             let tx_clone = tx.clone();
@@ -1021,7 +1098,7 @@ impl App {
                     .arg("-m")
                     .arg(&stt_model)
                     .arg("-f")
-                    .arg("/tmp/aivyx-voice.wav")
+                    .arg(&voice_wav)
                     .arg("-nt") // no timestamps
                     .arg("-np") // no prints (only results)
                     .output()
@@ -1077,12 +1154,19 @@ impl App {
         self.chat_tool_status.clear();
         self.chat_compacting = false;
 
+        // Create the cancellation token *before* spawning so the App
+        // retains a handle. Anything that needs to lock state.agent
+        // (session switch, branch, new conversation) can call
+        // `cancel_chat_stream()` to abort the in-flight turn and release
+        // the mutex promptly instead of waiting out the 5 min timeout.
+        let cancel = tokio_util::sync::CancellationToken::new();
+        self.chat_cancel = Some(cancel.clone());
+
         let agent = Arc::clone(&state.agent);
         let event_sink = Arc::new(aivyx_core::ChannelProgressSink::new(event_tx));
         tokio::spawn(async move {
             let mut agent = agent.lock().await;
             agent.set_event_sink(event_sink);
-            let cancel = tokio_util::sync::CancellationToken::new();
 
             // Wrap the agent turn in a timeout (5 minutes) for streaming reliability
             let result = tokio::time::timeout(
@@ -1111,74 +1195,149 @@ impl App {
         });
     }
 
-    /// Resolve the currently selected approval.
-    pub fn resolve_approval(&mut self, status: ApprovalStatus) {
-        if let Some(item) = self.approvals.get_mut(self.approval_selected)
+    /// Cancel the in-flight chat stream (if any).
+    ///
+    /// Fires the stored cancellation token so `turn_stream` returns at
+    /// its next checkpoint, releasing the `state.agent` mutex. Safe to
+    /// call when no stream is running — it's a no-op in that case.
+    ///
+    /// Call this before any code path that needs to acquire the agent
+    /// lock to mutate conversation state (e.g. loading a saved session,
+    /// branching from a snapshot, clearing the conversation). Without
+    /// this, competing actions queue up behind the 5-minute turn_stream
+    /// timeout and the TUI appears frozen.
+    pub fn cancel_chat_stream(&mut self) {
+        if let Some(cancel) = self.chat_cancel.take() {
+            cancel.cancel();
+            tracing::debug!("chat stream cancelled by competing action");
+        }
+    }
+
+    /// Apply a status to the approval item in `queue` whose notification
+    /// id matches `notification_id`, preserving terminal statuses.
+    ///
+    /// Returns `true` if a matching pending item was updated. Extracted
+    /// so the ID-match logic can be unit-tested without standing up a
+    /// full `AppState`.
+    pub(crate) fn apply_resolution_by_id(
+        queue: &mut [ApprovalItem],
+        notification_id: &str,
+        new_status: ApprovalStatus,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> bool {
+        if let Some(item) = queue
+            .iter_mut()
+            .find(|a| a.notification.id == notification_id)
             && item.status == ApprovalStatus::Pending
         {
-            let notif_id = item.notification.id.clone();
-            item.status = status;
-            item.resolved_at = Some(chrono::Utc::now());
+            item.status = new_status;
+            item.resolved_at = Some(now);
+            return true;
+        }
+        false
+    }
 
-            // 1. Sync back to the shared approval queue (for API reads)
-            if let Some(ref state) = self.state {
-                let idx = self.approval_selected;
-                let updated_status = status;
-                let approvals = state.approvals.clone();
-                tokio::spawn(async move {
-                    let mut queue = approvals.lock().await;
-                    if let Some(shared) = queue.get_mut(idx) {
-                        shared.status = updated_status;
-                        shared.resolved_at = Some(chrono::Utc::now());
-                    }
-                });
+    /// Resolve the currently selected approval.
+    ///
+    /// Identifies the target by `notification.id` (a stable UUID) rather
+    /// than by index into `state.approvals`. The shared queue is mutated
+    /// by the notification bridge (new items pushed) and the expiry sweep
+    /// (items marked Expired) independently of the TUI snapshot, so an
+    /// index captured from `self.approval_selected` becomes stale the
+    /// instant a new notification arrives. Keying off the UUID means the
+    /// "approve item 3 actually approved item 4" race is impossible.
+    pub fn resolve_approval(&mut self, status: ApprovalStatus) {
+        let Some(item) = self.approvals.get_mut(self.approval_selected) else {
+            return;
+        };
+        if item.status != ApprovalStatus::Pending {
+            return;
+        }
 
-                // 2. Send decision back to the agent loop channel so the
-                //    heartbeat can react immediately rather than waiting for
-                //    the next tick to poll the shared Vec.
-                if let Some(ref tx) = state.approval_tx {
-                    let _ = tx.try_send(aivyx_loop::ApprovalResponse {
-                        notification_id: notif_id,
-                        approved: status == ApprovalStatus::Approved,
-                        message: None,
-                    });
-                }
+        let notif_id = item.notification.id.clone();
+        item.status = status;
+        item.resolved_at = Some(chrono::Utc::now());
+
+        let Some(ref state) = self.state else { return };
+
+        // 1. Sync back to the shared approval queue (for API reads) by
+        //    matching on notification ID, not position.
+        let approvals = state.approvals.clone();
+        let lookup_id = notif_id.clone();
+        let updated_status = status;
+        tokio::spawn(async move {
+            let mut queue = approvals.lock().await;
+            let updated = Self::apply_resolution_by_id(
+                &mut queue,
+                &lookup_id,
+                updated_status,
+                chrono::Utc::now(),
+            );
+            if !updated {
+                tracing::warn!(
+                    notification_id = %lookup_id,
+                    "resolve_approval: item missing or already resolved in shared queue"
+                );
             }
+        });
+
+        // 2. Send decision back to the agent loop channel so the
+        //    heartbeat can react immediately rather than waiting for
+        //    the next tick to poll the shared Vec. The channel has
+        //    always been ID-keyed — this path was never racy.
+        if let Some(ref tx) = state.approval_tx {
+            let _ = tx.try_send(aivyx_loop::ApprovalResponse {
+                notification_id: notif_id,
+                approved: status == ApprovalStatus::Approved,
+                message: None,
+            });
         }
     }
 
     /// Periodically called to check for expired pending approvals.
+    ///
+    /// Collects notification IDs of locally-expired items and syncs the
+    /// shared queue by ID match, mirroring `resolve_approval`. Using
+    /// position indices here was subtly wrong — the notification bridge
+    /// can push new items between the TUI snapshot and the spawned task,
+    /// shifting the shared queue under us.
     pub fn poll_approval_expiries(&mut self) {
         let now = chrono::Utc::now();
-        let mut expired_indices = Vec::new();
+        let mut expired_ids: Vec<String> = Vec::new();
 
-        for (idx, item) in self.approvals.iter_mut().enumerate() {
+        for item in self.approvals.iter_mut() {
             if item.status == ApprovalStatus::Pending
                 && let Some(expires) = item.expires_at
                 && now >= expires
             {
                 item.status = ApprovalStatus::Expired;
                 item.resolved_at = Some(now);
-                expired_indices.push(idx);
+                expired_ids.push(item.notification.id.clone());
             }
         }
 
-        if !expired_indices.is_empty()
+        if !expired_ids.is_empty()
             && let Some(ref state) = self.state
         {
             let approvals = state.approvals.clone();
             tokio::spawn(async move {
                 let mut queue = approvals.lock().await;
+                let sweep_now = chrono::Utc::now();
 
-                // Re-check and update any globally matching indices
-                for &idx in &expired_indices {
-                    if let Some(shared) = queue.get_mut(idx)
+                // Match by ID and re-check the expiry against the
+                // canonical `expires_at` on the shared item (not the
+                // snapshot's copy — defense-in-depth against clock skew
+                // between the two paths).
+                for expired_id in &expired_ids {
+                    if let Some(shared) = queue
+                        .iter_mut()
+                        .find(|a| &a.notification.id == expired_id)
                         && shared.status == ApprovalStatus::Pending
                         && let Some(expires) = shared.expires_at
-                        && chrono::Utc::now() >= expires
+                        && sweep_now >= expires
                     {
                         shared.status = ApprovalStatus::Expired;
-                        shared.resolved_at = Some(chrono::Utc::now());
+                        shared.resolved_at = Some(sweep_now);
                     }
                 }
             });
@@ -2380,39 +2539,72 @@ impl App {
                     && let Some(last) = self.chat_messages.last()
                 {
                     let text = last.content.clone();
+                    // Resolve TTS model: explicit setting wins, otherwise
+                    // look under the per-user models directory. Missing model
+                    // means "skip TTS" — we never fall back to a developer
+                    // machine path.
                     let tts_model = self
                         .settings
                         .as_ref()
                         .and_then(|s| s.tts_model_path.clone())
-                        .unwrap_or_else(|| {
-                            "/home/julian/.local/share/aivyx-pa/models/en_US-lessac-medium.onnx"
-                                .into()
+                        .or_else(|| {
+                            let candidate = self
+                                .state
+                                .as_ref()?
+                                .dirs
+                                .root()
+                                .join("models/en_US-lessac-medium.onnx");
+                            candidate.exists().then(|| candidate.display().to_string())
                         });
+                    let runtime_dir = self.voice_runtime_dir();
 
-                    tokio::spawn(async move {
-                        // Write response to temp file
-                        let _ = std::fs::write("/tmp/aivyx-tts.txt", &text);
+                    if let (Some(tts_model), Some(runtime_dir)) = (tts_model, runtime_dir) {
+                        let tts_wav = runtime_dir.join("tts.wav");
+                        tokio::spawn(async move {
+                            use tokio::io::AsyncWriteExt;
 
-                        // Spawn piper process to generate wav audio using File IO
-                        let out = tokio::process::Command::new("sh")
-                            .arg("-c")
-                            .arg(format!(
-                                "cat /tmp/aivyx-tts.txt | piper -m '{}' -f /tmp/aivyx-tts.wav",
-                                tts_model
-                            ))
-                            .output()
-                            .await;
-
-                        if out.is_ok() {
-                            // Play back audio sequentially
-                            let _ = tokio::process::Command::new("aplay")
-                                .arg("/tmp/aivyx-tts.wav")
+                            // Spawn piper directly (no shell) and feed text
+                            // through stdin. This eliminates the previous
+                            // `sh -c "cat /tmp/aivyx-tts.txt | piper -m '{}' ..."`
+                            // which was both a shell-injection sink (model
+                            // path interpolated into the command string) and
+                            // a disk leak of every LLM response through a
+                            // world-readable /tmp file.
+                            let mut child = match tokio::process::Command::new("piper")
+                                .arg("-m")
+                                .arg(&tts_model)
+                                .arg("-f")
+                                .arg(&tts_wav)
+                                .stdin(std::process::Stdio::piped())
                                 .stdout(std::process::Stdio::null())
                                 .stderr(std::process::Stdio::null())
-                                .status()
-                                .await;
-                        }
-                    });
+                                .spawn()
+                            {
+                                Ok(c) => c,
+                                Err(e) => {
+                                    tracing::error!("Failed to spawn piper: {e}");
+                                    return;
+                                }
+                            };
+
+                            if let Some(mut stdin) = child.stdin.take() {
+                                let _ = stdin.write_all(text.as_bytes()).await;
+                                let _ = stdin.shutdown().await;
+                            }
+
+                            let status = child.wait().await;
+                            if status.map(|s| s.success()).unwrap_or(false) {
+                                let _ = tokio::process::Command::new("aplay")
+                                    .arg(&tts_wav)
+                                    .stdout(std::process::Stdio::null())
+                                    .stderr(std::process::Stdio::null())
+                                    .status()
+                                    .await;
+                            }
+                        });
+                    } else {
+                        tracing::warn!("TTS skipped: model or runtime dir unavailable");
+                    }
                 }
 
                 // Auto-save: persist the full conversation (including tool results)
@@ -2476,6 +2668,9 @@ impl App {
 
                 self.chat_streaming = false;
                 self.chat_token_rx = None;
+                // Stream finished naturally — drop the cancellation
+                // handle so the next `cancel_chat_stream` call is a no-op.
+                self.chat_cancel = None;
                 return;
             }
             // Append to the last (assistant) message
@@ -3032,7 +3227,11 @@ impl App {
                             }
                             KeyCode::Enter => {
                                 if selected == 0 {
-                                    // "New conversation" — clear chat and agent history
+                                    // "New conversation" — clear chat and agent history.
+                                    // Cancel any in-flight stream first so the spawned
+                                    // `restore_conversation` call doesn't queue behind
+                                    // the 5-minute turn_stream lock.
+                                    self.cancel_chat_stream();
                                     if let Some(ref state) = self.state {
                                         let agent = state.agent.clone();
                                         tokio::spawn(async move {
@@ -3416,6 +3615,11 @@ impl App {
     /// Load a session's messages into the chat view and restore
     /// the agent's conversation so subsequent turns have full context.
     fn load_session(&mut self, session_id: &str) {
+        // Cancel any in-flight stream so the agent lock releases before
+        // `restore_conversation` tries to acquire it. Without this, a
+        // mid-stream session switch would freeze the TUI until the
+        // previous turn finishes or hits its 5-minute timeout.
+        self.cancel_chat_stream();
         let Some(ref state) = self.state else { return };
         if let Some(messages) = aivyx_pa::sessions::load_chat_messages(
             &state.store,
@@ -3576,6 +3780,10 @@ impl App {
 
     /// Branch the conversation from a snapshot at the given message index.
     fn branch_from_snapshot(&mut self, message_index: usize) {
+        // Cancel any in-flight stream so the branching call releases the
+        // agent lock promptly. Branching is user-initiated, so the user
+        // implicitly no longer wants the current turn's output.
+        self.cancel_chat_stream();
         let Some(ref state) = self.state else { return };
 
         let agent = state.agent.clone();
@@ -3642,6 +3850,7 @@ impl App {
             chat_input: String::new(),
             chat_messages: Vec::new(),
             chat_streaming: false,
+            chat_cancel: None,
             chat_scroll: 0,
             chat_token_rx: None,
             chat_session_id: None,
@@ -4788,6 +4997,134 @@ mod tests {
     fn resolve_approval_no_backend_no_panic() {
         let mut app = App::new_test();
         app.resolve_approval(ApprovalStatus::Approved);
+    }
+
+    /// Build a synthetic pending `ApprovalItem` for tests.
+    fn mk_approval(id: &str) -> ApprovalItem {
+        ApprovalItem {
+            notification: aivyx_loop::Notification {
+                id: id.into(),
+                kind: aivyx_loop::NotificationKind::ApprovalNeeded,
+                title: format!("approval {id}"),
+                body: "body".into(),
+                source: "test".into(),
+                timestamp: chrono::Utc::now(),
+                requires_approval: true,
+                goal_id: None,
+            },
+            status: ApprovalStatus::Pending,
+            resolved_at: None,
+            expires_at: Some(chrono::Utc::now() + chrono::Duration::seconds(120)),
+        }
+    }
+
+    /// Regression test for the approval-resolution race.
+    ///
+    /// Scenario: the TUI snapshot has items [A, B, C] with user cursor on
+    /// B. Between the user pressing Enter and the spawned task acquiring
+    /// the shared queue lock, the notification bridge pushes a new item X
+    /// at the front, shifting the shared queue to [X, A, B, C]. Under the
+    /// old index-based resolution the spawned task would have updated
+    /// index 1 (A) instead of B. With the ID-based fix, B is resolved
+    /// correctly regardless of position.
+    #[test]
+    fn apply_resolution_matches_by_id_not_index() {
+        // Shared queue as the bridge would see it after a new arrival.
+        let mut shared = vec![
+            mk_approval("X-new-arrival"),
+            mk_approval("A"),
+            mk_approval("B-target"),
+            mk_approval("C"),
+        ];
+
+        // TUI snapshot captured *before* X arrived — user pressed Enter
+        // on position 1, which in the snapshot was B.
+        let now = chrono::Utc::now();
+        let updated = App::apply_resolution_by_id(
+            &mut shared,
+            "B-target",
+            ApprovalStatus::Approved,
+            now,
+        );
+
+        assert!(updated, "should have matched the target");
+        // The correct item — B — was resolved.
+        assert_eq!(shared[2].status, ApprovalStatus::Approved);
+        assert_eq!(shared[2].resolved_at, Some(now));
+        // And none of the bystanders were touched.
+        assert_eq!(shared[0].status, ApprovalStatus::Pending);
+        assert_eq!(shared[1].status, ApprovalStatus::Pending);
+        assert_eq!(shared[3].status, ApprovalStatus::Pending);
+    }
+
+    #[test]
+    fn apply_resolution_preserves_terminal_status() {
+        // If another resolver already marked the item Expired in the
+        // same tick, we must not clobber it with a late-arriving Approve.
+        let mut shared = vec![mk_approval("X")];
+        shared[0].status = ApprovalStatus::Expired;
+        shared[0].resolved_at = Some(chrono::Utc::now());
+        let prior_resolved_at = shared[0].resolved_at;
+
+        let updated = App::apply_resolution_by_id(
+            &mut shared,
+            "X",
+            ApprovalStatus::Approved,
+            chrono::Utc::now(),
+        );
+        assert!(!updated, "should refuse to overwrite terminal status");
+        assert_eq!(shared[0].status, ApprovalStatus::Expired);
+        assert_eq!(shared[0].resolved_at, prior_resolved_at);
+    }
+
+    #[test]
+    fn cancel_chat_stream_fires_token_and_clears_field() {
+        let mut app = App::new_test();
+        // Simulate an in-flight turn with a live cancellation token.
+        let token = tokio_util::sync::CancellationToken::new();
+        let observer = token.clone();
+        app.chat_cancel = Some(token);
+        app.chat_streaming = true;
+
+        assert!(
+            !observer.is_cancelled(),
+            "precondition: token not yet cancelled"
+        );
+        app.cancel_chat_stream();
+        assert!(
+            observer.is_cancelled(),
+            "cancel_chat_stream should fire the stored token"
+        );
+        assert!(
+            app.chat_cancel.is_none(),
+            "cancel_chat_stream should drop the handle"
+        );
+
+        // Second call is a no-op and must not panic.
+        app.cancel_chat_stream();
+    }
+
+    #[test]
+    fn cancel_chat_stream_no_active_stream_is_noop() {
+        let mut app = App::new_test();
+        assert!(app.chat_cancel.is_none());
+        app.cancel_chat_stream(); // no-op, no panic
+        assert!(app.chat_cancel.is_none());
+    }
+
+    #[test]
+    fn apply_resolution_missing_id_is_noop() {
+        // If the ID was drained from the shared queue (e.g. API consumer
+        // popped it), we log and do nothing rather than panic.
+        let mut shared = vec![mk_approval("A")];
+        let updated = App::apply_resolution_by_id(
+            &mut shared,
+            "not-in-queue",
+            ApprovalStatus::Approved,
+            chrono::Utc::now(),
+        );
+        assert!(!updated);
+        assert_eq!(shared[0].status, ApprovalStatus::Pending);
     }
 
     #[test]

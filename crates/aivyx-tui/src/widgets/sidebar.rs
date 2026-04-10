@@ -39,6 +39,23 @@ impl Widget for Sidebar<'_> {
         let inner = block.inner(area);
         block.render(area, buf);
 
+        // Bail out entirely on pathologically narrow sidebars — below 5
+        // columns there isn't room for the "▌ " active marker + a single
+        // glyph, and the various `width - N` offsets below would underflow
+        // (usize wraps to a huge positive value and ratatui panics).
+        if inner.width < 5 || inner.height == 0 {
+            return;
+        }
+
+        // Pre-computed saturating widths for the interior text area.
+        // `width_inset_2` = room after the left 2-column gutter.
+        // `width_inset_3` = room after gutter + a trailing column for badges.
+        // `width_inset_4` = room for separators that sit two columns in on
+        //                   both sides.
+        let width_inset_2 = inner.width.saturating_sub(2);
+        let width_inset_3 = inner.width.saturating_sub(3);
+        let width_inset_4 = inner.width.saturating_sub(4);
+
         let mut y = inner.y;
 
         // ── Brand header ───────────────────────────────────────
@@ -47,7 +64,7 @@ impl Widget for Sidebar<'_> {
                 inner.x + 2,
                 y,
                 &Line::from(Span::styled("AIVYX_OS", theme::primary_bold())),
-                inner.width - 2,
+                width_inset_2,
             );
             y += 1;
             buf.set_line(
@@ -58,7 +75,7 @@ impl Widget for Sidebar<'_> {
                     Span::styled(self.app.version.clone(), theme::muted()),
                     Span::styled(" // PA", theme::dim()),
                 ]),
-                inner.width - 2,
+                width_inset_2,
             );
             y += 2;
         }
@@ -76,12 +93,12 @@ impl Widget for Sidebar<'_> {
                 && pg != group
                 && y < inner.y + inner.height
             {
-                let sep = "─".repeat((inner.width - 4) as usize);
+                let sep = "─".repeat(width_inset_4 as usize);
                 buf.set_line(
                     inner.x + 2,
                     y,
                     &Line::from(Span::styled(sep, theme::dim())),
-                    inner.width - 4,
+                    width_inset_4,
                 );
                 y += 1;
             }
@@ -122,7 +139,7 @@ impl Widget for Sidebar<'_> {
                 spans.push(Span::styled(badge_text, badge_style));
             }
 
-            buf.set_line(inner.x + 2, y, &Line::from(spans), inner.width - 3);
+            buf.set_line(inner.x + 2, y, &Line::from(spans), width_inset_3);
             y += 1;
         }
 
@@ -131,12 +148,12 @@ impl Widget for Sidebar<'_> {
             let footer_y = inner.y + inner.height - 3;
 
             // Separator
-            let sep = "─".repeat((inner.width - 4) as usize);
+            let sep = "─".repeat(width_inset_4 as usize);
             buf.set_line(
                 inner.x + 2,
                 footer_y,
                 &Line::from(Span::styled(sep, theme::dim())),
-                inner.width - 4,
+                width_inset_4,
             );
 
             // Agent name + streaming indicator
@@ -149,7 +166,7 @@ impl Widget for Sidebar<'_> {
                 status_icon,
                 Span::styled(self.app.agent_name.to_uppercase(), theme::text()),
             ]);
-            buf.set_line(inner.x + 2, footer_y + 1, &agent_line, inner.width - 3);
+            buf.set_line(inner.x + 2, footer_y + 1, &agent_line, width_inset_3);
 
             // Persona + tier
             if footer_y + 2 < inner.y + inner.height {
@@ -165,7 +182,7 @@ impl Widget for Sidebar<'_> {
                     Span::styled(" · ", theme::dim()),
                     Span::styled(self.app.autonomy_tier.to_uppercase(), theme::dim()),
                 ]);
-                buf.set_line(inner.x + 2, footer_y + 2, &tier_line, inner.width - 3);
+                buf.set_line(inner.x + 2, footer_y + 2, &tier_line, width_inset_3);
             }
         }
     }

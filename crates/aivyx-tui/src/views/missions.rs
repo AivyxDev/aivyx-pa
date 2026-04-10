@@ -434,12 +434,18 @@ fn format_age(ts: chrono::DateTime<chrono::Utc>) -> String {
     }
 }
 
-/// Truncate a string to max length with ellipsis.
+/// Truncate a string to `max` **characters** (not bytes) with an ellipsis.
+///
+/// Operates on `chars()` rather than byte indices so multi-byte UTF-8
+/// sequences (emoji, accented characters, CJK) don't panic at a non-char
+/// boundary when the slice falls mid-codepoint.
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
+    let char_count = s.chars().count();
+    if char_count <= max {
         s.to_string()
     } else if max > 1 {
-        format!("{}…", &s[..max - 1])
+        let prefix: String = s.chars().take(max - 1).collect();
+        format!("{prefix}…")
     } else {
         String::new()
     }
@@ -518,5 +524,19 @@ mod tests {
     #[test]
     fn truncate_long() {
         assert_eq!(truncate("hello world", 6), "hello…");
+    }
+
+    #[test]
+    fn truncate_multibyte_boundary() {
+        // Emoji are 4-byte UTF-8 sequences; slicing at byte index 3 would
+        // panic with "byte index 3 is not a char boundary". This test locks
+        // in the chars()-based implementation.
+        assert_eq!(truncate("🎉🎉🎉🎉", 3), "🎉🎉…");
+    }
+
+    #[test]
+    fn truncate_accented_chars() {
+        // "é" is 2 bytes in UTF-8 but 1 char — make sure we count chars.
+        assert_eq!(truncate("café-bar", 5), "café…");
     }
 }

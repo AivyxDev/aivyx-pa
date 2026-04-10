@@ -553,10 +553,19 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                         break;
                     }
                     let is_sel = ci == 7 && app.settings_item_index == i;
-                    let bar_w = 10;
-                    let filled = (*val * bar_w as f32) as usize;
+                    let bar_w: usize = 10;
+                    // Clamp `val` into [0.0, 1.0] before scaling — persona
+                    // adjustment should already enforce this, but if a bad
+                    // config.toml pushes a dimension above 1.0 we'd otherwise
+                    // underflow on `bar_w - filled`.
+                    let clamped = val.clamp(0.0, 1.0);
+                    let filled = ((clamped * bar_w as f32) as usize).min(bar_w);
                     // High-contrast █/░ matching goals/missions
-                    let bar = format!("{}{}", "█".repeat(filled), "░".repeat(bar_w - filled));
+                    let bar = format!(
+                        "{}{}",
+                        "█".repeat(filled),
+                        "░".repeat(bar_w - filled)
+                    );
                     let name_style = if is_sel {
                         theme::highlight()
                     } else {
@@ -577,7 +586,12 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                             Span::styled(format!(" {:.1}", val), theme::dim()),
                         ])
                     };
-                    buf.set_line(inner.x + 1, inner.y + i as u16, &line, inner.width - 2);
+                    buf.set_line(
+                        inner.x + 1,
+                        inner.y + i as u16,
+                        &line,
+                        inner.width.saturating_sub(2),
+                    );
                 }
             },
         );

@@ -431,7 +431,6 @@ dependencies = [
  "toml",
  "tracing",
  "uuid",
- "zeroize",
 ]
 
 [[package]]

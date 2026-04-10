@@ -132,8 +132,14 @@ async fn main() -> anyhow::Result<()> {
         sms: pa_config.resolve_sms_config(&store, &master_key),
     };
 
-    // Copy master key bytes before build_agent consumes it (MasterKey is not Clone)
-    let master_key_bytes: [u8; 32] = master_key.expose_secret().try_into().unwrap();
+    // Copy master key bytes before build_agent consumes it (MasterKey is
+    // not Clone). Wrap in `Zeroizing` so the stack buffer is wiped when the
+    // binding is dropped — otherwise the bytes would linger on the main
+    // thread's stack frame until `main()` returns. `MasterKey::from_bytes`
+    // also zeroizes the [u8; 32] it receives, so the only window of
+    // exposure is between this line and the `from_bytes` call below.
+    let master_key_bytes: Zeroizing<[u8; 32]> =
+        Zeroizing::new(master_key.expose_secret().try_into().unwrap());
 
     let mut keys = runtime::derive_all_keys(
         &master_key,
@@ -210,10 +216,10 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(async move {
         while let Some(notif) = notification_rx.recv().await {
             if notif.requires_approval {
+                // 120s is well within i64 range, so `Duration::seconds` is
+                // infallible — prefer it over `try_seconds(...).unwrap()`.
                 bridge_approvals.lock().await.push(api::ApprovalItem {
-                    expires_at: Some(
-                        notif.timestamp + chrono::TimeDelta::try_seconds(120).unwrap(),
-                    ),
+                    expires_at: Some(notif.timestamp + chrono::Duration::seconds(120)),
                     notification: notif.clone(),
                     status: api::ApprovalStatus::Pending,
                     resolved_at: None,
@@ -264,7 +270,10 @@ async fn main() -> anyhow::Result<()> {
         dirs: Arc::new(dirs.clone()),
         store,
         conversation_key: Arc::new(keys.conversation_key),
-        master_key: Arc::new(MasterKey::from_bytes(master_key_bytes)),
+        // `*master_key_bytes` copies the array out of the `Zeroizing`
+        // wrapper for `from_bytes` to consume; the original `Zeroizing`
+        // binding is still dropped at end-of-scope, zeroing its storage.
+        master_key: Arc::new(MasterKey::from_bytes(*master_key_bytes)),
         memory_manager: memory_manager_for_ui,
         approvals,
         notification_history,
@@ -299,7 +308,7 @@ async fn main() -> anyhow::Result<()> {
             timestamp: chrono::Local::now().format("%H:%M").to_string(),
         });
         // Start on Chat view so the user sees the welcome message
-        app.go_to_view(1); // View::Chat
+        app.go_to(View::Chat);
         app.focus = app::Focus::Content;
     }
 
@@ -453,8 +462,8 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                 app.focus = Focus::Sidebar;
             }
             Focus::Sidebar => {
-                app.go_to_view(0);
-            } // Home
+                app.go_to(View::Home);
+            }
         }
         return;
     }
@@ -548,7 +557,7 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
         return;
     }
     if key.code == KeyCode::Char('0') {
-        app.go_to_view(9); // Settings
+        app.go_to(View::Settings);
         app.focus = Focus::Content;
         return;
     }
@@ -865,12 +874,17 @@ fn content_up(app: &mut App) {
     }
 }
 
-/// Truncate a string to a max length, adding "…" if truncated.
+/// Truncate a string to a max **character** length, adding "…" if truncated.
+///
+/// Uses `chars()` rather than byte indexing so multi-byte UTF-8 sequences
+/// (emoji, accented characters, CJK) don't panic at a non-char boundary.
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
+    let char_count = s.chars().count();
+    if char_count <= max {
         s.to_string()
     } else {
-        format!("{}…", &s[..max])
+        let prefix: String = s.chars().take(max).collect();
+        format!("{prefix}…")
     }
 }
 
