@@ -1182,13 +1182,12 @@ fn profile_uninstall_service(name: &str, kind: ServiceKind, force: bool) -> anyh
     // mirrors `profile remove` and `profile rename`, which use the
     // same pidfile probe for the same reason: mutating paths under a
     // running server invalidates handles it holds in memory.
-    if !force
-        && let Some(pid) = PidFile::read_peer(dirs.root().join("aivyx.pid")) {
-            anyhow::bail!(
-                "profile \"{name}\" is currently running (pid {pid}); \
+    if !force && let Some(pid) = PidFile::read_peer(dirs.root().join("aivyx.pid")) {
+        anyhow::bail!(
+            "profile \"{name}\" is currently running (pid {pid}); \
                  stop it before uninstalling, or pass --force if you know what you're doing"
-            );
-        }
+        );
+    }
 
     let resolved_kind = kind.resolve();
     use profile::service_install::{ResolvedServiceKind, resolve_install_path};

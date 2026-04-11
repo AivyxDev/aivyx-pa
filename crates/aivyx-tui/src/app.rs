@@ -193,79 +193,96 @@ impl CronBuilder {
             && parts[3] == "*"
             && parts[4] == "*"
             && let Ok(n) = parts[0][2..].parse::<u8>()
-                && let Some(idx) = CRON_INTERVALS.iter().position(|&v| v == n) {
-                    return Self {
-                        mode: 0,
-                        interval_idx: idx,
-                        ..Self::default()
-                    };
-                }
+            && let Some(idx) = CRON_INTERVALS.iter().position(|&v| v == n)
+        {
+            return Self {
+                mode: 0,
+                interval_idx: idx,
+                ..Self::default()
+            };
+        }
 
         // M * * * *  →  Hourly
-        if parts[1] == "*" && parts[2] == "*" && parts[3] == "*" && parts[4] == "*"
-            && let Ok(m) = parts[0].parse::<u8>() {
-                return Self {
-                    mode: 1,
-                    minute: m,
-                    ..Self::default()
-                };
-            }
+        if parts[1] == "*"
+            && parts[2] == "*"
+            && parts[3] == "*"
+            && parts[4] == "*"
+            && let Ok(m) = parts[0].parse::<u8>()
+        {
+            return Self {
+                mode: 1,
+                minute: m,
+                ..Self::default()
+            };
+        }
 
         // M H * * 1-5  →  Weekdays
-        if parts[2] == "*" && parts[3] == "*" && parts[4] == "1-5"
-            && let (Ok(m), Ok(h)) = (parts[0].parse::<u8>(), parts[1].parse::<u8>()) {
-                return Self {
-                    mode: 3,
-                    minute: m,
-                    hour: h,
-                    ..Self::default()
-                };
-            }
+        if parts[2] == "*"
+            && parts[3] == "*"
+            && parts[4] == "1-5"
+            && let (Ok(m), Ok(h)) = (parts[0].parse::<u8>(), parts[1].parse::<u8>())
+        {
+            return Self {
+                mode: 3,
+                minute: m,
+                hour: h,
+                ..Self::default()
+            };
+        }
 
         // M H * * D  →  Weekly (single weekday)
-        if parts[2] == "*" && parts[3] == "*" && parts[4] != "*"
+        if parts[2] == "*"
+            && parts[3] == "*"
+            && parts[4] != "*"
             && let (Ok(m), Ok(h), Ok(d)) = (
                 parts[0].parse::<u8>(),
                 parts[1].parse::<u8>(),
                 parts[4].parse::<u8>(),
             )
-                && d <= 6 {
-                    return Self {
-                        mode: 4,
-                        minute: m,
-                        hour: h,
-                        weekday: d,
-                        ..Self::default()
-                    };
-                }
+            && d <= 6
+        {
+            return Self {
+                mode: 4,
+                minute: m,
+                hour: h,
+                weekday: d,
+                ..Self::default()
+            };
+        }
 
         // M H D * *  →  Monthly
-        if parts[3] == "*" && parts[4] == "*" && parts[2] != "*"
+        if parts[3] == "*"
+            && parts[4] == "*"
+            && parts[2] != "*"
             && let (Ok(m), Ok(h), Ok(d)) = (
                 parts[0].parse::<u8>(),
                 parts[1].parse::<u8>(),
                 parts[2].parse::<u8>(),
             )
-                && (1..=28).contains(&d) {
-                    return Self {
-                        mode: 5,
-                        minute: m,
-                        hour: h,
-                        month_day: d,
-                        ..Self::default()
-                    };
-                }
+            && (1..=28).contains(&d)
+        {
+            return Self {
+                mode: 5,
+                minute: m,
+                hour: h,
+                month_day: d,
+                ..Self::default()
+            };
+        }
 
         // M H * * *  →  Daily
-        if parts[2] == "*" && parts[3] == "*" && parts[4] == "*"
-            && let (Ok(m), Ok(h)) = (parts[0].parse::<u8>(), parts[1].parse::<u8>()) {
-                return Self {
-                    mode: 2,
-                    minute: m,
-                    hour: h,
-                    ..Self::default()
-                };
-            }
+        if parts[2] == "*"
+            && parts[3] == "*"
+            && parts[4] == "*"
+            && let (Ok(m), Ok(h)) = (parts[0].parse::<u8>(), parts[1].parse::<u8>())
+        {
+            return Self {
+                mode: 2,
+                minute: m,
+                hour: h,
+                ..Self::default()
+            };
+        }
 
         Self::custom(expr)
     }
