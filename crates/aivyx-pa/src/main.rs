@@ -13,6 +13,9 @@
 use aivyx_pa::agent;
 use aivyx_pa::config;
 use aivyx_pa::init;
+use aivyx_pa::passphrase;
+use aivyx_pa::pidfile::PidFile;
+use aivyx_pa::profile;
 
 use aivyx_config::{AivyxConfig, AivyxDirs};
 use aivyx_crypto::{EncryptedStore, MasterKey, MasterKeyEnvelope};
@@ -20,7 +23,7 @@ use aivyx_llm::{
     CachingProvider, CircuitBreakerConfig, ComplexityLevel, LlmProvider, ProviderEvent,
     ResilientProvider, RoutingProvider, create_embedding_provider, create_provider,
 };
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 use std::time::Duration;
@@ -31,11 +34,176 @@ use zeroize::Zeroizing;
     name = "aivyx",
     about = "Your private AI personal assistant",
     version,
-    after_help = "Run without arguments to launch the API server on port 3100."
+    after_help = "Run without arguments to launch the API server.\n\
+                  Port resolution: --port flag → [server].port in config.toml → 3100.\n\
+                  Use --profile <name> (or AIVYX_PROFILE) to target a named multi-agent profile."
 )]
 struct Cli {
+    /// Named profile to target (enables multi-agent deployments on one host).
+    ///
+    /// When set, data is read from `~/.aivyx/profiles/<name>/` instead of
+    /// the default `~/.aivyx/` root. Each profile is fully isolated: its
+    /// own config, encrypted store, master key, and memory. Unset means
+    /// the legacy single-agent directory — existing installs keep working.
+    #[arg(long, global = true, env = "AIVYX_PROFILE")]
+    profile: Option<String>,
+
     #[command(subcommand)]
     command: Option<Command>,
+}
+
+/// Resolve the `AivyxDirs` root for this invocation.
+///
+/// - `Some(name)` → `~/.aivyx/profiles/<name>/` (validated profile name).
+/// - `None`       → legacy `~/.aivyx/` default root.
+///
+/// `AIVYX_HOME` (honoured inside `aivyx-config`) still wins as an escape
+/// hatch for tests and power users, because it rebinds the base that both
+/// branches resolve against.
+fn resolve_dirs(profile: Option<&str>) -> anyhow::Result<AivyxDirs> {
+    match profile {
+        Some(name) => Ok(AivyxDirs::from_profile(name)?),
+        None => Ok(AivyxDirs::from_default()?),
+    }
+}
+
+/// Resolve the effective HTTP API port using the three-tier fallback:
+///
+///   1. explicit `--port` CLI flag (`cli_override`)
+///   2. `[server].port` in the profile's `config.toml`
+///   3. built-in default (`config::DEFAULT_API_PORT`)
+///
+/// Both the `Serve` subcommand and the no-subcommand default path go through
+/// this helper so they can't drift. The `cli_override` is always `None` for
+/// the no-subcommand branch.
+fn resolve_effective_port(pa_config: &config::PaConfig, cli_override: Option<u16>) -> u16 {
+    match pa_config.server.as_ref() {
+        Some(server) => server.resolve_port(cli_override),
+        None => cli_override.unwrap_or(config::DEFAULT_API_PORT),
+    }
+}
+
+/// Name used for owner-comparison when the user is running the legacy
+/// single-agent root (`~/.aivyx/`) rather than a named profile.
+///
+/// A user can opt this root in to desktop ownership by putting
+/// `[desktop] owner = "(default)"` in their `config.toml`.
+const DEFAULT_PROFILE_NAME: &str = "(default)";
+
+/// Acquire the per-profile pidfile and enforce desktop-tool exclusivity
+/// across sibling profiles on the same host.
+///
+/// Returns the pidfile guard — the caller **must** keep it alive for the
+/// lifetime of the server process. Dropping the guard removes the pidfile
+/// and releases ownership.
+///
+/// Exclusivity rules (advisory; best-effort):
+///
+/// - Acquiring the pidfile is hard-required: if another live aivyx process
+///   already holds it for this profile, startup fails. This prevents two
+///   processes from fighting over the same encrypted store.
+/// - Desktop tool exclusivity is softer: if we detect a *sibling* profile
+///   with a live pidfile AND enabled desktop tools AND this profile also
+///   has enabled desktop tools, we emit a warning and disable our own
+///   desktop tools (by setting `pa_config.desktop = None`) so two agents
+///   don't fight over the mouse.
+/// - The warning is suppressed — and desktop tools are kept — when
+///   `[desktop].owner` is set to the current profile name, which is the
+///   user's explicit opt-in.
+///
+/// This function mutates `pa_config` in place when it decides to disable
+/// desktop tools, so the disabled state flows through to service resolution
+/// and the agent-tool registry downstream.
+fn enforce_startup_exclusivity(
+    dirs: &AivyxDirs,
+    profile: Option<&str>,
+    pa_config: &mut config::PaConfig,
+) -> anyhow::Result<PidFile> {
+    let pidfile_path = dirs.root().join("aivyx.pid");
+    let guard = PidFile::acquire(&pidfile_path)?;
+
+    // Only the rest of this function is desktop-specific — if this profile
+    // didn't configure desktop tools, there's nothing to arbitrate.
+    if pa_config.desktop.is_none() {
+        return Ok(guard);
+    }
+
+    let self_name = profile.unwrap_or(DEFAULT_PROFILE_NAME);
+    let declared_owner = pa_config
+        .desktop
+        .as_ref()
+        .and_then(|d| d.owner.as_deref());
+
+    // If the config explicitly names an owner that is NOT us, bail out
+    // immediately: the user has told us another profile is authoritative
+    // for the physical desktop, so we must not register desktop tools at all.
+    if let Some(owner) = declared_owner {
+        if owner != self_name {
+            tracing::warn!(
+                "[desktop].owner = \"{owner}\" in this profile's config.toml; \
+                 disabling desktop tools for profile \"{self_name}\" to avoid \
+                 contention with the declared owner"
+            );
+            eprintln!(
+                "  ⚠ desktop tools disabled: [desktop].owner = \"{owner}\" \
+                 (this profile is \"{self_name}\")"
+            );
+            pa_config.desktop = None;
+            return Ok(guard);
+        }
+        // owner == self_name → user explicitly opted us in; skip the
+        // sibling scan entirely.
+        return Ok(guard);
+    }
+
+    // No explicit owner — scan sibling profiles for live peers that are also
+    // registering desktop tools. We read peer configs best-effort: if a
+    // sibling config can't be parsed, we skip it rather than failing startup.
+    let peers = match AivyxDirs::list_profiles() {
+        Ok(names) => names,
+        Err(e) => {
+            tracing::debug!("could not enumerate profiles for desktop exclusivity check: {e}");
+            return Ok(guard);
+        }
+    };
+
+    for peer_name in peers {
+        // Don't compare against ourselves.
+        if Some(peer_name.as_str()) == profile {
+            continue;
+        }
+        let peer_dirs = match AivyxDirs::from_profile(&peer_name) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+
+        let peer_pidfile = peer_dirs.root().join("aivyx.pid");
+        let Some(peer_pid) = PidFile::read_peer(&peer_pidfile) else {
+            continue; // peer is not currently running
+        };
+
+        // Peer is running. Is it using desktop tools?
+        let peer_cfg = config::PaConfig::load(peer_dirs.config_path());
+        if peer_cfg.desktop.is_none() {
+            continue;
+        }
+
+        // Contention detected. Disable our desktop tools and warn.
+        tracing::warn!(
+            "profile \"{peer_name}\" (pid {peer_pid}) is already running with desktop \
+             tools enabled; disabling desktop tools for this profile \"{self_name}\" to \
+             avoid UI-automation contention. Set [desktop].owner in one of the \
+             config.toml files to make the assignment explicit."
+        );
+        eprintln!(
+            "  ⚠ desktop tools disabled: profile \"{peer_name}\" (pid {peer_pid}) already \
+             owns the desktop. Set [desktop].owner in config.toml to silence this warning."
+        );
+        pa_config.desktop = None;
+        break;
+    }
+
+    Ok(guard)
 }
 
 #[derive(Subcommand)]
@@ -55,10 +223,207 @@ enum Command {
     RotateKey,
     /// Start the HTTP API server (headless, for frontend clients)
     Serve {
-        /// Port to listen on (default: 3100)
-        #[arg(short, long, default_value_t = 3100)]
-        port: u16,
+        /// Port to listen on. Overrides `[server].port` in config.toml.
+        /// Falls back to 3100 when neither is set.
+        //
+        // Implementation note (not user-facing): `Option<u16>` is load-bearing.
+        // Using `u16` with `default_value_t = 3100` would erase the distinction
+        // between "user passed --port 3100" and "user didn't pass --port",
+        // which breaks the three-tier fallback resolved in `resolve_effective_port`.
+        #[arg(short, long)]
+        port: Option<u16>,
     },
+    /// Manage multi-agent profiles (create, list, inspect, remove, rename)
+    Profile {
+        #[command(subcommand)]
+        action: ProfileAction,
+    },
+}
+
+/// Actions for the `aivyx profile` subcommand tree.
+///
+/// Each profile lives under `~/.aivyx/profiles/<name>/` and is fully isolated
+/// (its own config, encrypted store, master key, pidfile, and memory). These
+/// actions manipulate profiles as first-class lifecycle objects — the global
+/// `--profile` flag on `Cli` targets an *existing* profile for runtime
+/// operations, whereas this subcommand tree creates and destroys them.
+#[derive(Subcommand)]
+enum ProfileAction {
+    /// List all profiles with their status, persona, and configured port
+    List,
+    /// Create a new profile and run the init wizard against it.
+    ///
+    /// Auto-assigns a free port (starting at 3100) and writes it into the
+    /// new profile's `[server].port` so multiple profiles can coexist on
+    /// one host without manual port juggling.
+    New {
+        /// Profile name (1-32 chars, `[A-Za-z0-9_-]`)
+        name: String,
+    },
+    /// Show a profile's resolved directories and non-secret config summary
+    Show {
+        /// Profile name
+        name: String,
+    },
+    /// Remove a profile and all of its data.
+    ///
+    /// Refuses if the profile's pidfile is held by a live process. Zero-
+    /// overwrites `keys/master.json` before deleting to best-effort wipe
+    /// the encrypted master key envelope.
+    Remove {
+        /// Profile name
+        name: String,
+        /// Confirm destructive deletion (required)
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Rename a profile on disk.
+    ///
+    /// Refuses if the source profile is running (pidfile held) or if the
+    /// destination already exists. Does not rewrite references inside the
+    /// profile's config — those are already relative to the directory root.
+    Rename {
+        /// Current profile name
+        from: String,
+        /// New profile name
+        to: String,
+    },
+    /// Render a supervisor service file for a profile.
+    ///
+    /// Emits the text of a systemd `aivyx@.service` template or a launchd
+    /// `com.aivyx.<name>.plist` file to stdout (or `--output <path>`)
+    /// without touching any install locations. Pair with shell redirection
+    /// for a classic Unix install:
+    ///
+    ///   aivyx profile render-service work > ~/.config/systemd/user/aivyx@.service
+    ///
+    /// Use `profile install-service` for a fully-automated install.
+    RenderService {
+        /// Profile name (determines paths embedded in the rendered unit)
+        name: String,
+        /// Which supervisor's format to generate.
+        ///
+        /// `auto` picks based on the current platform: `systemd` on Linux,
+        /// `launchd` on macOS. Both renderers compile on every platform so
+        /// you can render a macOS plist from a Linux dev machine.
+        #[arg(long, value_enum, default_value_t = ServiceKind::Auto)]
+        kind: ServiceKind,
+        /// Write the rendered text to this path instead of stdout.
+        /// Refuses to overwrite an existing file unless `--force` is set.
+        #[arg(long)]
+        output: Option<std::path::PathBuf>,
+        /// Allow `--output` to overwrite an existing file.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Install the rendered supervisor unit into the canonical
+    /// user-level location for the current platform.
+    ///
+    /// * systemd: `$XDG_CONFIG_HOME/systemd/user/aivyx@.service`
+    ///   (defaults to `~/.config/systemd/user/`)
+    /// * launchd: `~/Library/LaunchAgents/com.aivyx.<name>.plist`
+    /// * windows: `<profile_root>\install-service.ps1`
+    ///
+    /// Does NOT invoke `systemctl`, `launchctl`, or `New-Service` —
+    /// that's left to the operator so they can see the output and
+    /// pick the exact moment to start the service. The command we'd
+    /// run is printed on success.
+    ///
+    /// Refuses to overwrite an existing installed unit unless `--force`
+    /// is set, so hand-edited units are preserved by default.
+    InstallService {
+        /// Profile name (determines paths embedded in the rendered unit)
+        name: String,
+        /// Which supervisor's format to install.
+        #[arg(long, value_enum, default_value_t = ServiceKind::Auto)]
+        kind: ServiceKind,
+        /// Overwrite an existing installed unit.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Remove a previously installed supervisor unit from its
+    /// canonical location.
+    ///
+    /// Symmetric with `install-service`: uses the same path-
+    /// resolution helper, deletes the file, and prints the
+    /// disable/stop command the operator should run next. Does NOT
+    /// invoke `systemctl` / `launchctl` / `sc.exe` — the operator
+    /// still needs to disable and stop the live service manually,
+    /// because we have no good way to know whether they want to
+    /// flush in-flight state first.
+    ///
+    /// Refuses to run if the profile's own server process is alive
+    /// (pidfile held), unless `--force` is set. Removing the unit
+    /// file out from under a running service would leave it
+    /// un-recoverable across the next restart.
+    UninstallService {
+        /// Profile name (determines which installed unit to find)
+        name: String,
+        /// Which supervisor's format to remove.
+        #[arg(long, value_enum, default_value_t = ServiceKind::Auto)]
+        kind: ServiceKind,
+        /// Remove the unit even if the profile's server is live.
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+/// Which supervisor format `profile render-service` / `install-service`
+/// should target.
+///
+/// `Auto` resolves at runtime via `cfg!(target_os)` — Linux → `Systemd`,
+/// macOS → `Launchd`, anything else falls back to `Systemd` (because the
+/// rendered text is deterministic and platform-agnostic; it's the
+/// install step that's per-OS). The resolution happens in
+/// [`ServiceKind::resolve`] so both render and install take the same
+/// path.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+enum ServiceKind {
+    /// systemd user-level template unit (`aivyx@.service`)
+    Systemd,
+    /// macOS launchd plist (`com.aivyx.<name>.plist`)
+    Launchd,
+    /// Windows Service Control Manager PowerShell installer script
+    /// (`install-service.ps1`). Run from an elevated PowerShell prompt
+    /// to register the aivyx service with SCM.
+    Windows,
+    /// Auto-detect from the current platform
+    Auto,
+}
+
+impl ServiceKind {
+    /// Resolve `Auto` to a concrete platform kind. Returns self unchanged
+    /// for the non-`Auto` variants.
+    fn resolve(self) -> Self {
+        match self {
+            Self::Auto => {
+                if cfg!(target_os = "macos") {
+                    Self::Launchd
+                } else if cfg!(target_os = "windows") {
+                    Self::Windows
+                } else {
+                    // Linux and everything else default to systemd.
+                    // The "everything else" bucket catches BSD and
+                    // WSL, where systemd-user is usually available
+                    // and the template unit just works.
+                    Self::Systemd
+                }
+            }
+            k => k,
+        }
+    }
+
+    /// Human-readable name for the supervisor, used in install/render
+    /// messages. Centralised so every caller prints the same thing.
+    /// Never call on `Auto` — callers must `resolve()` first.
+    fn display_name(self) -> &'static str {
+        match self {
+            Self::Systemd => "systemd",
+            Self::Launchd => "launchd",
+            Self::Windows => "windows",
+            Self::Auto => unreachable!("ServiceKind::display_name called on Auto"),
+        }
+    }
 }
 
 /// Initialize tracing.
@@ -137,17 +502,37 @@ async fn ensure_initialized(dirs: &AivyxDirs) -> anyhow::Result<bool> {
 }
 
 /// Unlock the master key from the encrypted envelope on disk.
+///
+/// Passphrase resolution follows a three-tier precedence, checked in
+/// order — more explicit wins:
+///
+/// 1. **`AIVYX_PASSPHRASE` env var** — the passphrase as a literal
+///    string. Highest precedence because an operator who sets this
+///    for a specific invocation wants it to override whatever the
+///    service manager configured.
+/// 2. **`AIVYX_PASSPHRASE_FILE` env var** — path to a file whose
+///    (trim-end'd) contents are the passphrase. This is the path
+///    systemd `LoadCredential=` and launchd `EnvironmentVariables=`
+///    take, so service-managed installs never need to pass plaintext
+///    through environment variables visible to `systemctl show`.
+/// 3. **Interactive prompt** — falls back to stdin when neither env
+///    var is set. This is the path CLI users take on their own
+///    laptops.
+///
+/// The resolved passphrase is held in a `Zeroizing<String>` so the
+/// bytes are scrubbed from memory when the function returns, regardless
+/// of which branch produced them.
 fn unlock(dirs: &AivyxDirs) -> anyhow::Result<MasterKey> {
     let envelope_json = std::fs::read_to_string(dirs.master_key_path())?;
     let envelope: MasterKeyEnvelope = serde_json::from_str(&envelope_json)?;
 
-    // Check for AIVYX_PASSPHRASE env var first (for non-interactive use)
-    let passphrase: Zeroizing<String> = match std::env::var("AIVYX_PASSPHRASE") {
-        Ok(p) => Zeroizing::new(p),
-        Err(_) => read_passphrase("Passphrase: "),
-    };
+    // Delegates the three-tier precedence (`AIVYX_PASSPHRASE` >
+    // `AIVYX_PASSPHRASE_FILE` > interactive prompt) to the
+    // `passphrase` library module so the non-interactive tiers can
+    // be unit-tested without touching the master-key envelope.
+    let pp = passphrase::resolve_passphrase(|| read_passphrase("Passphrase: "))?;
 
-    let master_key = MasterKey::decrypt_from_envelope(passphrase.as_bytes(), &envelope)
+    let master_key = MasterKey::decrypt_from_envelope(pp.as_bytes(), &envelope)
         .map_err(|_| anyhow::anyhow!("Wrong passphrase."))?;
 
     Ok(master_key)
@@ -156,7 +541,7 @@ fn unlock(dirs: &AivyxDirs) -> anyhow::Result<MasterKey> {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    let dirs = AivyxDirs::from_default()?;
+    let dirs = resolve_dirs(cli.profile.as_deref())?;
 
     // Route logs to a file for long-running server modes (default + serve).
     // Short CLI commands (chat, status, config) log to stderr as usual.
@@ -176,8 +561,15 @@ async fn main() -> anyhow::Result<()> {
 
             let master_key = unlock(&dirs)?;
             let config = AivyxConfig::load(dirs.config_path())?;
-            let pa_config = config::PaConfig::load(dirs.config_path());
+            let mut pa_config = config::PaConfig::load(dirs.config_path());
             let store = EncryptedStore::open(dirs.store_path())?;
+
+            // Acquire the per-profile pidfile and enforce desktop-tool
+            // exclusivity across sibling profiles. The returned guard must
+            // live for the full server lifetime — binding it to `_pidfile`
+            // keeps it alive until this match arm returns.
+            let _pidfile =
+                enforce_startup_exclusivity(&dirs, cli.profile.as_deref(), &mut pa_config)?;
 
             // Lint config for common issues — surface warnings early.
             for warning in
@@ -210,6 +602,10 @@ async fn main() -> anyhow::Result<()> {
             }
 
             let services = resolve_services(&pa_config, &store, &master_key);
+            // No-subcommand path: no CLI port override, so rely on
+            // [server].port → built-in default. Previously this branch
+            // hardcoded 3100, which silently ignored per-profile config.
+            let port = resolve_effective_port(&pa_config, None);
             serve_api(
                 &dirs,
                 config,
@@ -219,7 +615,7 @@ async fn main() -> anyhow::Result<()> {
                 master_key,
                 provider,
                 loop_provider,
-                3100,
+                port,
             )
             .await?;
         }
@@ -274,8 +670,14 @@ async fn main() -> anyhow::Result<()> {
 
             let master_key = unlock(&dirs)?;
             let config = AivyxConfig::load(dirs.config_path())?;
-            let pa_config = config::PaConfig::load(dirs.config_path());
+            let mut pa_config = config::PaConfig::load(dirs.config_path());
             let store = EncryptedStore::open(dirs.store_path())?;
+
+            // Acquire the per-profile pidfile and enforce desktop-tool
+            // exclusivity. See the no-subcommand branch above for rationale.
+            let _pidfile =
+                enforce_startup_exclusivity(&dirs, cli.profile.as_deref(), &mut pa_config)?;
+
             let mut provider = create_provider(&config.provider, &store, &master_key)?;
             let mut loop_provider = create_provider(&config.provider, &store, &master_key)?;
 
@@ -299,6 +701,8 @@ async fn main() -> anyhow::Result<()> {
             }
 
             let services = resolve_services(&pa_config, &store, &master_key);
+            // Three-tier resolution: CLI flag → [server].port → default.
+            let effective_port = resolve_effective_port(&pa_config, port);
             serve_api(
                 &dirs,
                 config,
@@ -308,7 +712,7 @@ async fn main() -> anyhow::Result<()> {
                 master_key,
                 provider,
                 loop_provider,
-                port,
+                effective_port,
             )
             .await?;
         }
@@ -319,8 +723,603 @@ async fn main() -> anyhow::Result<()> {
             }
             rotate_key(&dirs)?;
         }
+
+        Some(Command::Profile { action }) => {
+            // Profile lifecycle commands ignore the global `--profile` flag:
+            // they always target the `name` argument in the action itself.
+            // (Using both at once is not meaningful — the global flag selects
+            // a runtime target, but these commands are the ones that create,
+            // destroy, and rename those targets.)
+            run_profile_action(action).await?;
+        }
     }
 
+    Ok(())
+}
+
+/// Dispatch an `aivyx profile <action>` invocation.
+///
+/// All the non-interactive logic (list/show/remove/rename) lives in
+/// `aivyx_pa::profile` so it can be exercised from integration tests.
+/// Only `new` stays here because it has to drive the interactive init
+/// wizard via stdin.
+async fn run_profile_action(action: ProfileAction) -> anyhow::Result<()> {
+    match action {
+        ProfileAction::List => {
+            print!("{}", profile::render_profile_list());
+            Ok(())
+        }
+        ProfileAction::New { name } => profile_new(&name).await,
+        ProfileAction::Show { name } => {
+            print!("{}", profile::render_profile_show(&name)?);
+            Ok(())
+        }
+        ProfileAction::Remove { name, yes } => {
+            profile::remove_profile(&name, yes)?;
+            println!("  ✓ profile \"{name}\" removed");
+            Ok(())
+        }
+        ProfileAction::Rename { from, to } => {
+            profile::rename_profile(&from, &to)?;
+            println!("  ✓ renamed \"{from}\" → \"{to}\"");
+            Ok(())
+        }
+        ProfileAction::RenderService {
+            name,
+            kind,
+            output,
+            force,
+        } => profile_render_service(&name, kind, output, force),
+        ProfileAction::InstallService { name, kind, force } => {
+            profile_install_service(&name, kind, force)
+        }
+        ProfileAction::UninstallService { name, kind, force } => {
+            profile_uninstall_service(&name, kind, force)
+        }
+    }
+}
+
+/// Render a supervisor unit file for `name` and either print it to stdout
+/// or write it to `output`.
+///
+/// This is a pure side-effect-light operation: it validates the profile
+/// exists, picks the renderer for the requested `ServiceKind`, and emits
+/// text. It never calls `systemctl` or `launchctl` — that's the job of
+/// `profile install-service`. Keeping render and install split lets
+/// operators review the generated unit (`| less`, diff against the
+/// installed copy, pipe into a config-management tool) before anything
+/// touches the supervisor.
+///
+/// # Path handling asymmetry
+///
+/// * **systemd** uses a *template* unit (`aivyx@.service`), so the
+///   rendered text keeps `%h`/`%i` specifiers — one file serves every
+///   profile and systemd expands the specifiers at load time. That's why
+///   we pass `SystemdOpts::default()` on this branch: it already embeds
+///   `%h/.aivyx/profiles/%i` and only the binary path needs overriding.
+/// * **launchd** has no templating, so each profile needs its own plist
+///   with concrete absolute paths. We materialize `dirs.root()` into the
+///   `LaunchdOpts` for that branch.
+fn profile_render_service(
+    name: &str,
+    kind: ServiceKind,
+    output: Option<std::path::PathBuf>,
+    force: bool,
+) -> anyhow::Result<()> {
+    let (resolved_kind, text, _dirs) = render_service_text(name, kind)?;
+
+    match output {
+        None => {
+            // Print to stdout. Using `print!` (not `println!`) because
+            // both renderers already terminate their output with a
+            // trailing newline — double-newlining would break systemd
+            // strict parsers that complain about blank lines after
+            // `[Install]`.
+            print!("{text}");
+            Ok(())
+        }
+        Some(path) => {
+            // Refuse-to-clobber unless `--force`. An operator who
+            // hand-edited `aivyx@.service` with custom `ReadWritePaths=`
+            // would lose that edit silently otherwise, and the whole
+            // point of the render/install split is to keep operators in
+            // control.
+            if path.exists() && !force {
+                anyhow::bail!(
+                    "{} already exists; pass --force to overwrite",
+                    path.display()
+                );
+            }
+            std::fs::write(&path, &text).map_err(|e| {
+                anyhow::anyhow!("failed to write rendered unit to {}: {e}", path.display())
+            })?;
+            println!(
+                "  ✓ wrote {} unit to {}",
+                resolved_kind.display_name(),
+                path.display()
+            );
+            Ok(())
+        }
+    }
+}
+
+/// Shared entry point used by both `render-service` and `install-service`.
+///
+/// Validates the profile name, confirms the profile exists on disk,
+/// resolves `ServiceKind::Auto`, pulls the running binary path via
+/// `current_exe()`, and dispatches to the appropriate renderer. Returns
+/// the resolved (non-`Auto`) kind, the rendered text, and the
+/// `AivyxDirs` for the profile so callers can reach the profile root
+/// without re-resolving it.
+///
+/// Extracting this keeps render-vs-install differences limited to their
+/// output behavior (print/write vs. install-path resolution + perm
+/// checks) — the "produce the text" contract is identical.
+fn render_service_text(
+    name: &str,
+    kind: ServiceKind,
+) -> anyhow::Result<(ServiceKind, String, AivyxDirs)> {
+    // Validate the profile name (via `from_profile`) and confirm it
+    // exists on disk. We refuse to render a unit for a profile that
+    // hasn't been created, because the generated paths would point at
+    // nothing and `systemctl start` would hard-fail with a confusing
+    // "working directory not found" error at service start.
+    let dirs = AivyxDirs::from_profile(name)
+        .map_err(|e| anyhow::anyhow!("invalid profile name \"{name}\": {e}"))?;
+    if !dirs.root().exists() {
+        anyhow::bail!(
+            "profile \"{name}\" does not exist at {}; create it first with `aivyx profile new {name}`",
+            dirs.root().display()
+        );
+    }
+
+    // `current_exe()` returns the path of the running binary. This is
+    // what we embed in the rendered unit so the service always starts
+    // the exact binary the operator just ran render-service from —
+    // important when multiple aivyx versions coexist (e.g. a staged
+    // upgrade under `/opt/aivyx/<version>/bin/aivyx`).
+    let binary_path = std::env::current_exe()
+        .map_err(|e| anyhow::anyhow!("failed to resolve current executable path: {e}"))?;
+
+    let resolved_kind = kind.resolve();
+    let text = match resolved_kind {
+        ServiceKind::Systemd => {
+            // Template unit: keep `%h`/`%i` in the default opts so one
+            // file serves every profile. We only override the binary
+            // path; everything else stays templated.
+            let opts = profile::systemd::SystemdOpts {
+                binary_path,
+                ..Default::default()
+            };
+            profile::systemd::render_systemd_unit(&opts)
+        }
+        ServiceKind::Launchd => {
+            // Per-profile plist: embed the concrete profile root.
+            let opts = profile::launchd::LaunchdOpts::new(binary_path, dirs.root().to_path_buf());
+            profile::launchd::render_launchd_plist(name, &opts)
+        }
+        ServiceKind::Windows => {
+            // Per-profile PowerShell installer script. Windows has no
+            // drop-in unit directory, so this script *is* the
+            // deliverable — the operator runs it from an elevated
+            // prompt to register with SCM.
+            let opts = profile::windows::WindowsOpts::new(
+                binary_path,
+                dirs.root().to_path_buf(),
+                name,
+            );
+            profile::windows::render_windows_installer(name, &opts)
+        }
+        ServiceKind::Auto => {
+            // `resolve()` never returns `Auto`; matching it keeps the
+            // compiler happy without an `unreachable!()` panic path.
+            unreachable!("ServiceKind::resolve never returns Auto")
+        }
+    };
+
+    Ok((resolved_kind, text, dirs))
+}
+
+/// Install a rendered supervisor unit into the canonical user-level
+/// location for the current platform, without invoking `systemctl`,
+/// `launchctl`, or `New-Service`.
+///
+/// The install step is intentionally small and observable: write the
+/// file, audit the passphrase sidecar, print the enable/start command.
+/// It never starts the service itself — operators want to see
+/// `systemctl --user status` / `launchctl print` / `Get-Service` output
+/// with their own eyes and pick when to cut over, especially on
+/// production hosts.
+///
+/// # Install paths
+///
+/// * **systemd** → `$XDG_CONFIG_HOME/systemd/user/aivyx@.service` (via
+///   `dirs::config_dir()`, which falls back to `~/.config/`). It's a
+///   template unit, so the filename is `aivyx@.service` regardless of
+///   profile — instances are started as `aivyx@work.service` etc.
+/// * **launchd** → `~/Library/LaunchAgents/com.aivyx.<name>.plist`. Per
+///   profile, because launchd has no template mechanism.
+/// * **windows** → `<profile_root>\install-service.ps1`. Windows has
+///   no SCM drop-in directory, so the PowerShell installer script
+///   lives inside the profile tree. The operator runs it from an
+///   elevated prompt to actually register with SCM.
+///
+/// # Passphrase sidecar audit
+///
+/// All three supervisors pass the unlock passphrase via
+/// `AIVYX_PASSPHRASE_FILE`. On systemd this is wired through
+/// `LoadCredential=passphrase:<path>` → `%d/passphrase`, on launchd via
+/// `EnvironmentVariables.AIVYX_PASSPHRASE_FILE=<profile_root>/passphrase`,
+/// on Windows via the service's registry `Environment` REG_MULTI_SZ.
+/// Either way the file must exist with owner-only read perms before
+/// the service starts or unlock will fail with a confusing error
+/// buried in journald / the log file / Windows Event Viewer. We check
+/// and print actionable remediation instead — `chmod` on Unix,
+/// `icacls` on Windows.
+fn profile_install_service(
+    name: &str,
+    kind: ServiceKind,
+    force: bool,
+) -> anyhow::Result<()> {
+    let (resolved_kind, text, dirs) = render_service_text(name, kind)?;
+
+    // Resolve the canonical install path per platform via the
+    // library-side helper. Injecting `config_dir` / `home_dir` /
+    // `profile_root` keeps `resolve_install_path` pure and unit-
+    // testable; we source the real values from `dirs::` and the
+    // `AivyxDirs` here in the binary layer.
+    use profile::service_install::{
+        audit_passphrase_sidecar as audit_pp, resolve_install_path, PassphraseSidecarStatus,
+        ResolvedServiceKind,
+    };
+    let resolved_for_lib = match resolved_kind {
+        ServiceKind::Systemd => ResolvedServiceKind::Systemd,
+        ServiceKind::Launchd => ResolvedServiceKind::Launchd,
+        ServiceKind::Windows => ResolvedServiceKind::Windows,
+        ServiceKind::Auto => unreachable!("ServiceKind::resolve never returns Auto"),
+    };
+    let config_dir = dirs::config_dir();
+    let home_dir = dirs::home_dir();
+    let profile_root = dirs.root().to_path_buf();
+    let install_path = resolve_install_path(
+        resolved_for_lib,
+        name,
+        config_dir.as_deref(),
+        home_dir.as_deref(),
+        Some(profile_root.as_path()),
+    )
+    .ok_or_else(|| match resolved_for_lib {
+        ResolvedServiceKind::Systemd => {
+            anyhow::anyhow!("could not resolve XDG config directory (no $HOME set?)")
+        }
+        ResolvedServiceKind::Launchd => {
+            anyhow::anyhow!("could not resolve home directory (no $HOME set?)")
+        }
+        ResolvedServiceKind::Windows => {
+            // Should be unreachable — profile_root is always Some
+            // because we just resolved it from `dirs.root()`. But if
+            // a future refactor makes that optional, we want a
+            // user-facing error, not a panic.
+            anyhow::anyhow!("could not resolve profile root for Windows installer script")
+        }
+    })?;
+
+    // Refuse-to-clobber unless `--force`. Preserves operator edits.
+    if install_path.exists() && !force {
+        anyhow::bail!(
+            "{} already exists; pass --force to overwrite",
+            install_path.display()
+        );
+    }
+
+    // Create the parent directory if it doesn't exist yet (common on
+    // fresh systems — `~/.config/systemd/user/` is not created until
+    // the first user unit lands there).
+    if let Some(parent) = install_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            anyhow::anyhow!(
+                "failed to create install directory {}: {e}",
+                parent.display()
+            )
+        })?;
+    }
+
+    std::fs::write(&install_path, &text).map_err(|e| {
+        anyhow::anyhow!("failed to write unit to {}: {e}", install_path.display())
+    })?;
+
+    // Audit the passphrase sidecar. All three renderers default to
+    // `<profile_root>/passphrase` as the AIVYX_PASSPHRASE_FILE target,
+    // so we check that path. A missing file is a warning, not an
+    // error — the operator may be about to create it.
+    let pp_path = dirs.root().join("passphrase");
+    let pp_status = audit_pp(&pp_path);
+
+    println!(
+        "  ✓ installed {} unit to {}",
+        resolved_kind.display_name(),
+        install_path.display()
+    );
+
+    // The remediation hint differs between Unix and Windows because
+    // the tooling differs (`chmod` vs `icacls`). Route on
+    // `resolved_kind` rather than `cfg!(windows)` so a Linux dev
+    // rendering a Windows unit still sees the correct icacls hint.
+    let is_windows = resolved_kind == ServiceKind::Windows;
+    match pp_status {
+        PassphraseSidecarStatus::OkSecure => {
+            if is_windows {
+                println!("  ✓ passphrase sidecar {} is present", pp_path.display());
+                println!("    (DACL not checked on Windows — verify owner-only access with `icacls`)");
+            } else {
+                println!(
+                    "  ✓ passphrase sidecar {} is present and 0600",
+                    pp_path.display()
+                );
+            }
+        }
+        PassphraseSidecarStatus::Missing => {
+            println!();
+            println!("  ! passphrase sidecar not found at {}", pp_path.display());
+            println!("    The service will fail to unlock until you create it. Run:");
+            println!();
+            if is_windows {
+                println!("      New-Item -ItemType File -Path \"{}\"", pp_path.display());
+                println!("      notepad \"{}\"", pp_path.display());
+                println!(
+                    "      icacls \"{}\" /inheritance:r /grant:r \"$env:USERNAME:(R)\"",
+                    pp_path.display()
+                );
+            } else {
+                println!("      install -m 0600 /dev/null {}", pp_path.display());
+                println!("      $EDITOR {}", pp_path.display());
+            }
+            println!();
+        }
+        PassphraseSidecarStatus::InsecurePerms(mode) => {
+            println!();
+            println!(
+                "  ! passphrase sidecar {} has insecure perms 0{:o}",
+                pp_path.display(),
+                mode
+            );
+            println!("    Tighten it before starting the service:");
+            println!();
+            println!("      chmod 0600 {}", pp_path.display());
+            println!();
+        }
+    }
+
+    // Print the enable/start command. We deliberately do NOT run it
+    // ourselves — see the function doc for why.
+    println!();
+    match resolved_kind {
+        ServiceKind::Systemd => {
+            println!("  Next: enable and start the service:");
+            println!();
+            println!("      systemctl --user daemon-reload");
+            println!("      systemctl --user enable --now aivyx@{name}.service");
+            println!();
+            println!("  Inspect with:");
+            println!();
+            println!("      systemctl --user status aivyx@{name}.service");
+            println!("      journalctl --user -u aivyx@{name}.service -f");
+        }
+        ServiceKind::Launchd => {
+            println!("  Next: load the agent:");
+            println!();
+            println!(
+                "      launchctl bootstrap gui/$(id -u) {}",
+                install_path.display()
+            );
+            println!("      launchctl enable gui/$(id -u)/com.aivyx.{name}");
+            println!();
+            println!("  Inspect with:");
+            println!();
+            println!("      launchctl print gui/$(id -u)/com.aivyx.{name}");
+        }
+        ServiceKind::Windows => {
+            // The deliverable on Windows is a script — the operator
+            // has to actually *run* it from an elevated prompt to
+            // register with SCM. Unlike systemd/launchd, we cannot
+            // merely drop a file in place and have the supervisor
+            // pick it up, so the next-step hint is a manual
+            // invocation.
+            let service_name = profile::windows::service_name_for_profile(name);
+            println!("  Next: run the installer from an elevated PowerShell prompt:");
+            println!();
+            println!(
+                "      powershell.exe -ExecutionPolicy Bypass -File \"{}\"",
+                install_path.display()
+            );
+            println!();
+            println!("  Then start the service:");
+            println!();
+            println!("      Start-Service {service_name}");
+            println!();
+            println!("  Inspect with:");
+            println!();
+            println!("      Get-Service {service_name} | Format-List *");
+        }
+        ServiceKind::Auto => unreachable!(),
+    }
+
+    Ok(())
+}
+
+/// Remove a previously installed supervisor unit from its canonical
+/// location.
+///
+/// Symmetric with [`profile_install_service`]: uses the same
+/// `resolve_install_path` helper so they can never disagree on where
+/// the file lives. Refuses to run if the profile's own server is live
+/// (pidfile held) — removing the unit out from under a running
+/// service would leave it un-recoverable across the next restart.
+///
+/// # What this does NOT do
+///
+/// * It does NOT stop the live service (`systemctl --user stop`,
+///   `launchctl bootout`, `Stop-Service`). Operators may have
+///   in-flight work they want to flush first; we print the stop
+///   command and let them run it.
+/// * It does NOT disable auto-start (`systemctl --user disable`,
+///   `launchctl disable`, `Set-Service -StartupType Disabled`).
+///   Same reason — the operator may want to re-enable later.
+/// * It does NOT remove the passphrase sidecar. That's the operator's
+///   secret; touching it here would be surprising and destructive.
+/// * On Windows, it removes only the installer *script*. The actual
+///   SCM registration (if the operator has already run the script)
+///   must be undone separately via `sc.exe delete AivyxPA-<name>`
+///   or `Remove-Service`. We print that command.
+fn profile_uninstall_service(
+    name: &str,
+    kind: ServiceKind,
+    force: bool,
+) -> anyhow::Result<()> {
+    // Validate the profile name and confirm it exists on disk. We
+    // need `dirs.root()` to pass as `profile_root` for the Windows
+    // branch of `resolve_install_path`, and to check the pidfile.
+    let dirs = AivyxDirs::from_profile(name)
+        .map_err(|e| anyhow::anyhow!("invalid profile name \"{name}\": {e}"))?;
+    if !dirs.root().exists() {
+        anyhow::bail!(
+            "profile \"{name}\" does not exist at {}; nothing to uninstall",
+            dirs.root().display()
+        );
+    }
+
+    // Refuse if the profile's server is live, unless --force. This
+    // mirrors `profile remove` and `profile rename`, which use the
+    // same pidfile probe for the same reason: mutating paths under a
+    // running server invalidates handles it holds in memory.
+    if !force {
+        if let Some(pid) = PidFile::read_peer(dirs.root().join("aivyx.pid")) {
+            anyhow::bail!(
+                "profile \"{name}\" is currently running (pid {pid}); \
+                 stop it before uninstalling, or pass --force if you know what you're doing"
+            );
+        }
+    }
+
+    let resolved_kind = kind.resolve();
+    use profile::service_install::{resolve_install_path, ResolvedServiceKind};
+    let resolved_for_lib = match resolved_kind {
+        ServiceKind::Systemd => ResolvedServiceKind::Systemd,
+        ServiceKind::Launchd => ResolvedServiceKind::Launchd,
+        ServiceKind::Windows => ResolvedServiceKind::Windows,
+        ServiceKind::Auto => unreachable!("ServiceKind::resolve never returns Auto"),
+    };
+    let install_path = resolve_install_path(
+        resolved_for_lib,
+        name,
+        dirs::config_dir().as_deref(),
+        dirs::home_dir().as_deref(),
+        Some(dirs.root()),
+    )
+    .ok_or_else(|| anyhow::anyhow!("could not resolve install path for {resolved_kind:?}"))?;
+
+    if !install_path.exists() {
+        // Not an error — the operator may be re-running this to make
+        // sure the file is gone, or the unit may have been removed by
+        // hand earlier. Print a friendly note and still print the
+        // stop/disable hints so they have a copy of the cleanup
+        // commands.
+        println!(
+            "  (no {} unit at {} — nothing to remove)",
+            resolved_kind.display_name(),
+            install_path.display()
+        );
+    } else {
+        std::fs::remove_file(&install_path).map_err(|e| {
+            anyhow::anyhow!(
+                "failed to remove {}: {e}",
+                install_path.display()
+            )
+        })?;
+        println!(
+            "  ✓ removed {} unit at {}",
+            resolved_kind.display_name(),
+            install_path.display()
+        );
+    }
+
+    // Print the stop/disable command. Symmetric with the install
+    // handler's enable/start hint — same reasons for not running it
+    // ourselves.
+    println!();
+    match resolved_kind {
+        ServiceKind::Systemd => {
+            println!("  If the service is still running, stop and disable it:");
+            println!();
+            println!("      systemctl --user disable --now aivyx@{name}.service");
+            println!("      systemctl --user daemon-reload");
+        }
+        ServiceKind::Launchd => {
+            println!("  If the agent is still loaded, bootout and disable it:");
+            println!();
+            println!(
+                "      launchctl bootout gui/$(id -u)/com.aivyx.{name}"
+            );
+            println!(
+                "      launchctl disable gui/$(id -u)/com.aivyx.{name}"
+            );
+        }
+        ServiceKind::Windows => {
+            // On Windows, removing the installer script does nothing
+            // to the SCM registration — the operator still has to
+            // delete the service itself. Give them the exact
+            // invocation.
+            let service_name = profile::windows::service_name_for_profile(name);
+            println!("  If the service is registered with SCM, stop and delete it:");
+            println!();
+            println!("      Stop-Service {service_name} -Force");
+            println!("      if (Get-Command Remove-Service -ErrorAction SilentlyContinue) {{");
+            println!("          Remove-Service {service_name}");
+            println!("      }} else {{");
+            println!("          sc.exe delete {service_name}");
+            println!("      }}");
+        }
+        ServiceKind::Auto => unreachable!(),
+    }
+
+    Ok(())
+}
+
+/// Create a new profile at `~/.aivyx/profiles/<name>/`, run the interactive
+/// init wizard against it, and auto-assign a free server port.
+///
+/// Stays in `main.rs` (not the `profile` module) because it drives the
+/// interactive init wizard via stdin, which makes it unsuitable for
+/// library reuse or unit testing. All the non-interactive plumbing —
+/// port allocation, config append, name validation — lives in
+/// `aivyx_pa::profile`.
+async fn profile_new(name: &str) -> anyhow::Result<()> {
+    let dirs = AivyxDirs::from_profile(name)
+        .map_err(|e| anyhow::anyhow!("invalid profile name \"{name}\": {e}"))?;
+
+    if dirs.root().exists() {
+        anyhow::bail!(
+            "profile \"{name}\" already exists at {}",
+            dirs.root().display()
+        );
+    }
+
+    let port = profile::allocate_free_profile_port()?;
+
+    println!("  → creating profile \"{name}\" at {}", dirs.root().display());
+    println!("  → assigned port {port}");
+
+    let _passphrase = init::run(dirs.root()).await?;
+
+    if !dirs.is_initialized() {
+        anyhow::bail!("init wizard did not complete; profile \"{name}\" left in partial state");
+    }
+
+    profile::append_server_port(&dirs, port)?;
+
+    println!();
+    println!("  ✓ profile \"{name}\" ready");
+    println!("    run: aivyx --profile {name}");
     Ok(())
 }
 

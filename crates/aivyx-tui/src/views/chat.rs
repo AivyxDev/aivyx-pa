@@ -43,11 +43,14 @@ impl GutterStyle {
 pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     // Calculate input height: border (2) + wrapped lines (at least 1, capped at 6)
     let input_content_width = area.width.saturating_sub(4) as usize; // 2 border + 2 padding
-    let input_char_count = app.chat_input.chars().count();
-    let input_lines = if input_content_width == 0 || input_char_count == 0 {
+    let input_lines = if input_content_width == 0 || app.chat_input.is_empty() {
         1
     } else {
-        input_char_count.div_ceil(input_content_width).clamp(1, 6)
+        app.chat_input
+            .lines()
+            .map(|line| line.chars().count().div_ceil(input_content_width).max(1))
+            .sum::<usize>()
+            .clamp(1, 12)
     };
     let input_height = (input_lines as u16) + 2; // +2 for top/bottom border
 
@@ -565,23 +568,55 @@ fn render_input_field(app: &App, area: Rect, buf: &mut Buffer) {
             input_inner.width,
         );
     } else {
-        // Wrap input text across available lines using char boundaries
-        let w = input_inner.width as usize;
+        use ratatui::widgets::{Paragraph, Wrap};
+        let mut lines = Vec::new();
         let chars: Vec<char> = app.chat_input.chars().collect();
-        let mut y = input_inner.y;
-        let mut pos = 0;
-        while pos < chars.len() && y < input_inner.y + input_inner.height {
-            let end = chars.len().min(pos + w);
-            let chunk: String = chars[pos..end].iter().collect();
-            buf.set_line(
-                input_inner.x,
-                y,
-                &Line::from(Span::styled(chunk, theme::text())),
-                input_inner.width,
-            );
-            pos = end;
-            y += 1;
+        let cursor_idx = app.chat_input_cursor.min(chars.len());
+        
+        let mut cur_line_spans = Vec::new();
+        let mut cur_string = String::new();
+        
+        for (i, &c) in chars.iter().enumerate() {
+            if i == cursor_idx {
+                if !cur_string.is_empty() {
+                    cur_line_spans.push(Span::styled(cur_string.clone(), theme::text()));
+                    cur_string.clear();
+                }
+                cur_line_spans.push(Span::styled("\u{2588}", theme::primary()));
+            }
+            if c == '\n' {
+                if !cur_string.is_empty() {
+                    cur_line_spans.push(Span::styled(cur_string.clone(), theme::text()));
+                    cur_string.clear();
+                }
+                lines.push(Line::from(cur_line_spans.clone()));
+                cur_line_spans.clear();
+            } else {
+                cur_string.push(c);
+            }
         }
+        
+        // Render final cursor if at the end of the string
+        if chars.len() == cursor_idx {
+            if !cur_string.is_empty() {
+                cur_line_spans.push(Span::styled(cur_string.clone(), theme::text()));
+                cur_string.clear();
+            }
+            cur_line_spans.push(Span::styled("\u{2588}", theme::primary()));
+        } else if !cur_string.is_empty() {
+            cur_line_spans.push(Span::styled(cur_string, theme::text()));
+        }
+        
+        // Push the final line if not empty or if it ends on a newline
+        if !cur_line_spans.is_empty() || chars.last() == Some(&'\n') {
+            lines.push(Line::from(cur_line_spans));
+        }
+
+        let paragraph = Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .scroll((app.chat_input_scroll, 0));
+            
+        paragraph.render(input_inner, buf);
     }
 
     // Character count in bottom-right corner of input border

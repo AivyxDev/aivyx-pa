@@ -47,39 +47,33 @@ impl Widget for Sidebar<'_> {
             return;
         }
 
-        // Pre-computed saturating widths for the interior text area.
-        // `width_inset_2` = room after the left 2-column gutter.
-        // `width_inset_3` = room after gutter + a trailing column for badges.
-        // `width_inset_4` = room for separators that sit two columns in on
-        //                   both sides.
-        let width_inset_2 = inner.width.saturating_sub(2);
-        let width_inset_3 = inner.width.saturating_sub(3);
-        let width_inset_4 = inner.width.saturating_sub(4);
-
         let mut y = inner.y;
 
         // ── Brand header ───────────────────────────────────────
         if inner.height >= 4 {
+            y += 1; // Top padding
             buf.set_line(
-                inner.x + 2,
+                inner.x + 3,
                 y,
                 &Line::from(vec![
-                    Span::styled("[ NODE: ", theme::dim()),
-                    Span::styled("AIVYX-PA", theme::primary_bold()),
-                    Span::styled(" ]", theme::dim()),
+                    Span::styled("[ ", theme::dim()),
+                    Span::styled("NODE: ", theme::muted()),
+                    Span::styled("AIVYX-PA ", theme::primary_bold()),
+                    Span::styled("]", theme::dim()),
                 ]),
-                width_inset_2,
+                inner.width.saturating_sub(3),
             );
             y += 1;
             buf.set_line(
-                inner.x + 2,
+                inner.x + 3,
                 y,
                 &Line::from(vec![
-                    Span::styled("[ CORE: ", theme::dim()),
-                    Span::styled(format!("v{}", self.app.version), theme::muted()),
-                    Span::styled(" ]", theme::dim()),
+                    Span::styled("[ ", theme::dim()),
+                    Span::styled("CORE: ", theme::muted()),
+                    Span::styled(format!("v{} ", self.app.version), theme::text()),
+                    Span::styled("]", theme::dim()),
                 ]),
-                width_inset_2,
+                inner.width.saturating_sub(3),
             );
             y += 2;
         }
@@ -97,12 +91,12 @@ impl Widget for Sidebar<'_> {
                 && pg != group
                 && y < inner.y + inner.height
             {
-                let sep = "=".repeat(width_inset_4 as usize);
+                let sep = "\u{2500}".repeat(inner.width.saturating_sub(6) as usize);
                 buf.set_line(
-                    inner.x + 2,
+                    inner.x + 3,
                     y,
                     &Line::from(Span::styled(sep, theme::dim())),
-                    width_inset_4,
+                    inner.width.saturating_sub(6),
                 );
                 y += 1;
             }
@@ -117,9 +111,9 @@ impl Widget for Sidebar<'_> {
             // Active indicator bar
             if is_active {
                 buf.set_line(
-                    inner.x,
+                    inner.x + 1, // 1 col padding inward for the gutter line
                     y,
-                    &Line::from(Span::styled("█", theme::primary())),
+                    &Line::from(Span::styled("▌", theme::primary())),
                     1,
                 );
             }
@@ -132,60 +126,90 @@ impl Widget for Sidebar<'_> {
                 Style::default().fg(theme::ON_SURFACE_DIM)
             };
 
-            // Build label with optional badge
-            let badge = self.badge_for(*view);
+            // Build label
             let label = format!("{} {}", view.icon(), view.label().to_uppercase());
+            buf.set_line(
+                inner.x + 3, // 3 cols left padding for the text
+                y,
+                &Line::from(Span::styled(label, style)),
+                inner.width.saturating_sub(3),
+            );
 
-            let mut spans = vec![Span::styled(label, style)];
+            // Set badge perfectly right-aligned
+            let badge = self.badge_for(*view);
             if let Some((count, badge_style)) = badge {
-                // Right-align the badge
-                let badge_text = format!(" [{count}]");
-                spans.push(Span::styled(badge_text, badge_style));
+                let badge_str = format!("[{}]", count);
+                let badge_x = inner.x + inner.width.saturating_sub(badge_str.len() as u16 + 2); // 2 cols right padding
+                buf.set_line(
+                    badge_x,
+                    y,
+                    &Line::from(Span::styled(badge_str.clone(), badge_style)),
+                    badge_str.len() as u16,
+                );
             }
 
-            buf.set_line(inner.x + 2, y, &Line::from(spans), width_inset_3);
             y += 1;
         }
 
         // ── Agent footer ───────────────────────────────────────
         if inner.height > 15 {
-            let footer_y = inner.y + inner.height - 4;
+            let footer_y = inner.y + inner.height.saturating_sub(5); // Anchor perfectly back up from the bottom edge
 
-            // Identity Header Bracket
+            // Divider cleanly tracking sidebar widths
+            let sep = "\u{2500}".repeat(inner.width.saturating_sub(6) as usize);
             buf.set_line(
-                inner.x + 2,
+                inner.x + 3,
                 footer_y,
-                &Line::from(vec![Span::styled("[ IDENTITY ]", theme::dim())]),
-                width_inset_2,
+                &Line::from(Span::styled(sep, theme::dim())),
+                inner.width.saturating_sub(6),
             );
 
             // Agent name + streaming indicator
             let status_icon = if self.app.chat_streaming {
-                Span::styled("◆ ", theme::warning()) // pulsing when active
+                Span::styled("◆ ", theme::warning()) // pulsing
             } else {
-                Span::styled("⊕ ", theme::secondary())
+                Span::styled("  ", theme::secondary())
             };
-            let agent_line = Line::from(vec![
-                status_icon,
-                Span::styled(self.app.agent_name.to_uppercase(), theme::text()),
-            ]);
-            buf.set_line(inner.x + 2, footer_y + 1, &agent_line, width_inset_3);
+            
+            buf.set_line(
+                inner.x + 3,
+                footer_y + 1,
+                &Line::from(vec![
+                    status_icon,
+                    Span::styled("ID: ", theme::muted()),
+                    Span::styled(self.app.agent_name.to_uppercase(), theme::text_bold()),
+                ]),
+                inner.width.saturating_sub(3),
+            );
 
-            // Persona + tier
-            if footer_y + 2 < inner.y + inner.height {
+            // Persona & Autonomy Details
+            if footer_y + 3 < inner.y + inner.height {
                 let persona = self
                     .app
                     .settings
                     .as_ref()
                     .map(|s| s.agent_persona.as_str())
                     .unwrap_or("assistant");
-                let tier_line = Line::from(vec![
-                    Span::styled("  ", Style::default()),
-                    Span::styled(persona.to_uppercase(), theme::dim()),
-                    Span::styled(" · ", theme::dim()),
-                    Span::styled(self.app.autonomy_tier.to_uppercase(), theme::dim()),
-                ]);
-                buf.set_line(inner.x + 2, footer_y + 2, &tier_line, width_inset_3);
+                
+                buf.set_line(
+                    inner.x + 3,
+                    footer_y + 2,
+                    &Line::from(vec![
+                        Span::styled("  RO: ", theme::muted()),
+                        Span::styled(persona.to_uppercase(), theme::dim()),
+                    ]),
+                    inner.width.saturating_sub(3),
+                );
+                
+                buf.set_line(
+                    inner.x + 3,
+                    footer_y + 3,
+                    &Line::from(vec![
+                        Span::styled("  TR: ", theme::muted()),
+                        Span::styled(self.app.autonomy_tier.to_uppercase(), theme::dim()),
+                    ]),
+                    inner.width.saturating_sub(3),
+                );
             }
         }
     }

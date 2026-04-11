@@ -61,7 +61,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             app.settings
                 .as_ref()
                 .map(|s| {
-                    let active = s.schedules.iter().filter(|(_, _, e)| *e).count();
+                    let active = s.schedules.iter().filter(|(_, _, e, _)| *e).count();
                     let total = s.schedules.len();
                     format!("{active}/{total}")
                 })

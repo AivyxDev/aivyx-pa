@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/AivyxDev/aivyx-pa"
@@ -58,7 +58,7 @@ crossterm     = "0.28"
 lettre        = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1-rustls-tls", "hostname", "builder"] }
 native-tls        = "0.2"
 tokio-native-tls  = "0.3"
-clap          = { version = "4", features = ["derive"] }
+clap          = { version = "4", features = ["derive", "env"] }
 croner        = "2"
 tokio-util    = { version = "0.7", features = ["rt"] }
 zeroize       = { version = "1", features = ["derive"] }

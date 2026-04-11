@@ -140,6 +140,19 @@ pub struct DesktopConfig {
     #[serde(default = "default_true")]
     pub notifications: bool,
 
+    /// Advisory profile name that owns the physical desktop in multi-agent
+    /// deployments.
+    ///
+    /// Only meaningful when multiple profiles share one graphical session:
+    /// at most one profile should drive keyboard/mouse/clipboard, otherwise
+    /// inputs interleave and UI automation behaves unpredictably. When this
+    /// is set and does not match the currently-running profile, the runtime
+    /// will refuse to register desktop tools for this profile. Unset means
+    /// "no preference" — the runtime will still warn if it detects sibling
+    /// profiles with live desktop tools.
+    #[serde(default)]
+    pub owner: Option<String>,
+
     /// Deep application interaction — AT-SPI2, CDP, D-Bus, ydotool.
     /// `None` if `[desktop.interaction]` section is missing — no interaction tools.
     pub interaction: Option<interaction::InteractionConfig>,
@@ -158,6 +171,7 @@ impl Default for DesktopConfig {
             clipboard: true,
             windows: true,
             notifications: true,
+            owner: None,
             interaction: None,
         }
     }

@@ -54,6 +54,21 @@ pub enum SettingsPopup {
         focused: usize,
         is_configured: bool,
     },
+    /// Schedule create/edit wizard.
+    ScheduleEditor {
+        /// `None` = creating new, `Some(name)` = editing existing.
+        editing: Option<String>,
+        name: String,
+        cron_builder: CronBuilder,
+        prompt: Vec<String>,
+        prompt_cursor_row: usize,
+        prompt_cursor_col: usize,
+        notify: bool,
+        /// Which field has focus: 0=name, 1=cron, 2=prompt, 3=notify.
+        focused: usize,
+        /// Validation error displayed at the bottom.
+        error: Option<String>,
+    },
 }
 
 /// A single field in an integration setup popup.
@@ -77,6 +92,210 @@ pub enum InputKind {
 pub enum ConfirmAction {
     RemoveSkill(usize),
     RemoveIntegration(IntegrationKind),
+    RemoveSchedule(String),
+}
+
+// ── Cron Builder ─────────────────────────────────────────────
+
+pub const CRON_MODES: &[&str] = &[
+    "Every N Min",
+    "Hourly",
+    "Daily",
+    "Weekdays",
+    "Weekly",
+    "Monthly",
+    "Custom",
+];
+
+pub const CRON_INTERVALS: &[u8] = &[5, 10, 15, 20, 30, 45];
+
+pub const WEEKDAY_NAMES: &[&str] = &[
+    "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+];
+
+/// Interactive schedule builder — the user selects frequency, time, and day
+/// using arrow keys. The builder generates the cron expression automatically.
+#[derive(Clone, Debug)]
+pub struct CronBuilder {
+    /// 0=EveryNMin, 1=Hourly, 2=Daily, 3=Weekdays, 4=Weekly, 5=Monthly, 6=Custom
+    pub mode: usize,
+    pub hour: u8,
+    pub minute: u8,
+    /// 0=Sun .. 6=Sat
+    pub weekday: u8,
+    /// 1-28
+    pub month_day: u8,
+    /// Index into CRON_INTERVALS
+    pub interval_idx: usize,
+    /// Raw cron for Custom mode
+    pub custom: String,
+    /// Which sub-field has focus within the schedule section.
+    ///
+    /// Layout per mode:
+    ///   EveryNMin: 0=mode, 1=interval
+    ///   Hourly:    0=mode, 1=minute
+    ///   Daily:     0=mode, 1=hour, 2=minute
+    ///   Weekdays:  0=mode, 1=hour, 2=minute
+    ///   Weekly:    0=mode, 1=weekday, 2=hour, 3=minute
+    ///   Monthly:   0=mode, 1=day, 2=hour, 3=minute
+    ///   Custom:    0=mode, 1=input
+    pub sub_focus: usize,
+}
+
+impl CronBuilder {
+    /// Number of sub-fields for the current mode.
+    pub fn sub_field_count(&self) -> usize {
+        match self.mode {
+            0 => 2, // EveryNMin: mode + interval
+            1 => 2, // Hourly: mode + minute
+            2 | 3 => 3, // Daily/Weekdays: mode + hour + minute
+            4 | 5 => 4, // Weekly/Monthly: mode + day + hour + minute
+            6 => 2, // Custom: mode + input
+            _ => 2,
+        }
+    }
+
+    /// Generate the cron expression from the builder state.
+    pub fn build_cron(&self) -> String {
+        match self.mode {
+            0 => {
+                let interval = CRON_INTERVALS[self.interval_idx];
+                format!("*/{interval} * * * *")
+            }
+            1 => format!("{} * * * *", self.minute),
+            2 => format!("{} {} * * *", self.minute, self.hour),
+            3 => format!("{} {} * * 1-5", self.minute, self.hour),
+            4 => format!("{} {} * * {}", self.minute, self.hour, self.weekday),
+            5 => format!("{} {} {} * *", self.minute, self.hour, self.month_day),
+            6 => self.custom.clone(),
+            _ => self.custom.clone(),
+        }
+    }
+
+    /// Parse a cron expression into builder state. Falls back to Custom mode
+    /// for expressions that don't match a known pattern.
+    pub fn from_cron(expr: &str) -> Self {
+        let parts: Vec<&str> = expr.split_whitespace().collect();
+        if parts.len() != 5 {
+            return Self::custom(expr);
+        }
+
+        // */N * * * *  →  EveryNMin
+        if parts[0].starts_with("*/")
+            && parts[1] == "*"
+            && parts[2] == "*"
+            && parts[3] == "*"
+            && parts[4] == "*"
+        {
+            if let Ok(n) = parts[0][2..].parse::<u8>() {
+                if let Some(idx) = CRON_INTERVALS.iter().position(|&v| v == n) {
+                    return Self {
+                        mode: 0,
+                        interval_idx: idx,
+                        ..Self::default()
+                    };
+                }
+            }
+        }
+
+        // M * * * *  →  Hourly
+        if parts[1] == "*" && parts[2] == "*" && parts[3] == "*" && parts[4] == "*" {
+            if let Ok(m) = parts[0].parse::<u8>() {
+                return Self {
+                    mode: 1,
+                    minute: m,
+                    ..Self::default()
+                };
+            }
+        }
+
+        // M H * * 1-5  →  Weekdays
+        if parts[2] == "*" && parts[3] == "*" && parts[4] == "1-5" {
+            if let (Ok(m), Ok(h)) = (parts[0].parse::<u8>(), parts[1].parse::<u8>()) {
+                return Self {
+                    mode: 3,
+                    minute: m,
+                    hour: h,
+                    ..Self::default()
+                };
+            }
+        }
+
+        // M H * * D  →  Weekly (single weekday)
+        if parts[2] == "*" && parts[3] == "*" && parts[4] != "*" {
+            if let (Ok(m), Ok(h), Ok(d)) = (
+                parts[0].parse::<u8>(),
+                parts[1].parse::<u8>(),
+                parts[4].parse::<u8>(),
+            ) {
+                if d <= 6 {
+                    return Self {
+                        mode: 4,
+                        minute: m,
+                        hour: h,
+                        weekday: d,
+                        ..Self::default()
+                    };
+                }
+            }
+        }
+
+        // M H D * *  →  Monthly
+        if parts[3] == "*" && parts[4] == "*" && parts[2] != "*" {
+            if let (Ok(m), Ok(h), Ok(d)) = (
+                parts[0].parse::<u8>(),
+                parts[1].parse::<u8>(),
+                parts[2].parse::<u8>(),
+            ) {
+                if (1..=28).contains(&d) {
+                    return Self {
+                        mode: 5,
+                        minute: m,
+                        hour: h,
+                        month_day: d,
+                        ..Self::default()
+                    };
+                }
+            }
+        }
+
+        // M H * * *  →  Daily
+        if parts[2] == "*" && parts[3] == "*" && parts[4] == "*" {
+            if let (Ok(m), Ok(h)) = (parts[0].parse::<u8>(), parts[1].parse::<u8>()) {
+                return Self {
+                    mode: 2,
+                    minute: m,
+                    hour: h,
+                    ..Self::default()
+                };
+            }
+        }
+
+        Self::custom(expr)
+    }
+
+    fn custom(expr: &str) -> Self {
+        Self {
+            mode: 6,
+            custom: expr.to_string(),
+            ..Self::default()
+        }
+    }
+}
+
+impl Default for CronBuilder {
+    fn default() -> Self {
+        Self {
+            mode: 2, // Daily
+            hour: 9,
+            minute: 0,
+            weekday: 1, // Monday
+            month_day: 1,
+            interval_idx: 2, // 15 min
+            custom: String::new(),
+            sub_focus: 0,
+        }
+    }
 }
 
 // ── Goal Popup (modal edit state) ─────────────────────────────
@@ -355,6 +574,8 @@ pub struct App {
 
     // ── Chat state ─────────────────────────────────────────────
     pub chat_input: String,
+    pub chat_input_cursor: usize,
+    pub chat_input_scroll: u16,
     pub chat_messages: Vec<ChatMessage>,
     pub chat_streaming: bool,
     pub chat_scroll: usize,
@@ -521,6 +742,8 @@ impl App {
             version: env!("CARGO_PKG_VERSION").into(),
 
             chat_input: String::new(),
+            chat_input_cursor: 0,
+            chat_input_scroll: 0,
             chat_messages: Vec::new(),
             chat_streaming: false,
             chat_cancel: None,
@@ -855,7 +1078,7 @@ impl App {
             return;
         }
 
-        let (ref name, _, enabled) = settings.schedules[idx];
+        let (ref name, _, enabled, _) = settings.schedules[idx];
         let _ = aivyx_pa::settings::toggle_schedule_enabled(&state.config_path, name, !enabled);
         match aivyx_pa::settings::reload_settings_snapshot(&state.config_path) {
             Ok(s) => {
@@ -1165,6 +1388,8 @@ impl App {
             timestamp: chrono::Local::now().format("%H:%M").to_string(),
         });
         self.chat_input.clear();
+        self.chat_input_cursor = 0;
+        self.chat_input_scroll = 0;
         self.chat_streaming = true;
 
         // Add empty assistant message that we'll fill with streamed tokens
@@ -1883,8 +2108,29 @@ impl App {
             }
             // Card 2: Heartbeat — delegate to toggle
             (2, _) => self.settings_toggle_current(),
-            // Card 3: Schedules — toggle enabled/disabled
-            (3, _) => self.toggle_schedule(),
+            // Card 3: Schedules — open editor for selected schedule
+            (3, idx) => {
+                if idx < settings.schedules.len() {
+                    let (ref name, ref cron, _, ref prompt) = settings.schedules[idx];
+                    let prompt_lines: Vec<String> = prompt.lines().map(String::from).collect();
+                    let prompt_lines = if prompt_lines.is_empty() {
+                        vec![String::new()]
+                    } else {
+                        prompt_lines
+                    };
+                    self.settings_popup = Some(SettingsPopup::ScheduleEditor {
+                        editing: Some(name.clone()),
+                        name: name.clone(),
+                        cron_builder: CronBuilder::from_cron(cron),
+                        prompt: prompt_lines,
+                        prompt_cursor_row: 0,
+                        prompt_cursor_col: 0,
+                        notify: true,
+                        focused: 1,
+                        error: None,
+                    });
+                }
+            }
             // Card 4: Agent
             (4, 0) => {
                 self.settings_popup = Some(SettingsPopup::TextInput {
@@ -2361,6 +2607,31 @@ impl App {
                                     }
                                 }
                             }
+                            ConfirmAction::RemoveSchedule(name) => {
+                                let _ = aivyx_pa::settings::remove_schedule(
+                                    &config_path,
+                                    &name,
+                                );
+                                match aivyx_pa::settings::reload_settings_snapshot(&config_path) {
+                                    Ok(s) => {
+                                        self.settings = Some(s);
+                                        self.settings_error = None;
+                                    }
+                                    Err(e) => {
+                                        self.settings = None;
+                                        self.settings_error = Some(e);
+                                    }
+                                }
+                                // Reset selection so it doesn't point past the list
+                                let max = self
+                                    .settings
+                                    .as_ref()
+                                    .map(|s| s.schedules.len())
+                                    .unwrap_or(0);
+                                if self.settings_item_index >= max && max > 0 {
+                                    self.settings_item_index = max - 1;
+                                }
+                            }
                         }
                     }
                     KeyCode::Char('n') | KeyCode::Esc => {} // cancelled
@@ -2544,6 +2815,306 @@ impl App {
                             is_configured,
                         });
                     }
+                }
+            }
+            Some(SettingsPopup::ScheduleEditor {
+                editing,
+                mut name,
+                mut cron_builder,
+                mut prompt,
+                mut prompt_cursor_row,
+                mut prompt_cursor_col,
+                mut notify,
+                mut focused,
+                error: _,
+            }) => {
+                // Clear validation error on any keystroke
+                let mut error: Option<String> = None;
+
+                // Ctrl+S: save
+                let is_save = key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+                    && key.code == KeyCode::Char('s');
+
+                let cron = cron_builder.build_cron();
+
+                if key.code == KeyCode::Esc {
+                    // Close without saving
+                } else if is_save {
+                    // ── Validate ──────────────────────────────────
+                    if name.is_empty() || name.len() > 64 {
+                        error = Some("Name must be 1-64 characters".into());
+                    } else if !name
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                    {
+                        error = Some("Name: letters, numbers, hyphens, underscores only".into());
+                    } else if editing.is_none()
+                        && aivyx_pa::settings::schedule_exists(&config_path, &name)
+                    {
+                        error = Some(format!("Schedule '{}' already exists", name));
+                    } else if aivyx_config::schedule::validate_cron(&cron).is_err() {
+                        error = Some("Invalid cron expression".into());
+                    } else {
+                        let prompt_text = prompt.join("\n");
+                        if prompt_text.trim().is_empty() {
+                            error = Some("Prompt must not be empty".into());
+                        } else {
+                            // ── Save ─────────────────────────────────
+                            let result = if editing.is_some() {
+                                // Edit existing: update cron and prompt
+                                let r1 = aivyx_pa::settings::edit_schedule_field(
+                                    &config_path,
+                                    &name,
+                                    "cron",
+                                    &format!("\"{cron}\""),
+                                );
+                                let escaped = prompt_text
+                                    .replace('\\', "\\\\")
+                                    .replace('"', "\\\"");
+                                let r2 = aivyx_pa::settings::edit_schedule_field(
+                                    &config_path,
+                                    &name,
+                                    "prompt",
+                                    &format!("\"{escaped}\""),
+                                );
+                                r1.and(r2)
+                            } else {
+                                // Create new
+                                aivyx_pa::settings::append_schedule(
+                                    &config_path,
+                                    &name,
+                                    &cron,
+                                    &prompt_text,
+                                    notify,
+                                )
+                            };
+
+                            match result {
+                                Ok(()) => {
+                                    match aivyx_pa::settings::reload_settings_snapshot(
+                                        &config_path,
+                                    ) {
+                                        Ok(s) => {
+                                            self.settings = Some(s);
+                                            self.settings_error = None;
+                                        }
+                                        Err(e) => {
+                                            self.settings = None;
+                                            self.settings_error = Some(e);
+                                        }
+                                    }
+                                    return; // close popup
+                                }
+                                Err(e) => {
+                                    error = Some(format!("Write failed: {e}"));
+                                }
+                            }
+                        }
+                    }
+
+                    // If we got here, there was a validation error — keep popup open
+                    self.settings_popup = Some(SettingsPopup::ScheduleEditor {
+                        editing,
+                        name,
+                        cron_builder,
+                        prompt,
+                        prompt_cursor_row,
+                        prompt_cursor_col,
+                        notify,
+                        focused,
+                        error,
+                    });
+                } else {
+                    // ── Field navigation & input ─────────────────
+                    match key.code {
+                        KeyCode::Tab => {
+                            if focused == 1 {
+                                // Reset sub-focus when leaving the schedule builder
+                                cron_builder.sub_focus = 0;
+                            }
+                            focused = (focused + 1) % 4;
+                        }
+                        KeyCode::BackTab => {
+                            focused = (focused + 3) % 4;
+                            if focused == 1 {
+                                cron_builder.sub_focus = 0;
+                            }
+                        }
+                        _ => match focused {
+                            // Name field (0)
+                            0 => {
+                                if editing.is_some() {
+                                    // Name is read-only when editing
+                                } else {
+                                    match key.code {
+                                        KeyCode::Char(c) => name.push(c),
+                                        KeyCode::Backspace => { name.pop(); }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            // Schedule builder (1)
+                            1 => {
+                                let sf = cron_builder.sub_focus;
+                                let sf_count = cron_builder.sub_field_count();
+                                match key.code {
+                                    KeyCode::Up => {
+                                        if sf > 0 {
+                                            cron_builder.sub_focus -= 1;
+                                        }
+                                    }
+                                    KeyCode::Down => {
+                                        if sf + 1 < sf_count {
+                                            cron_builder.sub_focus += 1;
+                                        }
+                                    }
+                                    KeyCode::Left | KeyCode::Right => {
+                                        let delta: i8 = if key.code == KeyCode::Left { -1 } else { 1 };
+                                        match (cron_builder.mode, sf) {
+                                            // Sub-field 0: mode selector (all modes)
+                                            (_, 0) => {
+                                                let total = CRON_MODES.len();
+                                                cron_builder.mode = ((cron_builder.mode as isize + delta as isize + total as isize) % total as isize) as usize;
+                                                // Clamp sub_focus to new mode's field count
+                                                let new_count = cron_builder.sub_field_count();
+                                                if cron_builder.sub_focus >= new_count {
+                                                    cron_builder.sub_focus = new_count - 1;
+                                                }
+                                            }
+                                            // EveryNMin: sf=1 → interval
+                                            (0, 1) => {
+                                                let total = CRON_INTERVALS.len();
+                                                cron_builder.interval_idx = ((cron_builder.interval_idx as isize + delta as isize + total as isize) % total as isize) as usize;
+                                            }
+                                            // Hourly: sf=1 → minute
+                                            (1, 1) => {
+                                                cron_builder.minute = ((cron_builder.minute as i16 + (delta as i16 * 5) + 60) % 60) as u8;
+                                            }
+                                            // Daily/Weekdays: sf=1 → hour, sf=2 → minute
+                                            (2 | 3, 1) => {
+                                                cron_builder.hour = ((cron_builder.hour as i16 + delta as i16 + 24) % 24) as u8;
+                                            }
+                                            (2 | 3, 2) => {
+                                                cron_builder.minute = ((cron_builder.minute as i16 + (delta as i16 * 5) + 60) % 60) as u8;
+                                            }
+                                            // Weekly: sf=1 → weekday, sf=2 → hour, sf=3 → minute
+                                            (4, 1) => {
+                                                cron_builder.weekday = ((cron_builder.weekday as i16 + delta as i16 + 7) % 7) as u8;
+                                            }
+                                            (4, 2) => {
+                                                cron_builder.hour = ((cron_builder.hour as i16 + delta as i16 + 24) % 24) as u8;
+                                            }
+                                            (4, 3) => {
+                                                cron_builder.minute = ((cron_builder.minute as i16 + (delta as i16 * 5) + 60) % 60) as u8;
+                                            }
+                                            // Monthly: sf=1 → day, sf=2 → hour, sf=3 → minute
+                                            (5, 1) => {
+                                                cron_builder.month_day = ((cron_builder.month_day as i16 - 1 + delta as i16 + 28) % 28 + 1) as u8;
+                                            }
+                                            (5, 2) => {
+                                                cron_builder.hour = ((cron_builder.hour as i16 + delta as i16 + 24) % 24) as u8;
+                                            }
+                                            (5, 3) => {
+                                                cron_builder.minute = ((cron_builder.minute as i16 + (delta as i16 * 5) + 60) % 60) as u8;
+                                            }
+                                            // Custom: no Left/Right adjustment
+                                            _ => {}
+                                        }
+                                    }
+                                    // Custom mode typing
+                                    KeyCode::Char(c) if cron_builder.mode == 6 && sf == 1 => {
+                                        cron_builder.custom.push(c);
+                                    }
+                                    KeyCode::Backspace if cron_builder.mode == 6 && sf == 1 => {
+                                        cron_builder.custom.pop();
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            // Prompt field (2) — multi-line
+                            2 => match key.code {
+                                KeyCode::Char(c) => {
+                                    if prompt_cursor_row < prompt.len() {
+                                        let col = prompt_cursor_col.min(prompt[prompt_cursor_row].len());
+                                        prompt[prompt_cursor_row].insert(col, c);
+                                        prompt_cursor_col = col + 1;
+                                    }
+                                }
+                                KeyCode::Backspace => {
+                                    if prompt_cursor_col > 0 && prompt_cursor_row < prompt.len() {
+                                        let col = prompt_cursor_col.min(prompt[prompt_cursor_row].len());
+                                        if col > 0 {
+                                            prompt[prompt_cursor_row].remove(col - 1);
+                                            prompt_cursor_col = col - 1;
+                                        }
+                                    } else if prompt_cursor_col == 0 && prompt_cursor_row > 0 {
+                                        // Merge with previous line
+                                        let current = prompt.remove(prompt_cursor_row);
+                                        prompt_cursor_row -= 1;
+                                        prompt_cursor_col = prompt[prompt_cursor_row].len();
+                                        prompt[prompt_cursor_row].push_str(&current);
+                                    }
+                                }
+                                KeyCode::Enter => {
+                                    if prompt_cursor_row < prompt.len() {
+                                        let col = prompt_cursor_col.min(prompt[prompt_cursor_row].len());
+                                        let rest = prompt[prompt_cursor_row][col..].to_string();
+                                        prompt[prompt_cursor_row].truncate(col);
+                                        prompt.insert(prompt_cursor_row + 1, rest);
+                                        prompt_cursor_row += 1;
+                                        prompt_cursor_col = 0;
+                                    }
+                                }
+                                KeyCode::Up => {
+                                    if prompt_cursor_row > 0 {
+                                        prompt_cursor_row -= 1;
+                                        prompt_cursor_col = prompt_cursor_col
+                                            .min(prompt[prompt_cursor_row].len());
+                                    }
+                                }
+                                KeyCode::Down => {
+                                    if prompt_cursor_row + 1 < prompt.len() {
+                                        prompt_cursor_row += 1;
+                                        prompt_cursor_col = prompt_cursor_col
+                                            .min(prompt[prompt_cursor_row].len());
+                                    }
+                                }
+                                KeyCode::Left => {
+                                    if prompt_cursor_col > 0 {
+                                        prompt_cursor_col -= 1;
+                                    }
+                                }
+                                KeyCode::Right => {
+                                    if prompt_cursor_row < prompt.len()
+                                        && prompt_cursor_col < prompt[prompt_cursor_row].len()
+                                    {
+                                        prompt_cursor_col += 1;
+                                    }
+                                }
+                                _ => {}
+                            },
+                            // Notify toggle (3)
+                            3 => match key.code {
+                                KeyCode::Char(' ') | KeyCode::Enter => {
+                                    notify = !notify;
+                                }
+                                _ => {}
+                            },
+                            _ => {}
+                        },
+                    }
+
+                    self.settings_popup = Some(SettingsPopup::ScheduleEditor {
+                        editing,
+                        name,
+                        cron_builder,
+                        prompt,
+                        prompt_cursor_row,
+                        prompt_cursor_col,
+                        notify,
+                        focused,
+                        error,
+                    });
                 }
             }
             None => {}
@@ -2743,6 +3314,7 @@ impl App {
 
         if let Some(text) = text_to_send {
             self.chat_input = text;
+            self.chat_input_cursor = self.chat_input.chars().count();
             self.send_chat_message();
         }
     }

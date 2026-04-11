@@ -1133,6 +1133,16 @@ pub struct PaConfig {
     /// Environment configuration — describes the deployment context.
     /// `None` if `[environment]` section is missing — no environment prompt injected.
     pub environment: Option<PaEnvironmentConfig>,
+
+    /// HTTP API server settings — currently the listening port.
+    ///
+    /// `None` if `[server]` section is missing — the built-in default
+    /// (port 3100) is used. Exists primarily so each profile in a multi-agent
+    /// deployment can persist its own port assignment and avoid collisions
+    /// on `127.0.0.1`. The bind address remains hardcoded to `127.0.0.1`
+    /// for now; exposing a `bind` field is deliberately deferred because
+    /// non-loopback binding needs its own security review.
+    pub server: Option<PaServerConfig>,
 }
 
 /// Agent identity, persona, and behavior settings.
@@ -2360,6 +2370,7 @@ impl PaConfig {
             "initial_goals",
             "mcp_servers",
             "providers",
+            "server",
         ];
 
         // Check for unknown top-level keys (likely typos).
@@ -2828,6 +2839,46 @@ impl Default for PaEnvironmentConfig {
     }
 }
 
+/// HTTP API server configuration.
+///
+/// ```toml
+/// [server]
+/// port = 3101
+/// ```
+///
+/// Only the listening port is configurable today. The bind address stays
+/// hardcoded at `127.0.0.1` (see `api.rs`) because exposing non-loopback
+/// binding has security implications that warrant a separate review. When
+/// that lands it will be added as `bind = "..."` here.
+///
+/// The primary driver for this section is multi-agent deployments: each
+/// profile under `~/.aivyx/profiles/<name>/` can pin its own port so the
+/// user doesn't have to remember `--port` on every invocation.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PaServerConfig {
+    /// Port to bind the HTTP API server on. `None` falls back to the
+    /// built-in default (currently 3100).
+    pub port: Option<u16>,
+}
+
+/// The hardcoded fallback port when neither the CLI flag nor `[server].port`
+/// is specified. Centralised here so the CLI help text and the resolution
+/// logic can't drift apart.
+pub const DEFAULT_API_PORT: u16 = 3100;
+
+impl PaServerConfig {
+    /// Resolve the effective listening port using the three-tier fallback:
+    /// explicit CLI flag → `[server].port` in config.toml → built-in default.
+    ///
+    /// Kept as an associated function on `PaServerConfig` (rather than a
+    /// free function in `main.rs`) so it can be unit-tested in isolation
+    /// and so any future rules — e.g. port ranges, validation — live with
+    /// the struct they concern.
+    pub fn resolve_port(&self, cli_override: Option<u16>) -> u16 {
+        cli_override.or(self.port).unwrap_or(DEFAULT_API_PORT)
+    }
+}
+
 // ── Onboarding ─────────────────────────────────────────────────
 
 /// Generate the agent's first-launch onboarding message.
@@ -2959,6 +3010,48 @@ pub fn onboarding_message(agent_name: &str, persona: &str, pa_config: &PaConfig)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn server_port_resolution_follows_three_tiers() {
+        // Tier 1: explicit CLI flag wins over everything.
+        let with_config = PaServerConfig { port: Some(4000) };
+        assert_eq!(with_config.resolve_port(Some(5000)), 5000);
+
+        // Tier 2: no CLI flag → config value is used.
+        assert_eq!(with_config.resolve_port(None), 4000);
+
+        // Tier 3: neither present → built-in default.
+        let empty = PaServerConfig::default();
+        assert_eq!(empty.resolve_port(None), DEFAULT_API_PORT);
+        assert_eq!(DEFAULT_API_PORT, 3100); // guard against silent default drift
+
+        // CLI flag still wins when config is empty.
+        assert_eq!(empty.resolve_port(Some(9999)), 9999);
+    }
+
+    #[test]
+    fn server_section_parses_from_toml() {
+        // A profile's config.toml should be able to pin its own port
+        // via the [server] table; omitting the table stays optional.
+        let with_section: PaConfig = toml::from_str(
+            r#"
+            [server]
+            port = 3101
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            with_section.server.and_then(|s| s.port),
+            Some(3101),
+            "[server].port should round-trip through deserialization"
+        );
+
+        let without_section: PaConfig = toml::from_str("").unwrap();
+        assert!(
+            without_section.server.is_none(),
+            "missing [server] table should leave the field as None"
+        );
+    }
 
     #[test]
     fn defaults_when_empty() {

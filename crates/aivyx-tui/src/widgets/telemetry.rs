@@ -31,28 +31,33 @@ impl Widget for TelemetrySidebar<'_> {
         block.render(area, buf);
 
         let mut y = inner.y;
-        let w = inner.width.saturating_sub(2) as usize;
+        let padding = 3;
+        let w = inner.width.saturating_sub(6) as usize; // Double the padding for width inset
+        
+        y += 1; // Top margin
 
         // Title
-        let title = Line::from(Span::styled(
-            "SYSTEM TELEMETRY",
-            theme::muted().add_modifier(Modifier::BOLD),
-        ));
-        buf.set_line(inner.x + 2, y, &title, inner.width - 2);
+        let title = Line::from(vec![
+            Span::styled("[ ", theme::dim()),
+            Span::styled("SYSTEM TELEMETRY", theme::muted().add_modifier(Modifier::BOLD)),
+            Span::styled(" ]", theme::dim()),
+        ]);
+        buf.set_line(inner.x + padding, y, &title, inner.width.saturating_sub(padding));
         y += 2;
 
         // ── Provider ───────────────────────────────────────────
-        render_label_value(buf, inner.x + 2, y, w, "PROVIDER", &self.app.provider_label);
+        render_label_value(buf, inner.x + padding, y, w, "PROVIDER", &self.app.provider_label);
         y += 1;
-        render_label_value(buf, inner.x + 2, y, w, "MODEL", &self.app.model_name);
+        render_label_value(buf, inner.x + padding, y, w, "MODEL", &self.app.model_name);
         y += 2;
 
         // ── Token Usage ────────────────────────────────────────
-        let section = Line::from(Span::styled(
-            "TOKEN USAGE",
-            theme::muted().add_modifier(Modifier::BOLD),
-        ));
-        buf.set_line(inner.x + 2, y, &section, inner.width - 2);
+        let section = Line::from(vec![
+            Span::styled("[ ", theme::dim()),
+            Span::styled("TOKEN USAGE", theme::muted().add_modifier(Modifier::BOLD)),
+            Span::styled(" ]", theme::dim()),
+        ]);
+        buf.set_line(inner.x + padding, y, &section, inner.width.saturating_sub(padding));
         y += 1;
 
         let input_str = format_tokens(self.app.chat_input_tokens);
@@ -62,42 +67,42 @@ impl Widget for TelemetrySidebar<'_> {
 
         render_label_value(
             buf,
-            inner.x + 2,
+            inner.x + padding,
             y,
             w,
             "INPUT",
-            &format!("{input_str} tokens"),
+            &format!("{input_str} TOKENS"),
         );
         y += 1;
         render_label_value(
             buf,
-            inner.x + 2,
+            inner.x + padding,
             y,
             w,
             "OUTPUT",
-            &format!("{output_str} tokens"),
+            &format!("{output_str} TOKENS"),
         );
         y += 1;
-        render_label_value(buf, inner.x + 2, y, w, "TOTAL", &total_str);
+        render_label_value(buf, inner.x + padding, y, w, "TOTAL", &total_str);
         y += 1;
 
         // Token bar
         if y < inner.y + inner.height && total > 0 {
-            let bar_w = w.saturating_sub(2).min(24);
+            let bar_w = w.max(5).min(25); // Set reliable min and cap bounds
             let input_ratio = self.app.chat_input_tokens as f64 / total as f64;
             let input_bars = (input_ratio * bar_w as f64).round() as usize;
-            let output_bars = bar_w - input_bars;
+            let output_bars = bar_w.saturating_sub(input_bars);
             let bar_line = Line::from(vec![
                 Span::styled("█".repeat(input_bars), theme::primary()),
                 Span::styled("█".repeat(output_bars), theme::secondary()),
             ]);
-            buf.set_line(inner.x + 2, y, &bar_line, inner.width - 2);
+            buf.set_line(inner.x + padding, y, &bar_line, inner.width.saturating_sub(padding));
             y += 1;
             let legend = Line::from(vec![
-                Span::styled("█ input  ", theme::primary()),
-                Span::styled("█ output", theme::secondary()),
+                Span::styled("■ IN  ", theme::primary()),
+                Span::styled("■ OUT", theme::secondary()),
             ]);
-            buf.set_line(inner.x + 2, y, &legend, inner.width - 2);
+            buf.set_line(inner.x + padding, y, &legend, inner.width.saturating_sub(padding));
         }
         y += 2;
 
@@ -108,11 +113,11 @@ impl Widget for TelemetrySidebar<'_> {
             } else {
                 format!("${:.2}", self.app.chat_cost_usd)
             };
-            render_label_value(buf, inner.x + 2, y, w, "SESSION COST", &cost);
+            render_label_value(buf, inner.x + padding, y, w, "SESSION COST", &cost);
             y += 1;
 
             let msgs = self.app.chat_context_window;
-            render_label_value(buf, inner.x + 2, y, w, "MESSAGES", &format!("{msgs}"));
+            render_label_value(buf, inner.x + padding, y, w, "MESSAGES", &format!("{msgs}"));
             y += 2;
         }
 
@@ -120,16 +125,17 @@ impl Widget for TelemetrySidebar<'_> {
         if y < inner.y + inner.height
             && (self.app.turn_tool_calls > 0 || !self.app.turn_tool_log.is_empty())
         {
-            let section = Line::from(Span::styled(
-                "LAST TURN",
-                theme::muted().add_modifier(Modifier::BOLD),
-            ));
-            buf.set_line(inner.x + 2, y, &section, inner.width - 2);
+            let section = Line::from(vec![
+                Span::styled("[ ", theme::dim()),
+                Span::styled("LAST TURN", theme::muted().add_modifier(Modifier::BOLD)),
+                Span::styled(" ]", theme::dim()),
+            ]);
+            buf.set_line(inner.x + padding, y, &section, inner.width.saturating_sub(padding));
             y += 1;
 
             render_label_value(
                 buf,
-                inner.x + 2,
+                inner.x + padding,
                 y,
                 w,
                 "TOOL CALLS",
@@ -138,7 +144,7 @@ impl Widget for TelemetrySidebar<'_> {
             y += 1;
 
             let turn_tok = format_tokens(self.app.turn_total_tokens);
-            render_label_value(buf, inner.x + 2, y, w, "TURN TOKENS", &turn_tok);
+            render_label_value(buf, inner.x + padding, y, w, "TURN TOKENS", &turn_tok);
             y += 1;
 
             // Mini tool log (most recent 5)
@@ -165,7 +171,7 @@ impl Widget for TelemetrySidebar<'_> {
                     entry.tool_name.clone()
                 };
                 let tool_line = Line::from(Span::styled(format!("  {icon} {name}{ms_str}"), style));
-                buf.set_line(inner.x + 2, y, &tool_line, inner.width - 2);
+                buf.set_line(inner.x + padding, y, &tool_line, inner.width.saturating_sub(padding));
                 y += 1;
             }
             y += 1;
@@ -173,11 +179,12 @@ impl Widget for TelemetrySidebar<'_> {
 
         // ── Heartbeat ──────────────────────────────────────────
         if y < inner.y + inner.height {
-            let section = Line::from(Span::styled(
-                "HEARTBEAT",
-                theme::muted().add_modifier(Modifier::BOLD),
-            ));
-            buf.set_line(inner.x + 2, y, &section, inner.width - 2);
+            let section = Line::from(vec![
+                Span::styled("[ ", theme::dim()),
+                Span::styled("HEARTBEAT", theme::muted().add_modifier(Modifier::BOLD)),
+                Span::styled(" ]", theme::dim()),
+            ]);
+            buf.set_line(inner.x + padding, y, &section, inner.width.saturating_sub(padding));
             y += 1;
 
             let hb_enabled = self
@@ -186,27 +193,27 @@ impl Widget for TelemetrySidebar<'_> {
                 .as_ref()
                 .map(|s| s.heartbeat_enabled)
                 .unwrap_or(false);
-            let status = if hb_enabled { "Active" } else { "Disabled" };
+            let status = if hb_enabled { "ACTIVE" } else { "DISABLED" };
             let status_style = if hb_enabled {
                 theme::sage()
             } else {
                 theme::dim()
             };
             let status_line = Line::from(vec![
-                Span::styled(format!("{:<15}", "STATUS"), theme::dim()),
+                Span::styled(format!("{:<15}", "STATUS"), theme::muted()),
                 Span::styled(status, status_style),
             ]);
-            buf.set_line(inner.x + 2, y, &status_line, inner.width - 2);
+            buf.set_line(inner.x + padding, y, &status_line, inner.width.saturating_sub(padding));
             y += 1;
 
             if hb_enabled {
                 render_label_value(
                     buf,
-                    inner.x + 2,
+                    inner.x + padding,
                     y,
                     w,
                     "INTERVAL",
-                    &format!("{}min", self.app.heartbeat_interval),
+                    &format!("{} MIN", self.app.heartbeat_interval),
                 );
             }
         }
@@ -216,8 +223,8 @@ impl Widget for TelemetrySidebar<'_> {
 /// Render a left-aligned label with a right-aligned value.
 fn render_label_value(buf: &mut Buffer, x: u16, y: u16, width: usize, label: &str, value: &str) {
     let line = Line::from(vec![
-        Span::styled(format!("{:<15}", label), theme::dim()),
-        Span::styled(value, theme::primary_bold()),
+        Span::styled(format!("{:<15}", label), theme::muted()),
+        Span::styled(value, theme::text()),
     ]);
     buf.set_line(x, y, &line, width as u16);
 }

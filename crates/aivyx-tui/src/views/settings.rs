@@ -9,7 +9,7 @@
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Rect},
-    style::Style,
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Widget},
 };
@@ -285,70 +285,123 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     );
 
     // ── Schedules (left, card 3) ─────────────────────────────
-    if !settings.schedules.is_empty() && ly + 4 < left_col.y + left_col.height {
-        let height = (settings.schedules.len() as u16 + 2).min(10);
-        ly = render_card(
-            "Schedules",
-            left_col.x,
-            ly,
-            left_col.width,
-            height,
-            ci == 3,
-            buf,
-            |inner, buf| {
-                let now = chrono::Utc::now();
-                for (i, (name, cron_expr, enabled)) in settings.schedules.iter().enumerate() {
-                    if i as u16 >= inner.height {
-                        break;
+    {
+        let sched_count = settings.schedules.len();
+        // Always show the card — even when empty, to allow creation
+        let base_rows = if sched_count == 0 { 1 } else { sched_count as u16 };
+        // Extra row for prompt preview if a schedule is selected
+        let has_preview = ci == 3
+            && sched_count > 0
+            && app.settings_item_index < sched_count;
+        let height = (base_rows + if has_preview { 1 } else { 0 } + 2).min(12);
+        if ly + 4 < left_col.y + left_col.height {
+            ly = render_card(
+                "Schedules",
+                left_col.x,
+                ly,
+                left_col.width,
+                height,
+                ci == 3,
+                buf,
+                |inner, buf| {
+                    if sched_count == 0 {
+                        let line = Line::from(Span::styled(
+                            "  (none) — press N to create",
+                            theme::dim(),
+                        ));
+                        buf.set_line(inner.x + 1, inner.y, &line, inner.width - 2);
+                        return;
                     }
-                    let is_sel = ci == 3 && app.settings_item_index == i;
-                    let marker = if *enabled { "●" } else { "○" };
-                    let marker_style = if *enabled {
-                        theme::sage()
-                    } else {
-                        theme::dim()
-                    };
-                    let name_style = if is_sel {
-                        theme::highlight()
-                    } else {
-                        theme::text()
-                    };
+                    let now = chrono::Utc::now();
+                    for (i, (name, cron_expr, enabled, _prompt)) in
+                        settings.schedules.iter().enumerate()
+                    {
+                        if i as u16 >= inner.height.saturating_sub(if has_preview { 1 } else { 0 })
+                        {
+                            break;
+                        }
+                        let is_sel = ci == 3 && app.settings_item_index == i;
+                        let marker = if *enabled { "●" } else { "○" };
+                        let marker_style = if *enabled {
+                            theme::sage()
+                        } else {
+                            theme::dim()
+                        };
+                        let name_style = if is_sel {
+                            theme::highlight()
+                        } else {
+                            theme::text()
+                        };
 
-                    let next_fire = if *enabled {
-                        croner::Cron::new(cron_expr)
-                            .parse()
-                            .ok()
-                            .and_then(|c| c.find_next_occurrence(&now, false).ok())
-                            .map(|t| {
-                                let local = t.with_timezone(&chrono::Local);
-                                if (t - now).num_hours() < 24 {
-                                    format!("→ {}", local.format("%H:%M"))
+                        let next_fire = if *enabled {
+                            croner::Cron::new(cron_expr)
+                                .parse()
+                                .ok()
+                                .and_then(|c| c.find_next_occurrence(&now, false).ok())
+                                .map(|t| {
+                                    let local = t.with_timezone(&chrono::Local);
+                                    if (t - now).num_hours() < 24 {
+                                        format!("→ {}", local.format("%H:%M"))
+                                    } else {
+                                        format!("→ {}", local.format("%a %H:%M"))
+                                    }
+                                })
+                                .unwrap_or_default()
+                        } else {
+                            "(disabled)".into()
+                        };
+
+                        let line = Line::from(vec![
+                            Span::styled(format!("{marker} "), marker_style),
+                            Span::styled(name, name_style),
+                            Span::styled(format!("  {cron_expr}  "), theme::dim()),
+                            Span::styled(
+                                next_fire,
+                                if *enabled {
+                                    theme::muted()
                                 } else {
-                                    format!("→ {}", local.format("%a %H:%M"))
-                                }
-                            })
-                            .unwrap_or_default()
-                    } else {
-                        "(disabled)".into()
-                    };
+                                    theme::dim()
+                                },
+                            ),
+                        ]);
+                        buf.set_line(inner.x + 1, inner.y + i as u16, &line, inner.width - 2);
+                    }
 
-                    let line = Line::from(vec![
-                        Span::styled(format!("{marker} "), marker_style),
-                        Span::styled(name, name_style),
-                        Span::styled(format!("  {cron_expr}  "), theme::dim()),
-                        Span::styled(
-                            next_fire,
-                            if *enabled {
-                                theme::muted()
-                            } else {
-                                theme::dim()
-                            },
-                        ),
-                    ]);
-                    buf.set_line(inner.x + 1, inner.y + i as u16, &line, inner.width - 2);
-                }
-            },
-        );
+                    // Prompt preview for selected schedule
+                    if has_preview {
+                        let idx = app.settings_item_index;
+                        let prompt = &settings.schedules[idx].3;
+                        let max_chars = (inner.width as usize).saturating_sub(8);
+                        let truncated: String = prompt
+                            .chars()
+                            .take_while(|c| *c != '\n')
+                            .take(max_chars)
+                            .collect();
+                        let suffix = if prompt.len() > truncated.len() {
+                            "…"
+                        } else {
+                            ""
+                        };
+                        let preview_row = sched_count as u16;
+                        if preview_row < inner.height {
+                            let line = Line::from(vec![
+                                Span::styled("  ▸ ", theme::primary()),
+                                Span::styled(
+                                    format!("{truncated}{suffix}"),
+                                    theme::dim(),
+                                ),
+                            ]);
+                            buf.set_line(
+                                inner.x + 1,
+                                inner.y + preview_row,
+                                &line,
+                                inner.width - 2,
+                            );
+                        }
+                    }
+                },
+            );
+        }
     }
 
     // ── Agent (right, card 4) ────────────────────────────────
@@ -763,10 +816,15 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                 "[ TAB: NEXT ]  [ ENTER: SAVE ]  [ ESC: CANCEL ]"
             }
             Some(SettingsPopup::Confirm { .. }) => "[ Y: AFFIRMATIVE ]  [ N/ESC: ABORT ]",
+            Some(SettingsPopup::ScheduleEditor { .. }) => {
+                "[ TAB: NEXT ]  [ CTRL+S: SAVE ]  [ ESC: CANCEL ]"
+            }
             _ => "[ ENTER: CONFIRM ]  [ ESC: CANCEL ]",
         }
     } else if !content_focused {
         "[ TAB/\u{2192}: EDIT CARDS ]  [ \u{2191}\u{2193}: SIDEBAR ]"
+    } else if ci == 3 {
+        "[ ENTER: EDIT ]  [ SPACE: TOGGLE ]  [ N: NEW ]  [ D: DELETE ]"
     } else if ci == 5 && app.settings_item_count(5) > 0 {
         "[ ENTER: SETUP ]  [ D: REMOVE ]  [ \u{2191}\u{2193}: NAVIGATE ]"
     } else if ci == 9 && app.settings_item_count(9) > 0 {
@@ -1059,6 +1117,266 @@ fn render_popup(popup: &SettingsPopup, frame_count: u64, area: Rect, buf: &mut B
                     Span::styled(val_display, val_style),
                 ]);
                 buf.set_line(inner.x + 1, inner.y + i as u16, &line, inner.width - 2);
+            }
+        }
+        SettingsPopup::ScheduleEditor {
+            editing,
+            name,
+            cron_builder,
+            prompt,
+            prompt_cursor_row,
+            prompt_cursor_col,
+            notify,
+            focused,
+            error,
+        } => {
+            // Calculate dynamic height based on mode sub-fields
+            let builder_rows = cron_builder.sub_field_count() as u16 + 1; // +1 for the cron preview
+            let prompt_rows = prompt.len().min(6) as u16;
+            let h = 6 + builder_rows + prompt_rows + if error.is_some() { 1 } else { 0 };
+            let w = 60u16.min(area.width.saturating_sub(4));
+            let rect = centered_rect(w, h, area);
+            Clear.render(rect, buf);
+
+            let title_text = if editing.is_some() {
+                "[ EDIT SCHEDULE ]"
+            } else {
+                "[ CREATE SCHEDULE ]"
+            };
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Plain)
+                .border_style(theme::primary())
+                .title(Line::from(Span::styled(title_text, theme::primary_bold())));
+            let inner = block.inner(rect);
+            block.render(rect, buf);
+
+            let mut row = 0u16;
+            let cron_focused = *focused == 1;
+            let sf = cron_builder.sub_focus;
+
+            // Helper: render a single sub-field with optional arrows
+            macro_rules! render_sub_field {
+                ($label:expr, $value:expr, $sub_idx:expr) => {{
+                    if row >= inner.height { return; }
+                    let is_sf_focused = cron_focused && sf == $sub_idx;
+                    let label_style = if is_sf_focused {
+                        theme::highlight()
+                    } else if cron_focused {
+                        theme::text()
+                    } else {
+                        theme::muted()
+                    };
+                    let val_style = if is_sf_focused {
+                        Style::default()
+                            .fg(theme::PRIMARY)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        theme::text_bold()
+                    };
+                    let line = if is_sf_focused {
+                        Line::from(vec![
+                            Span::styled(format!("  {:<8}", $label), label_style),
+                            Span::styled("\u{25c4} ", theme::primary()),
+                            Span::styled($value.to_string(), val_style),
+                            Span::styled(" \u{25ba}", theme::primary()),
+                        ])
+                    } else {
+                        Line::from(vec![
+                            Span::styled(format!("  {:<8}", $label), label_style),
+                            Span::styled($value.to_string(), val_style),
+                        ])
+                    };
+                    buf.set_line(inner.x, inner.y + row, &line, inner.width);
+                    row += 1;
+                }};
+            }
+
+            // -- NAME field --
+            let name_focused = *focused == 0;
+            let name_label_style = if name_focused {
+                theme::highlight()
+            } else {
+                theme::muted()
+            };
+            let name_suffix = if editing.is_some() { " (read-only)" } else { "" };
+            let label = Line::from(Span::styled(
+                format!("  NAME{name_suffix}"),
+                name_label_style,
+            ));
+            buf.set_line(inner.x, inner.y + row, &label, inner.width);
+            row += 1;
+
+            let name_display = if name_focused {
+                format!("  [ {name}{cursor_char} ]")
+            } else {
+                format!("  [ {name} ]")
+            };
+            let name_style = if editing.is_some() && name_focused {
+                theme::dim()
+            } else {
+                theme::text_bold()
+            };
+            let line = Line::from(vec![Span::styled(name_display, name_style)]);
+            buf.set_line(inner.x, inner.y + row, &line, inner.width);
+            row += 1;
+
+            // -- SCHEDULE builder --
+            let sched_label_style = if cron_focused {
+                theme::highlight()
+            } else {
+                theme::muted()
+            };
+            let label = Line::from(Span::styled("  SCHEDULE", sched_label_style));
+            buf.set_line(inner.x, inner.y + row, &label, inner.width);
+            row += 1;
+
+            // Sub-field 0: Mode selector (always present)
+            let mode_label = crate::app::CRON_MODES[cron_builder.mode];
+            render_sub_field!("TYPE", mode_label, 0);
+
+            // Mode-specific sub-fields
+            match cron_builder.mode {
+                0 => {
+                    let interval = crate::app::CRON_INTERVALS[cron_builder.interval_idx];
+                    render_sub_field!("EVERY", format!("{interval} min"), 1);
+                }
+                1 => {
+                    render_sub_field!("AT", format!(":{:02}", cron_builder.minute), 1);
+                }
+                2 => {
+                    render_sub_field!("HOUR", format!("{:02}", cron_builder.hour), 1);
+                    render_sub_field!("MIN", format!(":{:02}", cron_builder.minute), 2);
+                }
+                3 => {
+                    render_sub_field!("HOUR", format!("{:02}", cron_builder.hour), 1);
+                    render_sub_field!("MIN", format!(":{:02}", cron_builder.minute), 2);
+                }
+                4 => {
+                    let day_name = crate::app::WEEKDAY_NAMES[cron_builder.weekday as usize];
+                    render_sub_field!("DAY", day_name, 1);
+                    render_sub_field!("HOUR", format!("{:02}", cron_builder.hour), 2);
+                    render_sub_field!("MIN", format!(":{:02}", cron_builder.minute), 3);
+                }
+                5 => {
+                    render_sub_field!("DAY", format!("{}", cron_builder.month_day), 1);
+                    render_sub_field!("HOUR", format!("{:02}", cron_builder.hour), 2);
+                    render_sub_field!("MIN", format!(":{:02}", cron_builder.minute), 3);
+                }
+                6 => {
+                    if row < inner.height {
+                        let is_sf_focused = cron_focused && sf == 1;
+                        let label_style = if is_sf_focused {
+                            theme::highlight()
+                        } else {
+                            theme::muted()
+                        };
+                        let custom_display = if is_sf_focused {
+                            format!("{}{cursor_char}", cron_builder.custom)
+                        } else {
+                            cron_builder.custom.clone()
+                        };
+                        let line = Line::from(vec![
+                            Span::styled("  CRON    ", label_style),
+                            Span::styled(
+                                format!("[ {custom_display} ]"),
+                                theme::text_bold(),
+                            ),
+                        ]);
+                        buf.set_line(inner.x, inner.y + row, &line, inner.width);
+                        row += 1;
+                    }
+                }
+                _ => {}
+            }
+
+            // Cron preview line
+            if row < inner.height {
+                let cron_expr = cron_builder.build_cron();
+                let line = Line::from(vec![
+                    Span::styled("  \u{2192} ", theme::primary()),
+                    Span::styled(cron_expr, theme::dim()),
+                ]);
+                buf.set_line(inner.x, inner.y + row, &line, inner.width);
+                row += 1;
+            }
+
+            // -- PROMPT field (multi-line) --
+            let prompt_focused = *focused == 2;
+            let prompt_label_style = if prompt_focused {
+                theme::highlight()
+            } else {
+                theme::muted()
+            };
+            let label = Line::from(Span::styled("  PROMPT", prompt_label_style));
+            buf.set_line(inner.x, inner.y + row, &label, inner.width);
+            row += 1;
+
+            for (i, line_text) in prompt.iter().enumerate() {
+                if row >= inner.height.saturating_sub(3) {
+                    break;
+                }
+                let is_cursor_line = prompt_focused && i == *prompt_cursor_row;
+                if is_cursor_line && cursor_visible {
+                    let col = (*prompt_cursor_col).min(line_text.len());
+                    let (before, after) = (&line_text[..col], &line_text[col..]);
+                    let line = Line::from(vec![
+                        Span::styled("  ", theme::text()),
+                        Span::styled(before, theme::text()),
+                        Span::styled("\u{2588}", theme::primary()),
+                        Span::styled(after, theme::text()),
+                    ]);
+                    buf.set_line(inner.x, inner.y + row, &line, inner.width);
+                } else {
+                    let line = Line::from(vec![
+                        Span::styled("  ", theme::text()),
+                        Span::styled(line_text, theme::text()),
+                    ]);
+                    buf.set_line(inner.x, inner.y + row, &line, inner.width);
+                }
+                row += 1;
+            }
+
+            // -- NOTIFY toggle --
+            let notify_focused = *focused == 3;
+            let notify_label_style = if notify_focused {
+                theme::highlight()
+            } else {
+                theme::muted()
+            };
+            let notify_mark = if *notify { "[\u{25a0}]" } else { "[\u{25a1}]" };
+            let notify_mark_style = if *notify {
+                theme::sage()
+            } else {
+                theme::dim()
+            };
+            let line = Line::from(vec![
+                Span::styled("  ", theme::text()),
+                Span::styled("NOTIFY  ", notify_label_style),
+                Span::styled(notify_mark, notify_mark_style),
+            ]);
+            buf.set_line(inner.x, inner.y + row, &line, inner.width);
+            row += 1;
+
+            // -- Error message --
+            if let Some(err) = error {
+                let line = Line::from(vec![
+                    Span::styled("  \u{26a0} ", theme::warning()),
+                    Span::styled(err, theme::warning()),
+                ]);
+                buf.set_line(inner.x, inner.y + row, &line, inner.width);
+                row += 1;
+            }
+
+            // -- Hint bar --
+            if row < inner.height {
+                let hint_text = if cron_focused {
+                    "  [ \u{2191}\u{2193}: FIELD ]  [ \u{2190}\u{2192}: ADJUST ]  [ TAB: NEXT ]  [ CTRL+S: SAVE ]"
+                } else {
+                    "  [ TAB: NEXT ]  [ CTRL+S: SAVE ]  [ ESC: CANCEL ]"
+                };
+                let hint = Line::from(Span::styled(hint_text, theme::dim()));
+                buf.set_line(inner.x, inner.y + row, &hint, inner.width);
             }
         }
     }

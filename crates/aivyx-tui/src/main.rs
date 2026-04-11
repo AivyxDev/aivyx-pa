@@ -37,6 +37,104 @@ struct Cli {
     /// Also start the HTTP API server on this port
     #[arg(long)]
     port: Option<u16>,
+
+    /// Named profile to attach to (multi-agent deployments).
+    ///
+    /// When set, the TUI reads from `~/.aivyx/profiles/<name>/` instead of
+    /// the default `~/.aivyx/` root. Use this to point the TUI at a
+    /// specific agent when you are running several on the same host.
+    #[arg(long, env = "AIVYX_PROFILE")]
+    profile: Option<String>,
+}
+
+/// Resolve the `AivyxDirs` root for this invocation.
+///
+/// Mirrors `aivyx-pa::resolve_dirs`. Kept local to avoid re-exporting a
+/// trivial helper across the crate boundary.
+fn resolve_dirs(profile: Option<&str>) -> anyhow::Result<AivyxDirs> {
+    match profile {
+        Some(name) => Ok(AivyxDirs::from_profile(name)?),
+        None => Ok(AivyxDirs::from_default()?),
+    }
+}
+
+/// Print the post-Genesis "next steps" hint based on what the wizard
+/// actually did.
+///
+/// Three branches, in priority order:
+///
+/// 1. `service_install == Some(Ok(path))` — the wizard rendered and
+///    wrote a supervisor unit. Print the platform-specific command
+///    that actually starts it (which the wizard deliberately does
+///    *not* run itself, since enabling/loading services is the point
+///    at which an operator usually wants to eyeball output).
+/// 2. `service_install == Some(Err(msg))` — the wizard tried to
+///    write the unit and failed. Surface the error and fall through
+///    to the manual-install hint so the operator has a recovery
+///    path.
+/// 3. `service_install == None` — the wizard did not attempt service
+///    install (toggled off, unsupported platform, or default root).
+///    Print the manual install-service CLI hint only when the
+///    profile name makes it a sensible suggestion.
+fn print_post_genesis_hint(outcome: &views::genesis::GenesisOutcome) {
+    use aivyx_pa::profile::service_install::ResolvedServiceKind;
+
+    eprintln!();
+    eprintln!("Genesis complete.");
+
+    // Branch 1 + 2: a service install was attempted.
+    if let Some(ref install_result) = outcome.service_install {
+        match install_result {
+            Ok(path) => {
+                eprintln!("Supervisor unit written: {}", path.display());
+                // Follow-up enable/start command by platform.
+                match outcome.service_kind {
+                    Some(ResolvedServiceKind::Systemd) => {
+                        // Template unit → the profile name is the
+                        // systemd instance specifier.
+                        let instance = outcome
+                            .service_profile_name
+                            .as_deref()
+                            .unwrap_or("<profile>");
+                        eprintln!("To enable and start the user-level service:");
+                        eprintln!("    systemctl --user daemon-reload");
+                        eprintln!("    systemctl --user enable --now aivyx@{instance}.service");
+                    }
+                    Some(ResolvedServiceKind::Launchd) => {
+                        eprintln!("To load the LaunchAgent:");
+                        eprintln!("    launchctl load {}", path.display());
+                    }
+                    Some(ResolvedServiceKind::Windows) => {
+                        eprintln!("To register the service, run from an elevated PowerShell:");
+                        eprintln!("    {}", path.display());
+                    }
+                    None => {}
+                }
+            }
+            Err(msg) => {
+                eprintln!("Supervisor unit install failed: {msg}");
+                // Fall through to the manual-install hint as a
+                // recovery path.
+                if let Some(profile_name) = outcome.service_profile_name.as_deref() {
+                    eprintln!("You can retry from the CLI:");
+                    eprintln!("    aivyx profile install-service --name {profile_name}");
+                }
+            }
+        }
+        eprintln!();
+        return;
+    }
+
+    // Branch 3: install not attempted. Only suggest the CLI path if a
+    // profile name is available — for the default root, service install
+    // is genuinely not supported (no instance name), and a hint would
+    // just be wrong.
+    if let Some(profile_name) = outcome.service_profile_name.as_deref() {
+        eprintln!("To run this profile as a background service:");
+        eprintln!("    aivyx profile install-service --name {profile_name}");
+        eprintln!("(see `aivyx profile install-service --help` for platform options)");
+    }
+    eprintln!();
 }
 
 /// Read passphrase from terminal with echo suppressed.
@@ -59,13 +157,14 @@ fn read_passphrase(msg: &str) -> Zeroizing<String> {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    let dirs = AivyxDirs::from_default()?;
+    let dirs = resolve_dirs(cli.profile.as_deref())?;
 
     // Initialize logging to file (don't pollute the TUI)
     let _log_guard = init_logging(&dirs)?;
 
     // First launch — run Genesis wizard in the TUI before entering the main app.
-    // The wizard returns the passphrase so we don't re-prompt.
+    // The wizard returns the passphrase (and optional service-install
+    // outcome) so we don't re-prompt and can print an accurate hint.
     let genesis_passphrase = if !dirs.is_initialized() {
         enable_raw_mode()?;
         stdout().execute(EnterAlternateScreen)?;
@@ -77,7 +176,23 @@ async fn main() -> anyhow::Result<()> {
         stdout().execute(LeaveAlternateScreen)?;
 
         match result? {
-            Some(p) => Some(p),
+            Some(outcome) => {
+                // Post-finalize "next steps" hint — printed after the
+                // alternate screen is torn down so it stays in the
+                // scrollback instead of being clobbered by the main TUI.
+                //
+                // We branch on what the wizard actually did:
+                //   1. Service install succeeded → print the
+                //      enable/start command specific to this platform.
+                //   2. Service install failed     → print the failure
+                //      so the operator knows and can retry with the
+                //      CLI, and also print the manual-install command.
+                //   3. Service install skipped    → print the manual-
+                //      install command hint (matches the old Phase 2
+                //      hint we used to print unconditionally).
+                print_post_genesis_hint(&outcome);
+                Some(outcome.passphrase)
+            }
             None => {
                 eprintln!("Setup cancelled.");
                 std::process::exit(1);
@@ -505,11 +620,44 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
             }
         }
         match key.code {
-            KeyCode::Char(c) => app.chat_input.push(c),
-            KeyCode::Backspace => {
-                app.chat_input.pop();
+            KeyCode::Char(c) => {
+                if !app.chat_streaming {
+                    app.chat_input.insert(app.chat_input_cursor, c);
+                    app.chat_input_cursor += 1;
+                }
+            }
+            KeyCode::Enter if key.modifiers.contains(KeyModifiers::ALT) || key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if !app.chat_streaming {
+                    app.chat_input.insert(app.chat_input_cursor, '\n');
+                    app.chat_input_cursor += 1;
+                }
             }
             KeyCode::Enter => app.send_chat_message(),
+            KeyCode::Backspace => {
+                if app.chat_input_cursor > 0 {
+                    app.chat_input.remove(app.chat_input_cursor - 1);
+                    app.chat_input_cursor -= 1;
+                }
+            }
+            KeyCode::Delete => {
+                if app.chat_input_cursor < app.chat_input.chars().count() {
+                    app.chat_input.remove(app.chat_input_cursor);
+                }
+            }
+            KeyCode::Left => {
+                app.chat_input_cursor = app.chat_input_cursor.saturating_sub(1);
+            }
+            KeyCode::Right => {
+                if app.chat_input_cursor < app.chat_input.chars().count() {
+                    app.chat_input_cursor += 1;
+                }
+            }
+            KeyCode::Home => {
+                app.chat_input_cursor = 0;
+            }
+            KeyCode::End => {
+                app.chat_input_cursor = app.chat_input.chars().count();
+            }
             KeyCode::Up => {
                 app.chat_scroll = app.chat_scroll.saturating_add(1);
             }
@@ -785,6 +933,52 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                             }
                         }
                     }
+                }
+
+                // Settings: 'n' to create a new schedule
+                KeyCode::Char('n')
+                    if app.view == View::Settings
+                        && app.settings_card_index == 3
+                        && app.settings_popup.is_none() =>
+                {
+                    app.settings_popup = Some(crate::app::SettingsPopup::ScheduleEditor {
+                        editing: None,
+                        name: String::new(),
+                        cron_builder: crate::app::CronBuilder::default(),
+                        prompt: vec![String::new()],
+                        prompt_cursor_row: 0,
+                        prompt_cursor_col: 0,
+                        notify: true,
+                        focused: 0,
+                        error: None,
+                    });
+                }
+
+                // Settings: 'd' to delete a schedule
+                KeyCode::Char('d')
+                    if app.view == View::Settings
+                        && app.settings_card_index == 3
+                        && app.settings_popup.is_none() =>
+                {
+                    if let Some(ref settings) = app.settings {
+                        let idx = app.settings_item_index;
+                        if idx < settings.schedules.len() {
+                            let name = settings.schedules[idx].0.clone();
+                            app.settings_popup = Some(crate::app::SettingsPopup::Confirm {
+                                message: format!("Delete schedule \"{}\"?", name),
+                                action: crate::app::ConfirmAction::RemoveSchedule(name),
+                            });
+                        }
+                    }
+                }
+
+                // Settings: Space to toggle schedule enabled/disabled
+                KeyCode::Char(' ')
+                    if app.view == View::Settings
+                        && app.settings_card_index == 3
+                        && app.settings_popup.is_none() =>
+                {
+                    app.toggle_schedule();
                 }
 
                 // Settings: Left/Right to switch columns (or adjust persona/app access)

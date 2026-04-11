@@ -131,7 +131,7 @@ pub struct SettingsSnapshot {
     pub morning_briefing: bool,
     pub briefing_hour: u8,
     // Schedules
-    pub schedules: Vec<(String, String, bool)>, // (name, cron, enabled)
+    pub schedules: Vec<(String, String, bool, String)>, // (name, cron, enabled, prompt)
     // Integrations
     pub email_configured: bool,
     pub email_address: Option<String>,
@@ -1125,7 +1125,7 @@ pub fn reload_settings_snapshot(config_path: &Path) -> Result<SettingsSnapshot, 
         schedules: pa_config
             .schedules
             .iter()
-            .map(|s| (s.name.clone(), s.cron.clone(), s.enabled))
+            .map(|s| (s.name.clone(), s.cron.clone(), s.enabled, s.prompt.clone()))
             .collect(),
         email_configured: pa_config.email.is_some(),
         email_address: pa_config.email.as_ref().map(|e| e.address.clone()),

@@ -42,6 +42,19 @@ enum Step {
     Email = 5,
     Integrations = 6,
     Ignition = 7,
+    /// Optional 9th step: render and install a supervisor unit
+    /// (systemd / launchd / Windows SCM script) for this profile.
+    ///
+    /// This step runs *after* `Ignition` — meaning the config.toml,
+    /// master-key envelope, encrypted store, and optional passphrase
+    /// sidecar have all already been written by `finalize()`. We
+    /// deliberately keep service install as a second, separate phase
+    /// because it writes files *outside* `dirs.root()` (into
+    /// `~/.config/systemd/user/`, `~/Library/LaunchAgents/`, or the
+    /// profile root for Windows) — a qualitatively different blast
+    /// radius that should be able to fail without dragging the rest
+    /// of onboarding down with it.
+    BackgroundService = 8,
 }
 
 impl Step {
@@ -55,6 +68,7 @@ impl Step {
             Step::Email => "EML",
             Step::Integrations => "INT",
             Step::Ignition => "IGN",
+            Step::BackgroundService => "SVC",
         }
     }
 
@@ -68,6 +82,7 @@ impl Step {
             Step::Email => "// DIRECTIVE: BIND MAIL PROTOCOLS",
             Step::Integrations => "// DIRECTIVE: ATTACH SYNC PIPELINES",
             Step::Ignition => "// DIRECTIVE: INITIATE HEARTBEAT",
+            Step::BackgroundService => "// DIRECTIVE: REGISTER SUPERVISOR",
         }
     }
 
@@ -80,7 +95,8 @@ impl Step {
             Step::Schedule => Some(Step::Email),
             Step::Email => Some(Step::Integrations),
             Step::Integrations => Some(Step::Ignition),
-            Step::Ignition => None,
+            Step::Ignition => Some(Step::BackgroundService),
+            Step::BackgroundService => None,
         }
     }
 
@@ -94,6 +110,14 @@ impl Step {
             Step::Email => Some(Step::Schedule),
             Step::Integrations => Some(Step::Email),
             Step::Ignition => Some(Step::Integrations),
+            // NOTE: BackgroundService does *not* offer a "back to
+            // Ignition" arrow because finalize() has already run by the
+            // time we arrive here. Going back would mean undoing the
+            // disk writes, which we don't support. Esc from this step
+            // just skips service install and continues — we never want
+            // the operator to lose a completed genesis because they
+            // hit the wrong key on the final screen.
+            Step::BackgroundService => None,
         }
     }
 }
@@ -254,6 +278,40 @@ struct GenesisState {
 
     // Step 8: Ignition
     heartbeat_flags: [bool; 10],
+    /// Opt-in: write the passphrase into `<profile_root>/passphrase` with
+    /// mode 0600 so `aivyx profile install-service` can start the service
+    /// unattended. Off by default — storing the passphrase on disk is a
+    /// deliberate choice the operator must make, not something the wizard
+    /// should sneak past them.
+    write_passphrase_sidecar: bool,
+
+    // Step 9: Background Service
+    /// Resolved supervisor kind for this host (systemd / launchd /
+    /// Windows). `None` means we have no renderer for this platform,
+    /// in which case the Background Service step renders a
+    /// "not available on this platform" message and Enter is a no-op
+    /// continue.
+    service_kind: Option<aivyx_pa::profile::service_install::ResolvedServiceKind>,
+    /// Profile name used for the service instance. Extracted from
+    /// `dirs.root().file_name()` once at wizard-start. `None` when the
+    /// wizard is onboarding the legacy `~/.aivyx/` root — in that case
+    /// the BackgroundService step is a no-op because systemd's template
+    /// unit needs an instance name, and forging "default" would be a
+    /// lie (the CLI never accepts it).
+    service_profile_name: Option<String>,
+    /// Opt-in: render and install the supervisor unit on BackgroundService
+    /// step advance. Default-on when `service_kind` and
+    /// `service_profile_name` are both `Some`, so the common case (a
+    /// profile-scoped genesis on a supported platform) is one keystroke
+    /// away from a running service. Default-off otherwise.
+    install_service_on_advance: bool,
+    /// Status line shown on the BackgroundService step — populated by
+    /// [`perform_service_install`] after it runs so the operator sees
+    /// what happened before exiting the wizard. `None` before install
+    /// runs; `Some(Ok(path))` after a successful write; `Some(Err(msg))`
+    /// on failure (we never `return Err` from the step — the wizard
+    /// must still return the passphrase even if install failed).
+    service_install_outcome: Option<Result<std::path::PathBuf, String>>,
 
     // UI state
     focused_field: usize,
@@ -318,6 +376,11 @@ impl GenesisState {
             devtools_forge_token: Zeroizing::new(String::new()),
             desktop_deep_interaction: false,
             heartbeat_flags: [false; 10],
+            write_passphrase_sidecar: false,
+            service_kind: None,
+            service_profile_name: None,
+            install_service_on_advance: false,
+            service_install_outcome: None,
             focused_field: 0,
             error_message: None,
             needs_probe: false,
@@ -386,11 +449,35 @@ impl GenesisState {
 
 // ── Public Entry Point ────────────────────────────────────────────
 
+/// What the Genesis wizard produced.
+///
+/// The passphrase is always present on success (so the outer app can
+/// skip re-prompting before unlocking the master key). The service
+/// install outcome is only populated when the operator opted into
+/// installing a supervisor unit on the Background Service step, and
+/// captures whether the write succeeded (with the install path) or
+/// failed (with an operator-facing reason). A `None` outcome means
+/// the wizard did not attempt service install at all — either because
+/// the operator toggled it off, the platform has no renderer, or the
+/// default root was onboarded.
+pub struct GenesisOutcome {
+    pub passphrase: Zeroizing<String>,
+    pub service_install: Option<Result<std::path::PathBuf, String>>,
+    /// The resolved supervisor kind for this host, mirrored out of
+    /// the wizard state so `main.rs` can print the right follow-up
+    /// command (systemctl / launchctl / powershell). `None` means no
+    /// renderer was available.
+    pub service_kind: Option<aivyx_pa::profile::service_install::ResolvedServiceKind>,
+    /// The profile name used for the service instance, if any.
+    pub service_profile_name: Option<String>,
+}
+
 pub async fn run_wizard(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     dirs: &AivyxDirs,
-) -> anyhow::Result<Option<Zeroizing<String>>> {
+) -> anyhow::Result<Option<GenesisOutcome>> {
     let mut state = GenesisState::new();
+    populate_service_context(&mut state, dirs);
 
     loop {
         state.frame_count = state.frame_count.wrapping_add(1);
@@ -418,19 +505,52 @@ pub async fn run_wizard(
                 Action::Advance => {
                     if let Err(msg) = validate_step(&state) {
                         state.error_message = Some(msg);
+                    } else if state.step == Step::Ignition {
+                        // Ignition finalizes the on-disk profile state:
+                        // master key envelope, encrypted store, config,
+                        // and the optional passphrase sidecar. This
+                        // must run before the BackgroundService step,
+                        // because the service unit embeds paths that
+                        // only exist after finalize() has created the
+                        // profile directory tree.
+                        finalize(&state, dirs)?;
+                        state.step = Step::BackgroundService;
+                        state.focused_field = 0;
+                        on_enter_step(&mut state).await;
+                    } else if state.step == Step::BackgroundService {
+                        // Terminal step. If the operator opted in,
+                        // render and write the supervisor unit now.
+                        // Failure is recorded in `service_install_outcome`
+                        // and surfaced in the post-wizard hint, but we
+                        // still return the passphrase — a failed service
+                        // install must not discard the completed genesis.
+                        if state.install_service_on_advance {
+                            perform_service_install(&mut state, dirs);
+                        }
+                        return Ok(Some(finish_outcome(state)));
                     } else if let Some(next) = state.step.next() {
-                        // Side effects on step transition
+                        // Non-terminal step — side effects on transition.
                         on_leave_step(&mut state);
                         state.step = next;
                         state.focused_field = 0;
                         on_enter_step(&mut state).await;
                     } else {
-                        // Ignition — finalize
-                        finalize(&state, dirs)?;
-                        return Ok(Some(state.passphrase.clone()));
+                        // Unreachable: only Ignition and BackgroundService
+                        // have `next() == None`, and both are handled above.
+                        return Ok(Some(finish_outcome(state)));
                     }
                 }
                 Action::Back => {
+                    if state.step == Step::BackgroundService {
+                        // Esc on the final step = "skip service install
+                        // and exit the wizard successfully". We've
+                        // already called finalize(), so the profile is
+                        // committed to disk — the operator just gets to
+                        // opt out of the service install at the last
+                        // second. Matches the semantics we document in
+                        // `Step::prev()` for this variant.
+                        return Ok(Some(finish_outcome(state)));
+                    }
                     if let Some(prev) = state.step.prev() {
                         state.step = prev;
                         state.focused_field = 0;
@@ -552,6 +672,7 @@ fn handle_key(state: &mut GenesisState, key: event::KeyEvent) -> Action {
         Step::Email => handle_email(state, key),
         Step::Integrations => handle_integrations(state, key),
         Step::Ignition => handle_ignition(state, key),
+        Step::BackgroundService => handle_background_service(state, key),
     }
 }
 
@@ -1074,6 +1195,12 @@ fn integration_char(state: &mut GenesisState, c: char) {
 }
 
 fn handle_ignition(state: &mut GenesisState, key: event::KeyEvent) -> Action {
+    // Field layout:
+    //   0..=9  → heartbeat toggles (HEARTBEAT_LABELS)
+    //   10     → passphrase-sidecar opt-in toggle
+    //   11     → IGNITE button (Advance)
+    const SIDECAR_FIELD: usize = 10;
+    const IGNITE_FIELD: usize = 11;
     match key.code {
         KeyCode::Up => {
             if state.focused_field > 0 {
@@ -1081,7 +1208,7 @@ fn handle_ignition(state: &mut GenesisState, key: event::KeyEvent) -> Action {
             }
         }
         KeyCode::Down => {
-            if state.focused_field < 10 {
+            if state.focused_field < IGNITE_FIELD {
                 state.focused_field += 1;
             }
         }
@@ -1089,11 +1216,13 @@ fn handle_ignition(state: &mut GenesisState, key: event::KeyEvent) -> Action {
             if state.focused_field < 10 {
                 state.heartbeat_flags[state.focused_field] =
                     !state.heartbeat_flags[state.focused_field];
+            } else if state.focused_field == SIDECAR_FIELD {
+                state.write_passphrase_sidecar = !state.write_passphrase_sidecar;
             }
         }
         KeyCode::Enter => {
-            // Only finalize when on the Ignite button (field 10)
-            if state.focused_field == 10 {
+            // Only finalize when on the Ignite button.
+            if state.focused_field == IGNITE_FIELD {
                 return Action::Advance;
             }
         }
@@ -1189,6 +1318,7 @@ fn render(state: &GenesisState, f: &mut Frame) {
         Step::Email => render_email(state, inner, f),
         Step::Integrations => render_integrations(state, inner, f),
         Step::Ignition => render_ignition(state, inner, f),
+        Step::BackgroundService => render_background_service(state, inner, f),
     }
 }
 
@@ -1216,6 +1346,7 @@ fn render_progress(state: &GenesisState, area: Rect, f: &mut Frame) {
         Step::Email,
         Step::Integrations,
         Step::Ignition,
+        Step::BackgroundService,
     ];
 
     let mut spans = vec![Span::styled(" ", theme::dim())];
@@ -1260,15 +1391,21 @@ fn render_hints(state: &GenesisState, area: Rect, f: &mut Frame) {
         "[ ESC: QUIT ]  "
     };
     let next = if state.step == Step::Ignition {
-        if state.focused_field == 10 {
+        if state.focused_field == 11 {
             "[ ENTER: IGNITE ]"
         } else {
             "[ SPACE: TOGGLE ]  [ \u{2193}: IGNITE ]"
         }
+    } else if state.step == Step::BackgroundService {
+        if state.focused_field == 1 {
+            "[ ENTER: CONTINUE ]"
+        } else {
+            "[ SPACE: TOGGLE ]  [ \u{2193}: CONTINUE ]"
+        }
     } else {
         "[ ENTER: NEXT ]"
     };
-    let extra = if state.step == Step::Ignition {
+    let extra = if matches!(state.step, Step::Ignition | Step::BackgroundService) {
         ""
     } else {
         "[ TAB: FIELD ]  "
@@ -2219,8 +2356,50 @@ fn render_ignition(state: &GenesisState, area: Rect, f: &mut Frame) {
         ]));
     }
 
+    // ── Passphrase sidecar opt-in toggle ─────────────────────────
+    //
+    // Field 10. When enabled, `finalize()` writes `<profile_root>/passphrase`
+    // with mode 0600 so a later `aivyx profile install-service` finds a
+    // ready-to-use sidecar (OkSecure) instead of complaining about
+    // Missing. Off by default — parking a passphrase on disk is a
+    // deliberate trade-off the operator owns, so we surface it
+    // explicitly here rather than defaulting it on.
     lines.push(Line::from(""));
-    let on_ignite = state.focused_field == 10;
+    lines.push(Line::from(Span::styled(
+        "  UNATTENDED_START_OPTIONS:",
+        theme::muted(),
+    )));
+    let sidecar_focused = state.focused_field == 10;
+    let sidecar_mark = if state.write_passphrase_sidecar {
+        "[■]"
+    } else {
+        "[○]"
+    };
+    let sidecar_mark_style = if state.write_passphrase_sidecar {
+        theme::sage()
+    } else {
+        theme::muted()
+    };
+    let sidecar_label_style = if sidecar_focused {
+        theme::highlight()
+    } else {
+        theme::dim()
+    };
+    lines.push(Line::from(vec![
+        Span::styled("  ", theme::dim()),
+        Span::styled(sidecar_mark, sidecar_mark_style),
+        Span::styled(
+            " WRITE PASSPHRASE SIDECAR (0600)",
+            sidecar_label_style,
+        ),
+    ]));
+    lines.push(Line::from(Span::styled(
+        "     └─ enables unattended service start via install-service",
+        theme::dim(),
+    )));
+
+    lines.push(Line::from(""));
+    let on_ignite = state.focused_field == 11;
     let blink = state.frame_count % 60 < 30;
     let ignite_style = if on_ignite {
         Style::default()
@@ -2236,6 +2415,382 @@ fn render_ignition(state: &GenesisState, area: Rect, f: &mut Frame) {
             " "
         },
         ignite_style,
+    )));
+
+    f.render_widget(Paragraph::new(lines), area);
+}
+
+// ── Background Service step ──────────────────────────────────────
+//
+// Ninth and final wizard step. Renders a supervisor unit (systemd
+// template unit, launchd plist, or Windows PowerShell installer) for
+// the profile just onboarded, and writes it to the platform's
+// canonical install path.
+//
+// Three distinct states drive this step's UI:
+//
+// 1. **Unsupported**: neither `service_kind` nor `service_profile_name`
+//    is set — either the platform has no renderer (not linux/macos/
+//    windows) *or* the wizard is onboarding the legacy default root
+//    (`~/.aivyx/`) where there is no instance name to feed systemd's
+//    template unit. Show an explanatory message and make Enter a
+//    plain "finish" action.
+// 2. **Opt-in**: toggle-off (default-on). The operator can flip the
+//    switch with Space, then Enter to commit. We only write the unit
+//    file on advance if `install_service_on_advance` is true.
+// 3. **Post-install**: after the write, `service_install_outcome`
+//    holds the result and the step re-renders showing the path that
+//    was written (or the error). The wizard then exits on the next
+//    Enter press.
+
+/// Populate `state.service_kind` and `state.service_profile_name` from
+/// the platform + `dirs`. Called once at `run_wizard` entry so the
+/// rest of the wizard can read stable values from state.
+fn populate_service_context(state: &mut GenesisState, dirs: &AivyxDirs) {
+    use aivyx_pa::profile::service_install::ResolvedServiceKind;
+
+    // Platform detection. Mirrors `ServiceKind::resolve` in aivyx-pa's
+    // main.rs so the wizard picks the same target the CLI would.
+    // Non-matching platforms leave `service_kind = None`, which the
+    // step renderer interprets as "not available on this host".
+    state.service_kind = if cfg!(target_os = "linux") {
+        Some(ResolvedServiceKind::Systemd)
+    } else if cfg!(target_os = "macos") {
+        Some(ResolvedServiceKind::Launchd)
+    } else if cfg!(target_os = "windows") {
+        Some(ResolvedServiceKind::Windows)
+    } else {
+        None
+    };
+
+    // Profile name: only meaningful when the root directory is
+    // actually *inside* a profile tree. The default `~/.aivyx/` root
+    // has a file_name of `.aivyx`, which is neither a valid profile
+    // name nor a useful instance label for systemd. Detect both by
+    // validating with the same rules `AivyxDirs::from_profile` uses:
+    // 1..=32 chars of `[A-Za-z0-9_-]`.
+    state.service_profile_name = dirs
+        .root()
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|n| is_valid_profile_name(n))
+        .map(|n| n.to_string());
+
+    // Default-on only when all the preconditions for a one-keystroke
+    // install are satisfied.
+    state.install_service_on_advance =
+        state.service_kind.is_some() && state.service_profile_name.is_some();
+}
+
+/// Bundle the wizard's final state into a `GenesisOutcome` for the
+/// caller. Extracted so the three terminal-return sites in
+/// `run_wizard` all produce identical outcome shape — drift here
+/// would show up as subtle inconsistencies in the post-wizard hint.
+fn finish_outcome(state: GenesisState) -> GenesisOutcome {
+    GenesisOutcome {
+        passphrase: state.passphrase,
+        service_install: state.service_install_outcome,
+        service_kind: state.service_kind,
+        service_profile_name: state.service_profile_name,
+    }
+}
+
+/// Mirror of `aivyx_config::validate_profile_name` that returns a
+/// bool instead of a `Result`. Kept local so we can filter with
+/// `Option::filter` without importing the lower-level crate just for
+/// one validation call. If the rules ever diverge, update this and
+/// leave a comment pointing at the authoritative version in
+/// `aivyx-config::dirs::validate_profile_name`.
+fn is_valid_profile_name(name: &str) -> bool {
+    let len = name.len();
+    if !(1..=32).contains(&len) {
+        return false;
+    }
+    name.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// Render the supervisor unit text for the current state using the
+/// platform renderer that matches `state.service_kind`. Returns
+/// `(install_path, text)` on success. Any error surfaces as a
+/// human-readable string suitable for
+/// `service_install_outcome = Some(Err(...))`.
+fn render_unit_for_state(
+    state: &GenesisState,
+    dirs: &AivyxDirs,
+) -> Result<(std::path::PathBuf, String), String> {
+    use aivyx_pa::profile::service_install::{ResolvedServiceKind, resolve_install_path};
+    use aivyx_pa::profile::{launchd, systemd, windows};
+
+    let kind = state
+        .service_kind
+        .ok_or_else(|| "no supervisor available for this platform".to_string())?;
+    let profile_name = state
+        .service_profile_name
+        .as_deref()
+        .ok_or_else(|| {
+            "no profile name — onboarding the default root cannot register a service".to_string()
+        })?;
+
+    // `current_exe()` is used verbatim — the rendered unit will start
+    // whichever binary the wizard ran from, which is what the operator
+    // expects. If they later rebuild to a different path they need to
+    // re-run `install-service` to refresh ExecStart; that's the
+    // existing CLI contract and matches the non-wizard path.
+    let binary_path = std::env::current_exe()
+        .map_err(|e| format!("could not resolve current executable: {e}"))?;
+
+    let text = match kind {
+        ResolvedServiceKind::Systemd => {
+            let opts = systemd::SystemdOpts {
+                binary_path,
+                ..systemd::SystemdOpts::default()
+            };
+            systemd::render_systemd_unit(&opts)
+        }
+        ResolvedServiceKind::Launchd => {
+            let opts = launchd::LaunchdOpts::new(binary_path, dirs.root().to_path_buf());
+            launchd::render_launchd_plist(profile_name, &opts)
+        }
+        ResolvedServiceKind::Windows => {
+            let opts =
+                windows::WindowsOpts::new(binary_path, dirs.root().to_path_buf(), profile_name);
+            windows::render_windows_installer(profile_name, &opts)
+        }
+    };
+
+    // Resolve install path using the same helper the CLI uses, so the
+    // two code paths always agree on *where* the unit lands.
+    let config_dir = dirs::config_dir();
+    let home_dir = dirs::home_dir();
+    let profile_root = dirs.root().to_path_buf();
+    let install_path = resolve_install_path(
+        kind,
+        profile_name,
+        config_dir.as_deref(),
+        home_dir.as_deref(),
+        Some(&profile_root),
+    )
+    .ok_or_else(|| "could not resolve install path for this platform".to_string())?;
+
+    Ok((install_path, text))
+}
+
+/// Write the rendered unit to the install path. Creates parent
+/// directories as needed. Populates `state.service_install_outcome`.
+///
+/// This function is infallible by design — every error path lands in
+/// `Err(String)` inside the outcome, and the outer wizard treats the
+/// whole step as best-effort. Failing to write a systemd drop-in must
+/// never lose the profile that was just finalized.
+fn perform_service_install(state: &mut GenesisState, dirs: &AivyxDirs) {
+    let outcome: Result<std::path::PathBuf, String> = (|| {
+        let (install_path, text) = render_unit_for_state(state, dirs)?;
+        if let Some(parent) = install_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("could not create {}: {e}", parent.display()))?;
+        }
+        std::fs::write(&install_path, text.as_bytes())
+            .map_err(|e| format!("could not write {}: {e}", install_path.display()))?;
+        Ok(install_path)
+    })();
+    state.service_install_outcome = Some(outcome);
+}
+
+fn handle_background_service(state: &mut GenesisState, key: event::KeyEvent) -> Action {
+    // Field layout:
+    //   0 → install toggle (only if service available)
+    //   1 → continue button
+    //
+    // If the step is in its unsupported state (no service_kind or no
+    // profile name), there is no toggle — Enter immediately advances
+    // to terminate the wizard. Esc on this step is treated as "skip
+    // install" by the main loop.
+    match key.code {
+        KeyCode::Up => {
+            if state.focused_field > 0 {
+                state.focused_field -= 1;
+            }
+        }
+        KeyCode::Down => {
+            let max = if state.service_kind.is_some() && state.service_profile_name.is_some() {
+                1
+            } else {
+                0
+            };
+            if state.focused_field < max {
+                state.focused_field += 1;
+            }
+        }
+        KeyCode::Char(' ') => {
+            if state.focused_field == 0
+                && state.service_kind.is_some()
+                && state.service_profile_name.is_some()
+            {
+                state.install_service_on_advance = !state.install_service_on_advance;
+            }
+        }
+        KeyCode::Enter => {
+            return Action::Advance;
+        }
+        KeyCode::Esc => return Action::Back,
+        _ => {}
+    }
+    Action::Continue
+}
+
+fn render_background_service(state: &GenesisState, area: Rect, f: &mut Frame) {
+    use aivyx_pa::profile::service_install::ResolvedServiceKind;
+
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled("// DIRECTIVE: ", theme::text_bold()),
+            Span::styled(
+                "REGISTER SUPERVISOR",
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Genesis complete. Profile state has been committed to disk.",
+            theme::sage(),
+        )),
+        Line::from(""),
+    ];
+
+    match (state.service_kind, state.service_profile_name.as_deref()) {
+        (Some(kind), Some(profile_name)) => {
+            let kind_label = match kind {
+                ResolvedServiceKind::Systemd => "SYSTEMD (user)",
+                ResolvedServiceKind::Launchd => "LAUNCHD (user)",
+                ResolvedServiceKind::Windows => "WINDOWS SCM",
+            };
+            lines.push(Line::from(vec![
+                Span::styled("  SUPERVISOR       ", theme::dim()),
+                Span::styled(kind_label, theme::primary()),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("  INSTANCE         ", theme::dim()),
+                Span::styled(profile_name.to_uppercase(), theme::text_bold()),
+            ]));
+            lines.push(Line::from(""));
+
+            let toggle_focused = state.focused_field == 0;
+            let toggle_mark = if state.install_service_on_advance {
+                "[■]"
+            } else {
+                "[○]"
+            };
+            let toggle_mark_style = if state.install_service_on_advance {
+                theme::sage()
+            } else {
+                theme::muted()
+            };
+            let toggle_label_style = if toggle_focused {
+                theme::highlight()
+            } else {
+                theme::dim()
+            };
+            lines.push(Line::from(vec![
+                Span::styled("  ", theme::dim()),
+                Span::styled(toggle_mark, toggle_mark_style),
+                Span::styled(" RENDER & INSTALL UNIT ON CONTINUE", toggle_label_style),
+            ]));
+            lines.push(Line::from(Span::styled(
+                "     └─ writes the supervisor file to its canonical path",
+                theme::dim(),
+            )));
+            lines.push(Line::from(Span::styled(
+                "     └─ you still need to enable/start it manually afterwards",
+                theme::dim(),
+            )));
+
+            // Post-install outcome (visible only after the first advance
+            // if the step re-renders — today advance exits the wizard
+            // immediately, so this is scaffolding for a future retry
+            // affordance. Harmless when unset.)
+            if let Some(outcome) = &state.service_install_outcome {
+                lines.push(Line::from(""));
+                match outcome {
+                    Ok(path) => {
+                        lines.push(Line::from(vec![
+                            Span::styled("  RESULT           ", theme::dim()),
+                            Span::styled("WROTE", theme::sage()),
+                        ]));
+                        lines.push(Line::from(vec![
+                            Span::styled("  PATH             ", theme::dim()),
+                            Span::styled(path.display().to_string(), theme::muted()),
+                        ]));
+                    }
+                    Err(msg) => {
+                        lines.push(Line::from(vec![
+                            Span::styled("  RESULT           ", theme::dim()),
+                            Span::styled("FAILED", Style::default().fg(theme::ERROR)),
+                        ]));
+                        lines.push(Line::from(vec![
+                            Span::styled("  REASON           ", theme::dim()),
+                            Span::styled(msg.clone(), theme::muted()),
+                        ]));
+                    }
+                }
+            }
+        }
+        _ => {
+            // Unsupported: either no renderer for this OS, or the
+            // default root has no profile name. Explain why and let
+            // the operator finish.
+            lines.push(Line::from(Span::styled(
+                "  Service install is not available for this genesis.",
+                theme::muted(),
+            )));
+            lines.push(Line::from(""));
+            if state.service_profile_name.is_none() {
+                lines.push(Line::from(Span::styled(
+                    "  Reason: this wizard is onboarding the default root.",
+                    theme::dim(),
+                )));
+                lines.push(Line::from(Span::styled(
+                    "  Supervisor units need an instance name — re-run with",
+                    theme::dim(),
+                )));
+                lines.push(Line::from(Span::styled(
+                    "  `aivyx-tui --profile <name>` to create a named profile.",
+                    theme::dim(),
+                )));
+            } else {
+                lines.push(Line::from(Span::styled(
+                    "  Reason: no supervisor renderer for this OS.",
+                    theme::dim(),
+                )));
+                lines.push(Line::from(Span::styled(
+                    "  Supported: linux (systemd), macos (launchd), windows (SCM).",
+                    theme::dim(),
+                )));
+            }
+        }
+    }
+
+    lines.push(Line::from(""));
+    let on_continue = state.focused_field == 1
+        || state.service_kind.is_none()
+        || state.service_profile_name.is_none();
+    let blink = state.frame_count % 60 < 30;
+    let continue_style = if on_continue {
+        Style::default()
+            .fg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+    } else {
+        theme::primary_bold()
+    };
+    lines.push(Line::from(Span::styled(
+        if on_continue || blink {
+            "  [ ENTER -> FINISH GENESIS ]"
+        } else {
+            " "
+        },
+        continue_style,
     )));
 
     f.render_widget(Paragraph::new(lines), area);
@@ -2714,6 +3269,44 @@ fn finalize(state: &GenesisState, dirs: &AivyxDirs) -> anyhow::Result<()> {
 
     // 5. Write config
     std::fs::write(dirs.config_path(), config)?;
+
+    // 6. Optional passphrase sidecar.
+    //
+    // When the operator opted into unattended service start on the
+    // Ignition step, write `<profile_root>/passphrase` with mode 0600
+    // containing the passphrase the wizard just received. The
+    // `aivyx profile install-service` command's `audit_passphrase_sidecar`
+    // check will then find it in the `OkSecure` state rather than
+    // printing a "Missing" remediation hint.
+    //
+    // We deliberately use `create_new(true)` + `mode(0o600)` (Unix) so
+    // the file is created atomically with tight permissions from the
+    // first byte — no window where umask could leave it group/world
+    // readable before a later `chmod`. On non-Unix we still create the
+    // file but cannot enforce permissions here; the OS default ACLs
+    // apply and the `icacls` remediation hint printed by install-service
+    // handles lock-down there.
+    if state.write_passphrase_sidecar {
+        let sidecar = dirs.root().join("passphrase");
+        #[cfg(unix)]
+        {
+            use std::io::Write as _;
+            use std::os::unix::fs::OpenOptionsExt as _;
+            let mut f = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&sidecar)?;
+            f.write_all(state.passphrase.as_bytes())?;
+            // Trailing newline: most editors and `cat` expect it, and
+            // the passphrase reader trims it.
+            f.write_all(b"\n")?;
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::write(&sidecar, state.passphrase.as_bytes())?;
+        }
+    }
 
     Ok(())
 }
