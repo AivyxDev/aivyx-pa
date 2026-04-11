@@ -34,8 +34,8 @@ aivyx-agent      = { git = "https://github.com/AivyxDev/aivyx-core.git", branch 
 aivyx-brain      = { git = "https://github.com/AivyxDev/aivyx-core.git", branch = "main" }
 
 # aivyx-factory (shared crates: task engine, team)
-aivyx-task-engine = { git = "https://github.com/AivyxDev/aivyx.git", branch = "main" }
-aivyx-team        = { git = "https://github.com/AivyxDev/aivyx.git", branch = "main" }
+aivyx-task-engine = { git = "https://github.com/AivyxDev/aivyx-factory.git", branch = "main" }
+aivyx-team        = { git = "https://github.com/AivyxDev/aivyx-factory.git", branch = "main" }
 
 # External
 serde         = { version = "1", features = ["derive"] }
@@ -82,7 +82,7 @@ zbus          = "5"
 
 # ── Patch aivyx-core to local checkout ──────────────────────────
 
-[patch."https://github.com/AivyxDev/aivyx.git"]
+[patch."https://github.com/AivyxDev/aivyx-factory.git"]
 aivyx-task-engine = { path = "../aivyx-factory/shared/aivyx-task-engine" }
 aivyx-team        = { path = "../aivyx-factory/shared/aivyx-team" }
 
