@@ -290,48 +290,48 @@ pub fn render_windows_installer(profile_name: &str, opts: &WindowsOpts) -> Strin
     // New-Service doesn't expose an -Environment parameter, so we
     // write the `Environment` REG_MULTI_SZ value directly. SCM picks
     // these up when starting the service.
-    if opts.use_passphrase_file {
-        if let Some(pass_file) = opts.passphrase_file.as_ref() {
-            let _ = writeln!(
-                out,
-                "$passphraseFile = '{}'",
-                ps_single_quote_escape(&pass_file.display().to_string())
-            );
-            let _ = writeln!(out);
-            let _ = writeln!(
-                out,
-                "Write-Host \"Setting AIVYX_PASSPHRASE_FILE in service environment...\""
-            );
-            let _ = writeln!(
-                out,
-                "$regKey = \"HKLM:\\SYSTEM\\CurrentControlSet\\Services\\$serviceName\""
-            );
-            // `Environment` is a REG_MULTI_SZ (`MultiString`), one
-            // entry per env var. We set exactly one entry; operators
-            // who need more can append by hand.
-            let _ = writeln!(
-                out,
-                "Set-ItemProperty -Path $regKey -Name 'Environment' -Value @(\"AIVYX_PASSPHRASE_FILE=$passphraseFile\") -Type MultiString"
-            );
-            let _ = writeln!(out);
+    if opts.use_passphrase_file
+        && let Some(pass_file) = opts.passphrase_file.as_ref()
+    {
+        let _ = writeln!(
+            out,
+            "$passphraseFile = '{}'",
+            ps_single_quote_escape(&pass_file.display().to_string())
+        );
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "Write-Host \"Setting AIVYX_PASSPHRASE_FILE in service environment...\""
+        );
+        let _ = writeln!(
+            out,
+            "$regKey = \"HKLM:\\SYSTEM\\CurrentControlSet\\Services\\$serviceName\""
+        );
+        // `Environment` is a REG_MULTI_SZ (`MultiString`), one
+        // entry per env var. We set exactly one entry; operators
+        // who need more can append by hand.
+        let _ = writeln!(
+            out,
+            "Set-ItemProperty -Path $regKey -Name 'Environment' -Value @(\"AIVYX_PASSPHRASE_FILE=$passphraseFile\") -Type MultiString"
+        );
+        let _ = writeln!(out);
 
-            // Audit + remediation hint for the passphrase file DACL.
-            let _ = writeln!(out, "if (-not (Test-Path $passphraseFile)) {{");
-            let _ = writeln!(
-                out,
-                "    Write-Warning \"Passphrase file not found at $passphraseFile\""
-            );
-            let _ = writeln!(
-                out,
-                "    Write-Warning \"The service will fail to unlock until you create it. After creating, lock its DACL with:\""
-            );
-            let _ = writeln!(
-                out,
-                "    Write-Warning \"  icacls `\"$passphraseFile`\" /inheritance:r /grant:r `\"$env:USERNAME:(R)`\"\""
-            );
-            let _ = writeln!(out, "}}");
-            let _ = writeln!(out);
-        }
+        // Audit + remediation hint for the passphrase file DACL.
+        let _ = writeln!(out, "if (-not (Test-Path $passphraseFile)) {{");
+        let _ = writeln!(
+            out,
+            "    Write-Warning \"Passphrase file not found at $passphraseFile\""
+        );
+        let _ = writeln!(
+            out,
+            "    Write-Warning \"The service will fail to unlock until you create it. After creating, lock its DACL with:\""
+        );
+        let _ = writeln!(
+            out,
+            "    Write-Warning \"  icacls `\"$passphraseFile`\" /inheritance:r /grant:r `\"$env:USERNAME:(R)`\"\""
+        );
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
     }
 
     // --- Working directory ---

@@ -239,18 +239,18 @@ pub fn render_launchd_plist(profile_name: &str, opts: &LaunchdOpts) -> String {
     // can read the passphrase without an interactive prompt. launchd
     // has no LoadCredential equivalent, so we rely on filesystem
     // permissions (`chmod 0600`) to protect the file at rest.
-    if opts.use_credential {
-        if let Some(pass_file) = opts.passphrase_file.as_ref() {
-            out.push_str("  <key>EnvironmentVariables</key>\n");
-            out.push_str("  <dict>\n");
-            out.push_str("    <key>AIVYX_PASSPHRASE_FILE</key>\n");
-            let _ = writeln!(
-                out,
-                "    <string>{}</string>",
-                xml_escape(&pass_file.to_string_lossy())
-            );
-            out.push_str("  </dict>\n");
-        }
+    if opts.use_credential
+        && let Some(pass_file) = opts.passphrase_file.as_ref()
+    {
+        out.push_str("  <key>EnvironmentVariables</key>\n");
+        out.push_str("  <dict>\n");
+        out.push_str("    <key>AIVYX_PASSPHRASE_FILE</key>\n");
+        let _ = writeln!(
+            out,
+            "    <string>{}</string>",
+            xml_escape(&pass_file.to_string_lossy())
+        );
+        out.push_str("  </dict>\n");
     }
 
     out.push_str("</dict>\n");

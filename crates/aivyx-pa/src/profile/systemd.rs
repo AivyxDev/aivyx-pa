@@ -165,12 +165,12 @@ pub fn render_systemd_unit(opts: &SystemdOpts) -> String {
     // inside the service's mount namespace at
     // `${CREDENTIALS_DIRECTORY}/passphrase`. The aivyx binary reads
     // `AIVYX_PASSPHRASE_FILE` from env and opens whatever path it names.
-    if opts.use_credential {
-        if let Some(pass_file) = opts.passphrase_file.as_ref() {
-            let _ = writeln!(out, "LoadCredential=passphrase:{}", pass_file.display());
-            let _ = writeln!(out, "Environment=AIVYX_PASSPHRASE_FILE=%d/passphrase");
-            let _ = writeln!(out);
-        }
+    if opts.use_credential
+        && let Some(pass_file) = opts.passphrase_file.as_ref()
+    {
+        let _ = writeln!(out, "LoadCredential=passphrase:{}", pass_file.display());
+        let _ = writeln!(out, "Environment=AIVYX_PASSPHRASE_FILE=%d/passphrase");
+        let _ = writeln!(out);
     }
 
     // Sandboxing. These are applied before `ExecStart` runs. Each line

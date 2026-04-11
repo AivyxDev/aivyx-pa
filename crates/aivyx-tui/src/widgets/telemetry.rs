@@ -108,7 +108,7 @@ impl Widget for TelemetrySidebar<'_> {
 
         // Token bar
         if y < inner.y + inner.height && total > 0 {
-            let bar_w = w.max(5).min(25); // Set reliable min and cap bounds
+            let bar_w = w.clamp(5, 25); // Set reliable min and cap bounds
             let input_ratio = self.app.chat_input_tokens as f64 / total as f64;
             let input_bars = (input_ratio * bar_w as f64).round() as usize;
             let output_bars = bar_w.saturating_sub(input_bars);

@@ -10,8 +10,8 @@
 //! The actual `profile install-service` handler in `main.rs` wraps
 //! these helpers, adds the `current_exe()` + `render_service_text`
 //! + filesystem-write layer on top, and prints the operator-facing
-//! next-step hints. Everything in this module is side-effect-free
-//! except `audit_passphrase_sidecar`, which only *reads* metadata.
+//!   next-step hints. Everything in this module is side-effect-free
+//!   except `audit_passphrase_sidecar`, which only *reads* metadata.
 
 use std::path::{Path, PathBuf};
 

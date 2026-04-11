@@ -4571,6 +4571,8 @@ impl App {
             heartbeat_interval: 30,
             version: "0.0.0-test".into(),
             chat_input: String::new(),
+            chat_input_cursor: 0,
+            chat_input_scroll: 0,
             chat_messages: Vec::new(),
             chat_streaming: false,
             chat_cancel: None,

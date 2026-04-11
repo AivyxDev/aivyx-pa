@@ -114,10 +114,10 @@ pub fn collect_profile_status(name: &str, dirs: &AivyxDirs) -> ProfileStatus {
 pub fn enumerate_profiles() -> Vec<(String, AivyxDirs)> {
     let mut out = Vec::new();
 
-    if let Ok(default_dirs) = AivyxDirs::from_default() {
-        if default_dirs.root().exists() {
-            out.push((DEFAULT_PROFILE_NAME.to_string(), default_dirs));
-        }
+    if let Ok(default_dirs) = AivyxDirs::from_default()
+        && default_dirs.root().exists()
+    {
+        out.push((DEFAULT_PROFILE_NAME.to_string(), default_dirs));
     }
 
     if let Ok(names) = AivyxDirs::list_profiles() {
@@ -209,12 +209,11 @@ pub fn render_profile_list() -> String {
 
     let _ = writeln!(
         out,
-        "  {:<name_w$}  {:<8}  {:<persona_w$}  {:<5}  {}",
+        "  {:<name_w$}  {:<8}  {:<persona_w$}  {:<5}  PID",
         "NAME",
         "STATUS",
         "PERSONA",
         "PORT",
-        "PID",
         name_w = name_w,
         persona_w = persona_w,
     );
@@ -313,13 +312,13 @@ pub fn remove_profile(name: &str, confirm: bool) -> anyhow::Result<()> {
     }
 
     let key_path = dirs.master_key_path();
-    if key_path.exists() {
-        if let Err(e) = zero_overwrite_file(&key_path) {
-            tracing::warn!(
-                "could not zero-overwrite master key envelope at {}: {e}",
-                key_path.display()
-            );
-        }
+    if key_path.exists()
+        && let Err(e) = zero_overwrite_file(&key_path)
+    {
+        tracing::warn!(
+            "could not zero-overwrite master key envelope at {}: {e}",
+            key_path.display()
+        );
     }
 
     std::fs::remove_dir_all(dirs.root())?;
