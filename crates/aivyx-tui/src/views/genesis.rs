@@ -1148,10 +1148,10 @@ fn render(state: &GenesisState, f: &mut Frame) {
 
     // Panel border with step title
     let step_num = state.step as usize + 1;
-    let title = format!(" Step {step_num}/8: {} ", state.step.title());
+    let title = format!("[ STEP 0{step_num} ] {} ", state.step.title());
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(BorderType::Plain)
         .border_style(theme::border())
         .title(Line::from(Span::styled(title, theme::primary_bold())));
 
@@ -1235,16 +1235,16 @@ fn render_progress(state: &GenesisState, area: Rect, f: &mut Frame) {
 
         let num_str = format!("{:02}", i + 1);
         let fmt = if active {
-            format!("[{}_{}]", num_str, step.label())
+            format!("[ {}:{} ]", num_str, step.label())
         } else {
-            format!(" {}_{} ", num_str, step.label())
+            format!("[ {}:{} ]", num_str, step.label())
         };
 
         spans.push(Span::styled(fmt, style));
 
         if i < labels.len() - 1 {
-            let sep_style = if past { theme::sage() } else { theme::muted() };
-            spans.push(Span::styled(" - ", sep_style));
+            let sep_style = if past { theme::sage() } else { theme::dim() };
+            spans.push(Span::styled("=====", sep_style));
         }
     }
     f.render_widget(
@@ -1255,23 +1255,23 @@ fn render_progress(state: &GenesisState, area: Rect, f: &mut Frame) {
 
 fn render_hints(state: &GenesisState, area: Rect, f: &mut Frame) {
     let back = if state.step.prev().is_some() {
-        "Esc:Back  "
+        "[ ESC: BACK ]  "
     } else {
-        "Esc:Quit  "
+        "[ ESC: QUIT ]  "
     };
     let next = if state.step == Step::Ignition {
         if state.focused_field == 10 {
-            "Enter:Ignite"
+            "[ ENTER: IGNITE ]"
         } else {
-            "Space:Toggle  ↓:Ignite button"
+            "[ SPACE: TOGGLE ]  [ \u{2193}: IGNITE ]"
         }
     } else {
-        "Enter:Next"
+        "[ ENTER: NEXT ]"
     };
     let extra = if state.step == Step::Ignition {
         ""
     } else {
-        "Tab:Field  "
+        "[ TAB: FIELD ]  "
     };
     let line = Line::from(vec![
         Span::styled("  ", theme::dim()),
@@ -1279,7 +1279,7 @@ fn render_hints(state: &GenesisState, area: Rect, f: &mut Frame) {
         Span::styled("  ", theme::dim()),
         Span::styled(back, theme::muted()),
         Span::styled(extra, theme::muted()),
-        Span::styled("Ctrl+C:Quit", theme::muted()),
+        Span::styled("[ CTRL+C: QUIT ]", theme::muted()),
     ]);
     f.render_widget(Paragraph::new(line), area);
 }

@@ -563,6 +563,28 @@ async fn serve_api(
     let loop_inputs = runtime::LoopInputs::from_services(&services, &pa_config);
 
     let store = std::sync::Arc::new(store);
+
+    // C1: Run one-shot legacy-prefix migrations on the PA store before
+    // any component can read it. Both migrations are idempotent and
+    // gated by marker keys, so after the first successful run every
+    // subsequent startup is an O(1) marker check.
+    //
+    // The PA store holds two different namespaces encrypted under the
+    // derived `conversation_key`: (a) chat session records (`pa_chat/`)
+    // and (b) conversation snapshots the TUI wrote directly via the old
+    // `snapshot:` prefix before the C1 refactor routed them through the
+    // typed `session_store::save_snapshot` API. The agent-session
+    // migration catches orphaned snapshot records so the refreshed
+    // branch manager can still see them under the new prefix.
+    if let Err(e) = aivyx_pa::sessions::run_pa_chat_migration(&store, &keys.conversation_key) {
+        tracing::warn!("pa_chat namespace migration failed: {e}");
+    }
+    if let Err(e) =
+        aivyx_agent::session_store::run_migration_on_store(&store, &keys.conversation_key)
+    {
+        tracing::warn!("agent_snapshot namespace migration failed on PA store: {e}");
+    }
+
     let agent_audit_log = aivyx_audit::AuditLog::new(dirs.audit_path(), &keys.audit_key);
     // Separate read-only audit log for API queries (same file, same key)
     let api_audit_log = aivyx_audit::AuditLog::new(dirs.audit_path(), &keys.ui_audit_key);

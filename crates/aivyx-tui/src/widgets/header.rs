@@ -34,8 +34,9 @@ impl Widget for Header<'_> {
 
         // Left side: Brand + View Context
         let title = Line::from(vec![
+            Span::styled("[ ", theme::dim()),
             Span::styled(
-                "AIVYX.STUDIO ",
+                "AIVYX_OS ",
                 Style::default()
                     .fg(theme::PRIMARY)
                     .add_modifier(Modifier::BOLD),
@@ -48,26 +49,29 @@ impl Widget for Header<'_> {
                 ),
                 theme::secondary(),
             ),
+            Span::styled(" ]", theme::dim()),
         ]);
         buf.set_line(inner.x + 1, inner.y, &title, inner.width / 2);
 
         // Right side: Agent metrics & Status
         let status = if self.app.chat_streaming {
-            Span::styled("● STREAMING", theme::primary())
+            Span::styled(" [ STATUS: STREAMING ]", theme::primary())
         } else {
-            Span::styled("● IDLE", theme::dim())
+            Span::styled(" [ STATUS: IDLE ]", theme::dim())
         };
 
         // Combine agent info and provider into right side
-        let info = format!(
-            "{} // {} // v{}",
+        let right_side_str = format!(
+            "[ AGENT: {} ]  [ SYS: v{} ]  [ LLM: {} ]",
             self.app.agent_name.to_uppercase(),
-            self.app.model_name.to_uppercase(),
-            self.app.version
+            self.app.version,
+            self.app.model_name.to_uppercase()
         );
 
-        let right_side_str = format!("{} // ", info);
-        let right_x = inner.x + inner.width.saturating_sub(right_side_str.len() as u16 + 11); // 11 is "● STREAMING" max length
+        let right_x = inner.x
+            + inner
+                .width
+                .saturating_sub(right_side_str.chars().count() as u16 + 22); // 22 is " [ STATUS: STREAMING ]" max length
         let rs_line = Line::from(vec![Span::styled(right_side_str, theme::dim()), status]);
         buf.set_line(
             right_x,

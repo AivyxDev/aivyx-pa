@@ -494,11 +494,25 @@ async fn chat_stream(
         if let Some(ref sid) = session_id
             && agent.conversation().is_empty()
         {
-            if let Some(pairs) = crate::sessions::load_chat_messages(&store, &conv_key, sid)
-                && !pairs.is_empty()
-            {
-                let history = crate::sessions::to_chat_messages(&pairs);
-                agent.restore_conversation(history);
+            // Resume path: load prior messages if any exist. On a genuine
+            // read/parse error we refuse to restore anything — the agent
+            // starts with an empty conversation and the user can retry.
+            // Critically, we do NOT silently start empty on error, because
+            // the next save would overwrite the still-present (but
+            // unreadable) on-disk record.
+            match crate::sessions::load_chat_messages(&store, &conv_key, sid) {
+                Ok(Some(pairs)) if !pairs.is_empty() => {
+                    let history = crate::sessions::to_chat_messages(&pairs);
+                    agent.restore_conversation(history);
+                }
+                Ok(_) => {} // no prior messages — fresh session
+                Err(e) => {
+                    tracing::error!(
+                        session_id = %sid,
+                        error = %e,
+                        "refusing to restore conversation: load failed; session may be corrupted"
+                    );
+                }
             }
             // Restore ephemeral learned state (tool results, domain
             // confidence, cost tracking, etc.) from the resume token.
@@ -565,7 +579,12 @@ async fn chat_stream(
         meta.id = sid.clone();
         meta.turn_count = crate::sessions::count_turns(&messages);
         meta.updated_at = chrono::Utc::now();
-        crate::sessions::save_chat_session(&store, &conv_key, &meta, &messages);
+        if let Err(e) = crate::sessions::save_chat_session(&store, &conv_key, &meta, &messages) {
+            tracing::error!(session_id = %sid, "failed to persist chat session: {e}");
+            // Fall through to resume-token save attempt — the caller will
+            // still see the final [[DONE]] marker, but the server-side log
+            // records the durability failure for operators.
+        }
 
         // Persist the agent's ephemeral learned state alongside the conversation.
         let resume = crate::sessions::ResumeToken::from_snapshot(agent.export_resume_state());
@@ -1352,11 +1371,22 @@ pub struct CreateSessionRequest {
 async fn create_session(
     State(state): State<AppState>,
     Json(req): Json<CreateSessionRequest>,
-) -> impl IntoResponse {
+) -> axum::response::Response {
     let title = req.title.unwrap_or_else(|| "New conversation".into());
     let meta = crate::sessions::ChatSessionMeta::new(title);
-    crate::sessions::save_chat_session(&state.store, &state.conversation_key, &meta, &[]);
-    Json(serde_json::json!({ "session": meta }))
+    match crate::sessions::save_chat_session(&state.store, &state.conversation_key, &meta, &[]) {
+        Ok(()) => Json(serde_json::json!({ "session": meta })).into_response(),
+        Err(e) => {
+            tracing::error!("create_session: failed to persist new session: {e}");
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": format!("failed to create session: {e}")
+                })),
+            )
+                .into_response()
+        }
+    }
 }
 
 /// `GET /api/sessions/:id/messages` — load messages for a session.
@@ -1364,8 +1394,20 @@ async fn get_session_messages(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let messages = crate::sessions::load_chat_messages(&state.store, &state.conversation_key, &id)
-        .ok_or((StatusCode::NOT_FOUND, format!("Session {id} not found")))?;
+    let messages =
+        match crate::sessions::load_chat_messages(&state.store, &state.conversation_key, &id) {
+            Ok(Some(msgs)) => msgs,
+            Ok(None) => return Err((StatusCode::NOT_FOUND, format!("Session {id} not found"))),
+            Err(e) => {
+                // The session bytes are present but unreadable. Surface 500
+                // so the client does not treat this as "not found" and try
+                // to create-and-overwrite.
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Session {id} exists but could not be read: {e}"),
+                ));
+            }
+        };
 
     Ok(Json(serde_json::json!({
         "session_id": id,
@@ -1379,9 +1421,22 @@ async fn delete_session(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    // Verify the session exists before deleting
-    crate::sessions::load_chat_messages(&state.store, &state.conversation_key, &id)
-        .ok_or((StatusCode::NOT_FOUND, format!("Session {id} not found")))?;
+    // Verify the session exists before deleting. A read error here is
+    // *not* a reason to block deletion — if the record is corrupted the
+    // user may specifically want to remove it — but we do need to know
+    // whether there is anything to delete so we can return 404 for a
+    // genuinely missing session.
+    match crate::sessions::load_chat_messages(&state.store, &state.conversation_key, &id) {
+        Ok(Some(_)) => {}
+        Ok(None) => return Err((StatusCode::NOT_FOUND, format!("Session {id} not found"))),
+        Err(e) => {
+            tracing::warn!(
+                session_id = %id,
+                error = %e,
+                "deleting session whose messages could not be read"
+            );
+        }
+    }
     crate::sessions::delete_chat_session(&state.store, &id);
     Ok(Json(
         serde_json::json!({ "status": "deleted", "session_id": id }),

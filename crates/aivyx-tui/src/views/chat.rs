@@ -62,7 +62,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     // ── Messages ───────────────────────────────────────────────
     let msg_block = Block::default()
         .borders(Borders::BOTTOM)
-        .border_type(BorderType::Rounded)
+        .border_type(BorderType::Plain)
         .border_style(theme::border());
     let msg_inner = msg_block.inner(messages_area);
     msg_block.render(messages_area, buf);
@@ -71,8 +71,8 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         // Empty state — centered prompt
         let empty_y = msg_inner.y + msg_inner.height / 2;
         let empty = Line::from(vec![
-            Span::styled("  ◇ ", theme::secondary()),
-            Span::styled("Start a conversation with your assistant...", theme::dim()),
+            Span::styled("  [ SYSTEM READY ] ", theme::secondary()),
+            Span::styled("Awaiting terminal input...", theme::dim()),
         ]);
         buf.set_line(msg_inner.x + 1, empty_y, &empty, msg_inner.width - 2);
     } else {
@@ -90,14 +90,14 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             };
             let (role_label, role_style) = if is_assistant {
                 (
-                    "◇ AIVYX",
+                    "[ AIVYX ]",
                     Style::default()
                         .fg(theme::SECONDARY)
                         .add_modifier(Modifier::BOLD),
                 )
             } else {
                 (
-                    "● YOU",
+                    "[ OPERATOR ]",
                     Style::default()
                         .fg(theme::PRIMARY)
                         .add_modifier(Modifier::BOLD),
@@ -112,7 +112,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                     spans: vec![
                         Span::styled("▎ ", gutter.bar_style),
                         Span::styled(role_label, role_style),
-                        Span::styled(format!("  {}", msg.timestamp), theme::dim()),
+                        Span::styled(format!(" [ {} ]", msg.timestamp), theme::dim()),
                     ],
                     indent: 1,
                 });
@@ -142,14 +142,14 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                     let tool_span = if entry.denied {
                         let reason = entry.error.as_deref().unwrap_or("denied");
                         Span::styled(
-                            format!("⊘ {} — {}", entry.tool_name, reason),
+                            format!("[⚙ DENIED] {} — {}", entry.tool_name, reason),
                             Style::default().fg(theme::ERROR),
                         )
                     } else if let Some(ref err) = entry.error {
                         let ms = entry.duration_ms.unwrap_or(0);
                         Span::styled(
                             format!(
-                                "✗ {} — {} ({:.1}s)",
+                                "[⚙ FAIL] {} — {} [{:.1}s]",
                                 entry.tool_name,
                                 err,
                                 ms as f64 / 1000.0
@@ -158,7 +158,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                         )
                     } else if let Some(ms) = entry.duration_ms {
                         Span::styled(
-                            format!("✓ {} ({:.1}s)", entry.tool_name, ms as f64 / 1000.0),
+                            format!("[⚙ OK] {} [{:.1}s]", entry.tool_name, ms as f64 / 1000.0),
                             Style::default().fg(theme::SAGE),
                         )
                     } else {
@@ -169,7 +169,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                             _ => "◒",
                         };
                         Span::styled(
-                            format!("{spinner} {}...", entry.tool_name),
+                            format!("[⚙ {}] {}...", spinner, entry.tool_name),
                             Style::default().fg(theme::ACCENT_GLOW),
                         )
                     };
@@ -216,23 +216,23 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             let mut header_spans = vec![
                 Span::styled("▎ ", gutter.bar_style),
                 Span::styled(role_label, role_style),
-                Span::styled(format!("  {}", msg.timestamp), theme::dim()),
+                Span::styled(format!(" [ {} ]", msg.timestamp), theme::dim()),
             ];
             if msg.role == "user" {
                 if msg.content.starts_with("[CRITICAL]") || msg.content.starts_with("[URGENT]") {
                     header_spans.push(Span::styled(
-                        "  ▲ CRITICAL",
+                        " [ PRIORITY: CRITICAL ]",
                         Style::default().fg(theme::ERROR),
                     ));
                 } else if msg.content.starts_with("[HIGH]") {
                     header_spans.push(Span::styled(
-                        "  ▲ HIGH",
+                        " [ PRIORITY: HIGH ]",
                         Style::default().fg(theme::ACCENT_GLOW),
                     ));
                 } else if msg.content.starts_with("[LOW]") {
-                    header_spans.push(Span::styled("  ▽ LOW", theme::dim()));
+                    header_spans.push(Span::styled(" [ PRIORITY: LOW ]", theme::dim()));
                 } else if msg.content.starts_with("[BG]") {
-                    header_spans.push(Span::styled("  ◌ BG", theme::dim()));
+                    header_spans.push(Span::styled(" [ PRIORITY: BACKGRND ]", theme::dim()));
                 }
             }
             all_lines.push(ChatLine {
@@ -445,11 +445,11 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 fn render_context_bar(app: &App, area: Rect, buf: &mut Buffer) {
     let total_tokens = app.chat_input_tokens + app.chat_output_tokens;
 
-    // Session indicator: ● saved, ○ unsaved
+    // Session indicator
     let (session_icon, session_label) = if let Some(ref sid) = app.chat_session_id {
-        ("●", format!("{}…", &sid[..sid.len().min(8)]))
+        ("[ SESSION:", format!("{}… ]", &sid[..sid.len().min(8)]))
     } else {
-        ("○", "unsaved".into())
+        ("[ SESSION:", "UNSAVED ]".into())
     };
 
     let cost_str = if app.chat_cost_usd > 0.0 {
@@ -468,24 +468,26 @@ fn render_context_bar(app: &App, area: Rect, buf: &mut Buffer) {
             },
         ),
         Span::styled(session_label, theme::dim()),
-        Span::styled("  ▸  ", Style::default().fg(theme::SURFACE_HIGHEST)),
+        Span::styled("  |  ", Style::default().fg(theme::SURFACE_HIGHEST)),
         Span::styled(
-            format!("{}↑", format_tokens(app.chat_input_tokens)),
+            format!("[ IN: {} ] ", format_tokens(app.chat_input_tokens)),
             theme::primary(),
         ),
-        Span::styled(" ", Style::default()),
         Span::styled(
-            format!("{}↓", format_tokens(app.chat_output_tokens)),
+            format!("[ OUT: {} ]", format_tokens(app.chat_output_tokens)),
             theme::secondary(),
         ),
         Span::styled(
-            format!("  ({} tok)", format_tokens(total_tokens)),
+            format!("  [ TOTAL: {} TOK ]", format_tokens(total_tokens)),
             theme::dim(),
         ),
-        Span::styled("  ▸  ", Style::default().fg(theme::SURFACE_HIGHEST)),
-        Span::styled(format!("{} msgs", app.chat_context_window), theme::muted()),
-        Span::styled("  ▸  ", Style::default().fg(theme::SURFACE_HIGHEST)),
-        Span::styled(cost_str, theme::dim()),
+        Span::styled("  |  ", Style::default().fg(theme::SURFACE_HIGHEST)),
+        Span::styled(
+            format!("[ MEMORY: {} MSGS ]", app.chat_context_window),
+            theme::muted(),
+        ),
+        Span::styled("  |  ", Style::default().fg(theme::SURFACE_HIGHEST)),
+        Span::styled(format!("[ SPEND: {} ]", cost_str), theme::dim()),
     ];
 
     // Mini token gauge (if terminal is wide enough)
@@ -506,13 +508,13 @@ fn render_context_bar(app: &App, area: Rect, buf: &mut Buffer) {
 
 fn render_input_field(app: &App, area: Rect, buf: &mut Buffer) {
     let input_title = if app.voice_recording {
-        " 🔴 RECORDING — Ctrl+R to send "
+        " [ 🔴 RECORDING ] Ctrl+R to send "
     } else if app.voice_transcribing {
-        " ⚙ TRANSCRIBING "
+        " [ ⚙ TRANSCRIBING ] "
     } else if app.chat_streaming {
-        " ◐ Streaming... "
+        " [ ◐ STREAMING ] "
     } else {
-        " Message "
+        " [ TERMINAL INPUT ] "
     };
 
     let border_style = if app.voice_recording {
@@ -532,7 +534,7 @@ fn render_input_field(app: &App, area: Rect, buf: &mut Buffer) {
 
     let input_block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(BorderType::Plain)
         .border_style(border_style)
         .title(Line::from(Span::styled(input_title, text_style)));
     let input_inner = input_block.inner(area);
@@ -584,7 +586,7 @@ fn render_input_field(app: &App, area: Rect, buf: &mut Buffer) {
 
     // Character count in bottom-right corner of input border
     if !app.chat_input.is_empty() && !app.chat_streaming {
-        let count_str = format!(" {} chars ", app.chat_input.chars().count());
+        let count_str = format!(" [ {} CHARS ] ", app.chat_input.chars().count());
         let count_len = count_str.len() as u16;
         let count_x = area.x + area.width.saturating_sub(count_len + 2);
         let count_y = area.y + area.height - 1; // bottom border line

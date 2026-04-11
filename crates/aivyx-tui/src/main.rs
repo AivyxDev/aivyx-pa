@@ -320,6 +320,14 @@ async fn main() -> anyhow::Result<()> {
     // Main event loop
     let result = run_loop(&mut terminal, &mut app).await;
 
+    // Drain any in-flight chat-session saves before we tear down the
+    // runtime. Without this, quitting the TUI immediately after a
+    // streaming reply can race the detached save task and lose the
+    // final turn — the process exits before the encrypted write hits
+    // disk. The drain is bounded by the saves already spawned, so it
+    // cannot hang indefinitely on new work.
+    app.drain_chat_saves().await;
+
     // Restore terminal
     disable_raw_mode()?;
     stdout().execute(LeaveAlternateScreen)?;

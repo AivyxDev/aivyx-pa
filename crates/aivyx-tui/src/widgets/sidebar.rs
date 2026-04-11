@@ -63,7 +63,11 @@ impl Widget for Sidebar<'_> {
             buf.set_line(
                 inner.x + 2,
                 y,
-                &Line::from(Span::styled("AIVYX_OS", theme::primary_bold())),
+                &Line::from(vec![
+                    Span::styled("[ NODE: ", theme::dim()),
+                    Span::styled("AIVYX-PA", theme::primary_bold()),
+                    Span::styled(" ]", theme::dim()),
+                ]),
                 width_inset_2,
             );
             y += 1;
@@ -71,9 +75,9 @@ impl Widget for Sidebar<'_> {
                 inner.x + 2,
                 y,
                 &Line::from(vec![
-                    Span::styled("v", theme::dim()),
-                    Span::styled(self.app.version.clone(), theme::muted()),
-                    Span::styled(" // PA", theme::dim()),
+                    Span::styled("[ CORE: ", theme::dim()),
+                    Span::styled(format!("v{}", self.app.version), theme::muted()),
+                    Span::styled(" ]", theme::dim()),
                 ]),
                 width_inset_2,
             );
@@ -93,7 +97,7 @@ impl Widget for Sidebar<'_> {
                 && pg != group
                 && y < inner.y + inner.height
             {
-                let sep = "─".repeat(width_inset_4 as usize);
+                let sep = "=".repeat(width_inset_4 as usize);
                 buf.set_line(
                     inner.x + 2,
                     y,
@@ -115,7 +119,7 @@ impl Widget for Sidebar<'_> {
                 buf.set_line(
                     inner.x,
                     y,
-                    &Line::from(Span::styled("▌", theme::primary())),
+                    &Line::from(Span::styled("█", theme::primary())),
                     1,
                 );
             }
@@ -135,7 +139,7 @@ impl Widget for Sidebar<'_> {
             let mut spans = vec![Span::styled(label, style)];
             if let Some((count, badge_style)) = badge {
                 // Right-align the badge
-                let badge_text = format!(" {count}");
+                let badge_text = format!(" [{count}]");
                 spans.push(Span::styled(badge_text, badge_style));
             }
 
@@ -144,16 +148,15 @@ impl Widget for Sidebar<'_> {
         }
 
         // ── Agent footer ───────────────────────────────────────
-        if inner.height > 14 {
-            let footer_y = inner.y + inner.height - 3;
+        if inner.height > 15 {
+            let footer_y = inner.y + inner.height - 4;
 
-            // Separator
-            let sep = "─".repeat(width_inset_4 as usize);
+            // Identity Header Bracket
             buf.set_line(
                 inner.x + 2,
                 footer_y,
-                &Line::from(Span::styled(sep, theme::dim())),
-                width_inset_4,
+                &Line::from(vec![Span::styled("[ IDENTITY ]", theme::dim())]),
+                width_inset_2,
             );
 
             // Agent name + streaming indicator

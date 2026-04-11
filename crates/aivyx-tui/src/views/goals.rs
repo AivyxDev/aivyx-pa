@@ -25,11 +25,8 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     // Title
     let total = app.goals.len();
     let title = Line::from(vec![
-        Span::styled("Goals", theme::text_bold()),
-        Span::styled(
-            format!("  {total} goals tracked by your assistant."),
-            theme::dim(),
-        ),
+        Span::styled("[ STRATEGIC COMMAND ]", theme::text_bold()),
+        Span::styled(format!("  [ TRACKING: {total} ]"), theme::dim()),
     ]);
     buf.set_line(header.x, header.y, &title, header.width);
 
@@ -43,10 +40,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         } else {
             theme::dim()
         };
-        filter_spans.push(Span::styled(format!(" {f} "), style));
-        if i < FILTERS.len() - 1 {
-            filter_spans.push(Span::styled("│", theme::dim()));
-        }
+        filter_spans.push(Span::styled(format!("[ {} ] ", f.to_uppercase()), style));
     }
     buf.set_line(
         filter_row.x,
@@ -64,10 +58,10 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
     let list_block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(BorderType::Plain)
         .border_style(theme::border())
         .title(Line::from(Span::styled(
-            format!(" {} Goals ", goals.len()),
+            format!("[ INDEX: {} GOALS ]", goals.len()),
             theme::dim(),
         )));
     let list_inner = list_block.inner(list_area);
@@ -99,7 +93,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             let is_selected = i == app.goal_selected;
             let block = Block::default()
                 .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
+                .border_type(BorderType::Plain)
                 .border_style(if is_selected {
                     theme::border_active()
                 } else {
@@ -110,30 +104,29 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             block.render(card, buf);
 
             // Title + priority + optional cooldown icon
-            let priority_str = format!("{:?}", goal.priority).to_lowercase();
+            let priority_str = format!("{:?}", goal.priority).to_uppercase();
             let priority_style = match priority_str.as_str() {
-                "high" | "critical" => theme::error(),
-                "medium" => theme::warning(),
+                "HIGH" | "CRITICAL" => theme::error(),
+                "MEDIUM" => theme::warning(),
                 _ => theme::dim(),
             };
-            let status_str = format!("{:?}", goal.status).to_lowercase();
+            let status_str = format!("{:?}", goal.status).to_uppercase();
             let mut title_spans = vec![
                 Span::styled(
-                    &goal.description,
+                    format!("[ TARGET: {} ]", goal.description),
                     if is_selected {
                         theme::primary_bold()
                     } else {
                         theme::text_bold()
                     },
                 ),
-                Span::styled("  [", theme::dim()),
-                Span::styled(&priority_str, priority_style),
-                Span::styled("] [", theme::dim()),
-                Span::styled(&status_str, theme::muted()),
-                Span::styled("]", theme::dim()),
+                Span::styled("  ", theme::dim()),
+                Span::styled(format!("[ PRIORITY: {} ]", priority_str), priority_style),
+                Span::styled("  ", theme::dim()),
+                Span::styled(format!("[ STATUS: {} ]", status_str), theme::muted()),
             ];
             if goal.cooldown_until.is_some() {
-                title_spans.push(Span::styled(" ⏸", theme::warning()));
+                title_spans.push(Span::styled("  [ ⏸ COOLDOWN ]", theme::warning()));
             }
             let title_line = Line::from(title_spans);
             buf.set_line(inner.x + 1, inner.y, &title_line, inner.width - 2);
@@ -165,9 +158,9 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             // Info line: deadline (if set) or last-updated timestamp
             if inner.height > 2 {
                 let info_str = if let Some(dl) = goal.deadline {
-                    format!("  deadline: {}", dl.format("%Y-%m-%d"))
+                    format!("  [ DEADLINE: {} ]", dl.format("%Y-%m-%d"))
                 } else {
-                    format!("  updated: {}", goal.updated_at.format("%H:%M"))
+                    format!("  [ UPDATED: {} ]", goal.updated_at.format("%H:%M"))
                 };
                 buf.set_line(
                     inner.x + 1,
@@ -184,9 +177,9 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     // ── Detail panel for selected goal ────────────────────────
     let detail_block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(BorderType::Plain)
         .border_style(theme::border())
-        .title(Line::from(Span::styled(" Goal Detail ", theme::dim())));
+        .title(Line::from(Span::styled("[ DETAILS ]", theme::dim())));
     let detail_inner = detail_block.inner(detail_area);
     detail_block.render(detail_area, buf);
 
@@ -195,17 +188,20 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         let mut y = detail_inner.y;
 
         // Description
-        let desc_line = Line::from(vec![Span::styled(&goal.description, theme::primary_bold())]);
+        let desc_line = Line::from(vec![
+            Span::styled("[ CORE     ]  ", theme::muted()),
+            Span::styled(&goal.description, theme::primary_bold()),
+        ]);
         buf.set_line(detail_inner.x + 1, y, &desc_line, detail_inner.width - 2);
         y += 2;
 
         // Status + Priority
-        let status_str = format!("{:?}", goal.status);
-        let priority_str = format!("{:?}", goal.priority);
+        let status_str = format!("{:?}", goal.status).to_uppercase();
+        let priority_str = format!("{:?}", goal.priority).to_uppercase();
         let meta_line = Line::from(vec![
-            Span::styled("Status:   ", theme::muted()),
+            Span::styled("[ STATUS   ]  ", theme::muted()),
             Span::styled(&status_str, theme::text()),
-            Span::styled("    Priority: ", theme::muted()),
+            Span::styled("      [ PRIORITY ]  ", theme::muted()),
             Span::styled(&priority_str, theme::text()),
         ]);
         buf.set_line(detail_inner.x + 1, y, &meta_line, detail_inner.width - 2);
@@ -213,7 +209,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
         // Progress
         let pct_line = Line::from(vec![
-            Span::styled("Progress: ", theme::muted()),
+            Span::styled("[ PROGRESS ]  ", theme::muted()),
             Span::styled(format!("{:.0}%", goal.progress * 100.0), theme::primary()),
         ]);
         buf.set_line(detail_inner.x + 1, y, &pct_line, detail_inner.width - 2);
@@ -221,7 +217,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
         // Success criteria (wrapped)
         if !goal.success_criteria.is_empty() {
-            let label = Line::from(Span::styled("Success Criteria:", theme::muted()));
+            let label = Line::from(Span::styled("[ CRITERIA ]", theme::muted()));
             buf.set_line(detail_inner.x + 1, y, &label, detail_inner.width - 2);
             y += 1;
 
@@ -269,7 +265,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                         theme::PRIMARY
                     };
                     Span::styled(
-                        format!(" [{t}] "),
+                        format!(" [ TAG: {t} ] "),
                         Style::default().fg(color).add_modifier(Modifier::BOLD),
                     )
                 })
@@ -288,9 +284,9 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             let dl_str = goal
                 .deadline
                 .map(|d| d.format("%Y-%m-%d").to_string())
-                .unwrap_or_else(|| "none".into());
+                .unwrap_or_else(|| "NONE".into());
             let dl_line = Line::from(vec![
-                Span::styled("Deadline: ", theme::muted()),
+                Span::styled("[ DEADLINE ]  ", theme::muted()),
                 Span::styled(&dl_str, theme::text()),
             ]);
             buf.set_line(detail_inner.x + 1, y, &dl_line, detail_inner.width - 2);
@@ -300,7 +296,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         // Timestamps
         if y + 1 < detail_inner.y + detail_inner.height {
             let created = Line::from(vec![
-                Span::styled("Created:  ", theme::muted()),
+                Span::styled("[ CREATED  ]  ", theme::muted()),
                 Span::styled(
                     goal.created_at.format("%Y-%m-%d %H:%M").to_string(),
                     theme::dim(),
@@ -311,7 +307,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
             if y < detail_inner.y + detail_inner.height {
                 let updated = Line::from(vec![
-                    Span::styled("Updated:  ", theme::muted()),
+                    Span::styled("[ UPDATED  ]  ", theme::muted()),
                     Span::styled(
                         goal.updated_at.format("%Y-%m-%d %H:%M").to_string(),
                         theme::dim(),
@@ -326,7 +322,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         if goal.failure_count > 0 && y < detail_inner.y + detail_inner.height {
             y += 1;
             let fail_line = Line::from(vec![
-                Span::styled("Failures: ", theme::muted()),
+                Span::styled("[ FAILURES ]  ", theme::muted()),
                 Span::styled(
                     format!(
                         "{} total, {} consecutive",
@@ -342,9 +338,9 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                 && y < detail_inner.y + detail_inner.height
             {
                 let cd = Line::from(vec![
-                    Span::styled("Cooldown: ", theme::muted()),
+                    Span::styled("[ COOLDOWN ]  ", theme::muted()),
                     Span::styled(
-                        format!("until {}", cooldown.format("%H:%M")),
+                        format!("UNTIL {}", cooldown.format("%H:%M")),
                         theme::warning(),
                     ),
                 ]);
@@ -360,7 +356,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             .collect();
         if !sub_goals.is_empty() && y + 2 < detail_inner.y + detail_inner.height {
             y += 1;
-            let label = Line::from(Span::styled("Sub-goals:", theme::muted()));
+            let label = Line::from(Span::styled("[ SUBTASKS ]", theme::muted()));
             buf.set_line(detail_inner.x + 1, y, &label, detail_inner.width - 2);
             y += 1;
             for sg in &sub_goals {
@@ -368,9 +364,9 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                     break;
                 }
                 let marker = match sg.status {
-                    aivyx_brain::GoalStatus::Completed => "✓",
-                    aivyx_brain::GoalStatus::Abandoned => "✗",
-                    _ => "○",
+                    aivyx_brain::GoalStatus::Completed => "[⚙ OK]",
+                    aivyx_brain::GoalStatus::Abandoned => "[FAILED]",
+                    _ => "[ ACTIVE ]",
                 };
                 let style = match sg.status {
                     aivyx_brain::GoalStatus::Completed => theme::sage(),
@@ -378,7 +374,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                     _ => theme::text(),
                 };
                 let line = Line::from(vec![
-                    Span::styled(format!("  {marker} "), style),
+                    Span::styled(format!("  {}  ", marker), style),
                     Span::styled(&sg.description, style),
                 ]);
                 buf.set_line(detail_inner.x + 1, y, &line, detail_inner.width - 2);
@@ -403,11 +399,11 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     // ── Help bar ─────────────────────────────────────────────
     let help_text = if app.goal_popup.is_some() {
         match &app.goal_popup {
-            Some(GoalPopup::Confirm { .. }) => "y confirm  n/Esc cancel",
-            _ => "Tab next field  ←→ priority  Enter save  Esc cancel",
+            Some(GoalPopup::Confirm { .. }) => "[ Y: CONFIRM ]  [ N/ESC: CANCEL ]",
+            _ => "[ TAB: NEXT ]  [ \u{2190}\u{2192}: PRIORITY ]  [ ENTER: SAVE ]  [ ESC: CANCEL ]",
         }
     } else {
-        "↑↓ navigate  [] filter  n new  e edit  c complete  x abandon  Tab sidebar"
+        "[ \u{2191}\u{2193}: NAVIGATE ]  [ []: FILTER ]  [ N: NEW ]  [ E: EDIT ]  [ C: COMPLETE ]  [ X: ABANDON ]  [ TAB: SIDEBAR ]"
     };
     let help = Line::from(Span::styled(help_text, theme::dim()));
     buf.set_line(help_bar.x + 1, help_bar.y, &help, help_bar.width - 2);
@@ -451,16 +447,16 @@ fn render_popup(popup: &GoalPopup, frame_count: u64, area: Rect, buf: &mut Buffe
             };
             let h = if is_edit { 13u16 } else { 11 };
             let title = if is_edit {
-                " Edit Goal "
+                "[ MODIFY ASSIGNMENT ]"
             } else {
-                " Create Goal "
+                "[ CREATE ASSIGNMENT ]"
             };
 
             let rect = centered_rect(55, h, area);
             Clear.render(rect, buf);
             let block = Block::default()
                 .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
+                .border_type(BorderType::Plain)
                 .border_style(theme::primary())
                 .title(Line::from(Span::styled(title, theme::primary_bold())));
             let inner = block.inner(rect);
@@ -477,15 +473,16 @@ fn render_popup(popup: &GoalPopup, frame_count: u64, area: Rect, buf: &mut Buffe
             buf.set_line(
                 inner.x + 1,
                 y,
-                &Line::from(Span::styled("Description:", desc_label_style)),
+                &Line::from(Span::styled("[ DESCRIPTION ]", desc_label_style)),
                 inner.width - 2,
             );
             y += 1;
             let desc_cursor = if *focused_field == 0 { cursor_char } else { "" };
             let desc_line = Line::from(vec![
-                Span::styled("> ", theme::primary()),
+                Span::styled("[ ", theme::primary()),
                 Span::styled(description, theme::text_bold()),
                 Span::styled(desc_cursor, theme::primary()),
+                Span::styled(" ]", theme::primary()),
             ]);
             buf.set_line(inner.x + 1, y, &desc_line, inner.width - 2);
             y += 2;
@@ -499,15 +496,16 @@ fn render_popup(popup: &GoalPopup, frame_count: u64, area: Rect, buf: &mut Buffe
             buf.set_line(
                 inner.x + 1,
                 y,
-                &Line::from(Span::styled("Success Criteria:", crit_label_style)),
+                &Line::from(Span::styled("[ CRITERIA ]", crit_label_style)),
                 inner.width - 2,
             );
             y += 1;
             let crit_cursor = if *focused_field == 1 { cursor_char } else { "" };
             let crit_line = Line::from(vec![
-                Span::styled("> ", theme::primary()),
+                Span::styled("[ ", theme::primary()),
                 Span::styled(criteria, theme::text_bold()),
                 Span::styled(crit_cursor, theme::primary()),
+                Span::styled(" ]", theme::primary()),
             ]);
             buf.set_line(inner.x + 1, y, &crit_line, inner.width - 2);
             y += 2;
@@ -525,7 +523,7 @@ fn render_popup(popup: &GoalPopup, frame_count: u64, area: Rect, buf: &mut Buffe
                 pri_name.to_string()
             };
             let pri_line = Line::from(vec![
-                Span::styled("Priority:     ", pri_label_style),
+                Span::styled("[ PRIORITY ]  ", pri_label_style),
                 Span::styled(pri_display, theme::primary_bold()),
             ]);
             buf.set_line(inner.x + 1, y, &pri_line, inner.width - 2);
@@ -541,9 +539,11 @@ fn render_popup(popup: &GoalPopup, frame_count: u64, area: Rect, buf: &mut Buffe
                 };
                 let dl_cursor = if *focused_field == 3 { cursor_char } else { "" };
                 let dl_line = Line::from(vec![
-                    Span::styled("Deadline:     ", dl_label_style),
+                    Span::styled("[ DEADLINE ]  ", dl_label_style),
+                    Span::styled("[ ", theme::text()),
                     Span::styled(deadline_str, theme::text()),
                     Span::styled(dl_cursor, theme::primary()),
+                    Span::styled(" ]", theme::text()),
                     Span::styled(" (YYYY-MM-DD)", theme::dim()),
                 ]);
                 buf.set_line(inner.x + 1, y, &dl_line, inner.width - 2);
@@ -554,19 +554,20 @@ fn render_popup(popup: &GoalPopup, frame_count: u64, area: Rect, buf: &mut Buffe
             Clear.render(rect, buf);
             let block = Block::default()
                 .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
+                .border_type(BorderType::Plain)
                 .border_style(theme::primary())
-                .title(Line::from(Span::styled(" Confirm ", theme::primary_bold())));
+                .title(Line::from(Span::styled(
+                    "[ CONFIRM OVERRIDE ]",
+                    theme::primary_bold(),
+                )));
             let inner = block.inner(rect);
             block.render(rect, buf);
 
             let msg = Line::from(Span::styled(message, theme::text()));
             buf.set_line(inner.x + 1, inner.y, &msg, inner.width - 2);
             let hint = Line::from(vec![
-                Span::styled("[y]", theme::primary_bold()),
-                Span::styled(" Yes  ", theme::text()),
-                Span::styled("[n]", theme::primary_bold()),
-                Span::styled(" No", theme::text()),
+                Span::styled("[ Y: AFFIRMATIVE ]  ", theme::primary_bold()),
+                Span::styled("[ N: ABORT ]", theme::primary_bold()),
             ]);
             buf.set_line(inner.x + 1, inner.y + 2, &hint, inner.width - 2);
         }

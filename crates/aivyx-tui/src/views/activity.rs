@@ -26,11 +26,8 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
     let count = app.notifications.len();
     let title = Paragraph::new(Line::from(vec![
-        Span::styled("Activity", theme::text_bold()),
-        Span::styled(
-            format!("  {count} events from your assistant."),
-            theme::dim(),
-        ),
+        Span::styled("[ ACTIVITY FEED ]", theme::text_bold()),
+        Span::styled(format!("  [ EVENTS: {count} ]"), theme::dim()),
     ]));
     title.render(header, buf);
 
@@ -44,10 +41,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         } else {
             theme::dim()
         };
-        filter_spans.push(Span::styled(format!(" {f} "), style));
-        if i < FILTERS.len() - 1 {
-            filter_spans.push(Span::styled("│", theme::dim()));
-        }
+        filter_spans.push(Span::styled(format!("[ {} ] ", f.to_uppercase()), style));
     }
     buf.set_line(
         filter_row.x,
@@ -144,11 +138,11 @@ fn render_agent_list(app: &App, area: Rect, buf: &mut Buffer) {
         let agent = &app.agent_statuses[real_idx];
         let is_selected = display_idx == app.agent_monitor_selected;
 
-        let (status_icon, icon_style) = match agent.state.as_str() {
-            "running" => ("◐", theme::sage()),
-            "completed" => ("✓", theme::secondary()),
-            "error" => ("✗", Style::default().fg(theme::ERROR)),
-            _ => ("○", theme::muted()),
+        let (status_tag, icon_style) = match agent.state.as_str() {
+            "running" => ("[ RUNNING ]", theme::sage()),
+            "completed" => ("[ SUCCESS ]", theme::secondary()),
+            "error" => ("[ FAILURE ]", Style::default().fg(theme::ERROR)),
+            _ => ("[ IDLE    ]", theme::muted()),
         };
 
         let marker = if is_selected { "[■]" } else { "[ ]" };
@@ -168,13 +162,13 @@ fn render_agent_list(app: &App, area: Rect, buf: &mut Buffer) {
                     let secs = chrono::Utc::now()
                         .signed_duration_since(start)
                         .num_seconds();
-                    format!(" {secs}s")
+                    format!(" [ {secs}s ]")
                 })
                 .unwrap_or_default()
         } else {
             agent
                 .last_duration_ms
-                .map(|ms| format!(" {:.1}s", ms as f64 / 1000.0))
+                .map(|ms| format!(" [ {:.1}s ]", ms as f64 / 1000.0))
                 .unwrap_or_default()
         };
 
@@ -187,9 +181,7 @@ fn render_agent_list(app: &App, area: Rect, buf: &mut Buffer) {
                     icon_style
                 },
             ),
-            Span::styled("  ", Style::default()),
-            Span::styled(status_icon, icon_style),
-            Span::styled(" ", Style::default()),
+            Span::styled(format!(" {} ", status_tag), icon_style),
             Span::styled(&agent.name, name_style),
             Span::styled(&elapsed, theme::dim()),
         ]);
@@ -270,7 +262,7 @@ fn render_agent_detail(app: &App, area: Rect, buf: &mut Buffer) {
 
     // Agent name
     let name_line = Line::from(vec![
-        Span::styled("Agent:   ", theme::muted()),
+        Span::styled("[ CORE     ]  ", theme::muted()),
         Span::styled(&agent.name, theme::primary_bold()),
     ]);
     buf.set_line(detail_inner.x + 1, y, &name_line, w);
@@ -278,13 +270,13 @@ fn render_agent_detail(app: &App, area: Rect, buf: &mut Buffer) {
 
     // Status
     let (status_label, status_style) = match agent.state.as_str() {
-        "running" => ("◐ running", theme::sage()),
-        "completed" => ("✓ completed", theme::secondary()),
-        "error" => ("✗ error", Style::default().fg(theme::ERROR)),
-        _ => ("○ idle", theme::muted()),
+        "running" => ("RUNNING", theme::sage()),
+        "completed" => ("COMPLETED", theme::secondary()),
+        "error" => ("ERROR", Style::default().fg(theme::ERROR)),
+        _ => ("IDLE", theme::muted()),
     };
     let status_line = Line::from(vec![
-        Span::styled("Status:  ", theme::muted()),
+        Span::styled("[ STATUS   ]  ", theme::muted()),
         Span::styled(status_label, status_style),
     ]);
     buf.set_line(detail_inner.x + 1, y, &status_line, w);
@@ -293,7 +285,7 @@ fn render_agent_detail(app: &App, area: Rect, buf: &mut Buffer) {
     // Task
     if let Some(ref task) = agent.current_task {
         let task_line = Line::from(vec![
-            Span::styled("Task:    ", theme::muted()),
+            Span::styled("[ ASSIGNED ]  ", theme::muted()),
             Span::styled(task.as_str(), theme::text()),
         ]);
         buf.set_line(detail_inner.x + 1, y, &task_line, w);
@@ -307,7 +299,7 @@ fn render_agent_detail(app: &App, area: Rect, buf: &mut Buffer) {
                 .signed_duration_since(start)
                 .num_seconds();
             let dur_line = Line::from(vec![
-                Span::styled("Elapsed: ", theme::muted()),
+                Span::styled("[ ELAPSED  ]  ", theme::muted()),
                 Span::styled(format!("{secs}s"), theme::dim()),
             ]);
             buf.set_line(detail_inner.x + 1, y, &dur_line, w);
@@ -315,8 +307,8 @@ fn render_agent_detail(app: &App, area: Rect, buf: &mut Buffer) {
         }
     } else if let Some(ms) = agent.last_duration_ms {
         let dur_line = Line::from(vec![
-            Span::styled("Duration:", theme::muted()),
-            Span::styled(format!(" {:.1}s", ms as f64 / 1000.0), theme::dim()),
+            Span::styled("[ ELAPSED  ]  ", theme::muted()),
+            Span::styled(format!("{:.1}s", ms as f64 / 1000.0), theme::dim()),
         ]);
         buf.set_line(detail_inner.x + 1, y, &dur_line, w);
         y += 1;
@@ -335,15 +327,15 @@ fn render_agent_detail(app: &App, area: Rect, buf: &mut Buffer) {
                 break;
             }
             let (icon, icon_style) = match entry.status.as_str() {
-                "completed" => ("✓", theme::sage()),
-                "failed" => ("✗", Style::default().fg(theme::ERROR)),
-                "denied" => ("⊘", theme::warning()),
-                _ => ("◐", theme::secondary()),
+                "completed" => ("[⚙ OK]", theme::sage()),
+                "failed" => ("[⚙ FAIL]", Style::default().fg(theme::ERROR)),
+                "denied" => ("[⚙ DENIED]", theme::warning()),
+                _ => ("[⚙ RUN]", theme::secondary()),
             };
             let dur = entry
                 .duration_ms
-                .map(|ms| format!(" {ms}ms"))
-                .unwrap_or_else(|| " ...".into());
+                .map(|ms| format!(" [ {}ms ]", ms))
+                .unwrap_or_else(|| " [ ... ]".into());
             let tool_line = Line::from(vec![
                 Span::styled("  ", Style::default()),
                 Span::styled(icon, icon_style),
@@ -423,6 +415,7 @@ fn render_notification_list(app: &App, list_area: Rect, buf: &mut Buffer) {
                 theme::text_bold()
             };
             let time = notif.timestamp.format("%H:%M:%S").to_string();
+            let source_tag = notif.source.to_uppercase();
             let timeline = Line::from(vec![
                 Span::styled(
                     marker,
@@ -432,9 +425,8 @@ fn render_notification_list(app: &App, list_area: Rect, buf: &mut Buffer) {
                         icon_style
                     },
                 ),
-                Span::styled("  ", Style::default()),
-                Span::styled(&time, theme::dim()),
-                Span::styled("  ", Style::default()),
+                Span::styled(format!(" [ {time} ] "), theme::dim()),
+                Span::styled(format!("[ {source_tag} ] "), icon_style),
                 Span::styled(&notif.title, title_style),
             ]);
             buf.set_line(inner.x + 1, y, &timeline, inner.width - 2);
@@ -481,15 +473,15 @@ fn render_notification_detail(app: &App, detail_area: Rect, buf: &mut Buffer) {
 
         // Source
         let source_line = Line::from(vec![
-            Span::styled("Source:  ", theme::muted()),
-            Span::styled(&notif.source, theme::secondary()),
+            Span::styled("[ ROUTE    ]  ", theme::muted()),
+            Span::styled(notif.source.to_uppercase(), theme::secondary()),
         ]);
         buf.set_line(detail_inner.x + 1, y, &source_line, detail_inner.width - 2);
         y += 1;
 
         // Time
         let time_line = Line::from(vec![
-            Span::styled("Time:    ", theme::muted()),
+            Span::styled("[ DISPATCH ]  ", theme::muted()),
             Span::styled(
                 notif.timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
                 theme::dim(),
@@ -501,8 +493,8 @@ fn render_notification_detail(app: &App, detail_area: Rect, buf: &mut Buffer) {
         // Approval status
         if notif.requires_approval {
             let approval = Line::from(vec![
-                Span::styled("Approval: ", theme::muted()),
-                Span::styled("Required", theme::warning()),
+                Span::styled("[ APPROVAL ]  ", theme::muted()),
+                Span::styled("REQUIRED", theme::warning()),
             ]);
             buf.set_line(detail_inner.x + 1, y, &approval, detail_inner.width - 2);
             y += 1;

@@ -24,21 +24,15 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         .filter(|a| a.status == ApprovalStatus::Pending)
         .count();
     let title = Line::from(vec![
-        Span::styled("Approvals", theme::text_bold()),
-        Span::styled(
-            format!("  {pending} pending actions require your decision."),
-            theme::dim(),
-        ),
+        Span::styled("[ APPROVAL AUTHORIZATION QUEUE ]", theme::text_bold()),
+        Span::styled(format!("  [ PENDING: {pending} ]"), theme::dim()),
     ]);
     buf.set_line(header.x, header.y, &title, header.width);
 
     if app.approvals.is_empty() {
         let empty = Line::from(vec![
-            Span::styled("  ◇  ", theme::dim()),
-            Span::styled(
-                "No pending approvals. The agent will request decisions here.",
-                theme::dim(),
-            ),
+            Span::styled("  [ QUEUE EMPTY ]  ", theme::secondary()),
+            Span::styled("No pending authorizations requested.", theme::dim()),
         ]);
         buf.set_line(body.x + 1, body.y + 1, &empty, body.width - 2);
         render_hint(app, body, buf);
@@ -106,7 +100,10 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                 },
                 theme::primary(),
             ),
-            Span::styled(&item.notification.title, theme::text_bold()),
+            Span::styled(
+                format!("[ TARGET: {} ]", item.notification.title),
+                theme::text_bold(),
+            ),
             Span::styled("  ", Style::default()),
             Span::styled(format!("[{status_label}]"), status_style),
         ]);
@@ -117,26 +114,27 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             if let Some(expires) = item.expires_at {
                 let remaining = (expires - chrono::Utc::now()).num_seconds().max(0);
                 if remaining < 60 {
-                    format!("  expires in {remaining}s")
+                    format!("  [ EXPIRES: {remaining}s ]")
                 } else {
-                    format!("  expires in {}m{}s", remaining / 60, remaining % 60)
+                    format!("  [ EXPIRES: {}m{}s ]", remaining / 60, remaining % 60)
                 }
             } else {
                 let secs = (chrono::Utc::now() - item.notification.timestamp)
                     .num_seconds()
                     .max(0);
                 if secs < 60 {
-                    format!("  waiting {secs}s")
+                    format!("  [ WAITING: {secs}s ]")
                 } else {
-                    format!("  waiting {}m{}s", secs / 60, secs % 60)
+                    format!("  [ WAITING: {}m{}s ]", secs / 60, secs % 60)
                 }
             }
         } else {
             String::new()
         };
         let source_line = Line::from(vec![
-            Span::styled("   Source: ", theme::muted()),
-            Span::styled(&item.notification.source, theme::secondary()),
+            Span::styled("   [ SOURCE: ", theme::muted()),
+            Span::styled(item.notification.source.to_uppercase(), theme::secondary()),
+            Span::styled(" ]", theme::muted()),
             Span::styled(
                 elapsed_str,
                 if is_pending {
@@ -159,7 +157,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             .take((inner.width.saturating_sub(6)) as usize)
             .collect();
         let detail_line = Line::from(vec![
-            Span::styled("   ", Style::default()),
+            Span::styled("   [ PREVIEW ]  ", theme::muted()),
             Span::styled(body_preview, theme::text()),
             if item.notification.body.lines().count() > 1 {
                 Span::styled("  [V] expand", theme::dim())
@@ -197,9 +195,9 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             .border_type(BorderType::Plain)
             .border_style(theme::border_active())
             .title(Line::from(vec![
-                Span::styled(" Detail — ", theme::muted()),
+                Span::styled("[ DETAILS ]  [ TARGET: ", theme::muted()),
                 Span::styled(&item.notification.title, theme::text_bold()),
-                Span::styled(" ", Style::default()),
+                Span::styled(" ]", theme::muted()),
             ]));
         let inner = block.inner(detail);
         block.render(detail, buf);

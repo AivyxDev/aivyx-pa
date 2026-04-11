@@ -25,13 +25,16 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
     // ── Header ────────────────────────────────────────────────
     let title = Line::from(vec![
+        Span::styled("[ IDENTITY: ", theme::dim()),
         Span::styled(
             &app.agent_name,
             Style::default()
                 .fg(theme::PRIMARY)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(format!("  v{}", app.version), theme::dim()),
+        Span::styled(" ]  [ CORE: ", theme::dim()),
+        Span::styled(format!("v{}", app.version), theme::muted()),
+        Span::styled(" ]", theme::dim()),
     ]);
     let tier_style = match app.autonomy_tier.to_lowercase().as_str() {
         "free" => theme::sage(),
@@ -41,10 +44,10 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         _ => theme::dim(),
     };
     let subtitle = Line::from(vec![
-        Span::styled("Autonomy: ", theme::dim()),
+        Span::styled("[ AUTONOMY: ", theme::dim()),
         Span::styled(&app.autonomy_tier, tier_style),
-        Span::styled("  │  ", theme::dim()),
-        Span::styled("Skills: ", theme::dim()),
+        Span::styled(" ]  |  ", theme::dim()),
+        Span::styled("[ SKILLS: ", theme::dim()),
         Span::styled(
             app.settings
                 .as_ref()
@@ -52,8 +55,8 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                 .unwrap_or("0".into()),
             theme::text(),
         ),
-        Span::styled("  │  ", theme::dim()),
-        Span::styled("Schedules: ", theme::dim()),
+        Span::styled(" ]  |  ", theme::dim()),
+        Span::styled("[ SCHEDULES: ", theme::dim()),
         Span::styled(
             app.settings
                 .as_ref()
@@ -65,6 +68,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                 .unwrap_or("0/0".into()),
             theme::text(),
         ),
+        Span::styled(" ]", theme::dim()),
     ]);
     buf.set_line(header.x, header.y, &title, header.width);
     buf.set_line(header.x, header.y + 1, &subtitle, header.width);
@@ -150,9 +154,12 @@ fn render_stat_cards(app: &App, area: Rect, buf: &mut Buffer) {
 fn render_card(buf: &mut Buffer, area: Rect, title: &str, stats: &[(&str, &str, Style)]) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(BorderType::Plain)
         .border_style(theme::border())
-        .title(Line::from(Span::styled(format!(" {title} "), theme::dim())));
+        .title(Line::from(Span::styled(
+            format!(" [ {title} ] "),
+            theme::dim(),
+        )));
     let inner = block.inner(area);
     block.render(area, buf);
 
@@ -162,8 +169,8 @@ fn render_card(buf: &mut Buffer, area: Rect, title: &str, stats: &[(&str, &str, 
             break;
         }
         let line = Line::from(vec![
-            Span::styled(format!("  {value}"), style.add_modifier(Modifier::BOLD)),
-            Span::styled(format!(" {label}"), theme::dim()),
+            Span::styled(format!("  [ {}", label.to_uppercase()), theme::dim()),
+            Span::styled(format!(": {} ]", value), style.add_modifier(Modifier::BOLD)),
         ]);
         buf.set_line(inner.x, y, &line, inner.width);
         y += 1;
@@ -181,38 +188,44 @@ fn render_health_bar(app: &App, area: Rect, buf: &mut Buffer) {
         }
     }
 
-    fn status_icon(label: &str) -> &'static str {
+    fn status_text(label: &str) -> &'static str {
         match label {
-            "healthy" => "✓",
-            "degraded" => "✗",
-            "n/a" => "·",
-            _ => "…",
+            "healthy" => "OK",
+            "degraded" => "FAIL",
+            "n/a" => "--",
+            _ => "...",
         }
     }
 
-    let mut spans = vec![Span::styled(" System: ", theme::dim())];
+    let mut spans = vec![Span::styled("[ SUBSYSTEMS ]  ", theme::dim())];
 
     for (name, label) in [
         ("LLM", &app.health_provider),
-        ("Email", &app.health_email),
-        ("Config", &app.health_config),
-        ("Disk", &app.health_disk),
+        ("EMAIL", &app.health_email),
+        ("CFG", &app.health_config),
+        ("DSK", &app.health_disk),
     ] {
+        spans.push(Span::styled(format!("[ {name}: "), theme::dim()));
         spans.push(Span::styled(
-            format!("{} ", status_icon(label)),
+            format!("{} ", status_text(label)),
             status_style(label),
         ));
-        spans.push(Span::styled(format!("{name} "), status_style(label)));
-        spans.push(Span::styled(" ", theme::dim()));
+        spans.push(Span::styled("]  ", theme::dim()));
     }
 
     // Append detail for degraded subsystems
     if let Some(ref detail) = app.health_provider_detail {
-        spans.push(Span::styled("│ ", theme::dim()));
-        spans.push(Span::styled(detail.as_str(), theme::error()));
+        spans.push(Span::styled("| ", theme::dim()));
+        spans.push(Span::styled(
+            format!("[ ERR: {} ]", detail.as_str()),
+            theme::error(),
+        ));
     } else if let Some(ref detail) = app.health_email_detail {
-        spans.push(Span::styled("│ ", theme::dim()));
-        spans.push(Span::styled(detail.as_str(), theme::error()));
+        spans.push(Span::styled("| ", theme::dim()));
+        spans.push(Span::styled(
+            format!("[ ERR: {} ]", detail.as_str()),
+            theme::error(),
+        ));
     }
 
     buf.set_line(area.x, area.y, &Line::from(spans), area.width);
@@ -222,12 +235,12 @@ fn render_health_bar(app: &App, area: Rect, buf: &mut Buffer) {
 fn render_activity_feed(app: &App, area: Rect, buf: &mut Buffer) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(BorderType::Plain)
         .border_style(theme::border())
         .title(Line::from(vec![
-            Span::styled(" Activity ", theme::dim()),
+            Span::styled(" [ ACTIVITY FEED ]  ", theme::dim()),
             Span::styled(
-                format!("({} recent) ", app.notifications.len()),
+                format!("[ LOGS: {} ] ", app.notifications.len()),
                 theme::muted(),
             ),
         ]));
@@ -260,7 +273,7 @@ fn render_activity_feed(app: &App, area: Rect, buf: &mut Buffer) {
         let source_tag = notif.source.to_uppercase();
 
         // Truncate title to fit
-        let prefix_len = timestamp.len() + source_tag.len() + 6; // "[HH:MM:SS] TAG: "
+        let prefix_len = timestamp.len() + source_tag.len() + 7; // "[HH:MM:SS] | TAG | "
         let max_title = (inner.width as usize).saturating_sub(prefix_len + 2);
         let title = if notif.title.len() > max_title && max_title > 1 {
             format!("{}…", &notif.title[..max_title - 1])
@@ -269,9 +282,9 @@ fn render_activity_feed(app: &App, area: Rect, buf: &mut Buffer) {
         };
 
         let line = Line::from(vec![
-            Span::styled(format!("[{timestamp}] "), theme::dim()),
+            Span::styled(format!("[{timestamp}] | "), theme::dim()),
             Span::styled(
-                format!("{source_tag}: "),
+                format!("{source_tag} | "),
                 Style::default()
                     .fg(source_color)
                     .add_modifier(Modifier::BOLD),

@@ -463,6 +463,16 @@ pub struct App {
 
     // ── Data refresh tracking ──────────────────────────────────
     pub last_refresh: std::time::Instant,
+
+    // ── Chat persistence background tasks ──────────────────────
+    /// Tracks in-flight chat-session save tasks spawned from the
+    /// token-polling loop. The poll path is tick-driven and cannot
+    /// `.await`, so saves must be spawned — but we still need to
+    /// drain pending writes on shutdown to avoid losing the final
+    /// turn if the user quits immediately after a streaming reply.
+    ///
+    /// Call [`App::drain_chat_saves`] after the main event loop exits.
+    pub chat_save_tasks: tokio::task::JoinSet<()>,
 }
 
 impl App {
@@ -583,6 +593,23 @@ impl App {
             health_email_detail: None,
 
             last_refresh: std::time::Instant::now(),
+
+            chat_save_tasks: tokio::task::JoinSet::new(),
+        }
+    }
+
+    /// Await all in-flight chat-session save tasks.
+    ///
+    /// Call this after the main event loop exits (i.e. the user has
+    /// requested shutdown) so pending encrypted writes finish before
+    /// the process exits. Any save that panicked or errored is logged
+    /// but does not prevent shutdown — we've already told the user we
+    /// are quitting.
+    pub async fn drain_chat_saves(&mut self) {
+        while let Some(res) = self.chat_save_tasks.join_next().await {
+            if let Err(e) = res {
+                tracing::warn!("chat save task failed during shutdown drain: {e}");
+            }
         }
     }
 
@@ -2622,7 +2649,7 @@ impl App {
                     let conv_key = state.conversation_key.clone();
                     let chat_msgs = self.chat_messages.clone();
 
-                    tokio::spawn(async move {
+                    self.chat_save_tasks.spawn(async move {
                         let agent = agent.lock().await;
                         let conversation = agent.conversation();
 
@@ -2651,15 +2678,29 @@ impl App {
                         meta.id = sid;
                         meta.turn_count = aivyx_pa::sessions::count_turns(&session_msgs);
                         meta.updated_at = chrono::Utc::now();
-                        aivyx_pa::sessions::save_chat_session(
+                        // NOTE: save_chat_session is now fallible and atomic —
+                        // meta + payload land in a single redb txn so a partial
+                        // write can no longer leave an orphaned meta pointing at
+                        // a missing body. Log-and-continue here: we're in a
+                        // detached task with no user-facing channel to surface
+                        // the error, but tui.log will still capture it.
+                        if let Err(e) = aivyx_pa::sessions::save_chat_session(
                             &store,
                             &conv_key,
                             &meta,
                             &session_msgs,
-                        );
+                        ) {
+                            tracing::error!(
+                                session_id = %meta.id,
+                                "chat session save failed: {e}"
+                            );
+                            return;
+                        }
 
                         // Persist the agent's ephemeral learned state alongside
                         // the conversation so it can be restored on session load.
+                        // This is a second independent put — tracked separately
+                        // under C1 (store namespace work).
                         let resume = aivyx_pa::sessions::ResumeToken::from_snapshot(
                             agent.export_resume_state(),
                         );
@@ -3272,15 +3313,27 @@ impl App {
                             KeyCode::Char('p') if selected > 0 => {
                                 // Preview session messages (display pairs only)
                                 if let Some(entry) = sessions.get(selected - 1) {
+                                    // Preview is read-only: on load error we show
+                                    // an empty preview and log the reason. The more
+                                    // dangerous path (load_session, which re-saves
+                                    // on the next turn) has stricter handling below.
                                     let lines = self
                                         .state
                                         .as_ref()
-                                        .and_then(|s| {
-                                            aivyx_pa::sessions::load_chat_messages(
-                                                &s.store,
-                                                &s.conversation_key,
-                                                &entry.id,
-                                            )
+                                        .and_then(|s| match aivyx_pa::sessions::load_chat_messages(
+                                            &s.store,
+                                            &s.conversation_key,
+                                            &entry.id,
+                                        ) {
+                                            Ok(opt) => opt,
+                                            Err(e) => {
+                                                tracing::warn!(
+                                                    session_id = %entry.id,
+                                                    error = %e,
+                                                    "preview: session unreadable"
+                                                );
+                                                None
+                                            }
                                         })
                                         .map(|msgs| aivyx_pa::sessions::to_display_pairs(&msgs))
                                         .unwrap_or_default();
@@ -3622,43 +3675,77 @@ impl App {
         // previous turn finishes or hits its 5-minute timeout.
         self.cancel_chat_stream();
         let Some(ref state) = self.state else { return };
-        if let Some(messages) = aivyx_pa::sessions::load_chat_messages(
+        // H2: distinguish "not found" from "unreadable". Only restore
+        // on Ok(Some(..)). On Err we abort the load entirely — the
+        // subsequent turn would otherwise re-save this session and
+        // overwrite the unreadable-but-present bytes on disk.
+        let messages = match aivyx_pa::sessions::load_chat_messages(
             &state.store,
             &state.conversation_key,
             session_id,
         ) {
-            // Restore agent conversation history (includes tool results)
-            // and ephemeral learned state (resume token) if available.
-            let agent = state.agent.clone();
-            let history = aivyx_pa::sessions::to_chat_messages(&messages);
-            let resume_token = aivyx_pa::sessions::load_resume_token(
-                &state.store,
-                &state.conversation_key,
-                session_id,
-            );
-            tokio::spawn(async move {
-                let mut agent = agent.lock().await;
-                agent.restore_conversation(history);
-                if let Some(token) = resume_token {
-                    agent.apply_resume_state(token.into_snapshot());
-                }
-            });
+            Ok(Some(m)) => m,
+            Ok(None) => {
+                tracing::info!(session_id = %session_id, "load_session: no messages persisted yet");
+                return;
+            }
+            Err(e) => {
+                tracing::error!(
+                    session_id = %session_id,
+                    error = %e,
+                    "load_session: refusing to restore corrupted or unreadable session"
+                );
+                self.notifications.insert(
+                    0,
+                    Notification {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        kind: aivyx_loop::NotificationKind::Urgent,
+                        title: "Session load failed".into(),
+                        body: format!(
+                            "Session '{session_id}' exists on disk but could not be decoded. \
+                             The record is preserved; do not create new turns under this ID."
+                        ),
+                        source: "sessions".into(),
+                        timestamp: chrono::Utc::now(),
+                        requires_approval: false,
+                        goal_id: None,
+                    },
+                );
+                return;
+            }
+        };
 
-            // Display only user/assistant messages in the chat view
-            let display_pairs = aivyx_pa::sessions::to_display_pairs(&messages);
-            self.chat_messages = display_pairs
-                .into_iter()
-                .map(|(role, content)| {
-                    ChatMessage {
-                        role: if role == "you" { "user".into() } else { role },
-                        content,
-                        timestamp: String::new(), // historical messages don't have timestamps
-                    }
-                })
-                .collect();
-            self.chat_session_id = Some(session_id.to_string());
-            self.chat_scroll = 0;
-        }
+        // Restore agent conversation history (includes tool results)
+        // and ephemeral learned state (resume token) if available.
+        let agent = state.agent.clone();
+        let history = aivyx_pa::sessions::to_chat_messages(&messages);
+        let resume_token = aivyx_pa::sessions::load_resume_token(
+            &state.store,
+            &state.conversation_key,
+            session_id,
+        );
+        tokio::spawn(async move {
+            let mut agent = agent.lock().await;
+            agent.restore_conversation(history);
+            if let Some(token) = resume_token {
+                agent.apply_resume_state(token.into_snapshot());
+            }
+        });
+
+        // Display only user/assistant messages in the chat view
+        let display_pairs = aivyx_pa::sessions::to_display_pairs(&messages);
+        self.chat_messages = display_pairs
+            .into_iter()
+            .map(|(role, content)| {
+                ChatMessage {
+                    role: if role == "you" { "user".into() } else { role },
+                    content,
+                    timestamp: String::new(), // historical messages don't have timestamps
+                }
+            })
+            .collect();
+        self.chat_session_id = Some(session_id.to_string());
+        self.chat_scroll = 0;
     }
 
     /// Open the system prompt preview popup.
@@ -3724,26 +3811,28 @@ impl App {
 
         let snapshots = if let Ok(agent) = state.agent.try_lock() {
             let session_id = agent.session_id();
-            // List snapshot keys from the encrypted store using the same
-            // key format as SessionStore: "snapshot:{session_id}:{index}".
-            let prefix = format!("snapshot:{session_id}:");
-            let mut entries = Vec::new();
-            if let Ok(keys) = state.store.list_keys() {
-                for key in keys {
-                    if key.starts_with(&prefix)
-                        && let Ok(data) = state.store.get(&key, &state.conversation_key)
-                        && let Some(data) = data
-                        && let Ok(snap) =
-                            serde_json::from_slice::<aivyx_agent::ConversationSnapshot>(&data)
-                    {
-                        entries.push(SnapshotEntry {
-                            message_index: snap.message_index,
-                            label: snap.label,
-                            created_at: snap.created_at.format("%Y-%m-%d %H:%M").to_string(),
-                        });
-                    }
+            // Route through the typed session_store API rather than
+            // constructing raw redb keys here. Keeps snapshot key
+            // formatting in exactly one place (aivyx-agent::session_store)
+            // and prevents drift between writer (TUI) and reader (agent).
+            let mut entries = match aivyx_agent::session_store::list_snapshots(
+                &state.store,
+                &state.conversation_key,
+                &session_id,
+            ) {
+                Ok(snaps) => snaps
+                    .into_iter()
+                    .map(|snap| SnapshotEntry {
+                        message_index: snap.message_index,
+                        label: snap.label,
+                        created_at: snap.created_at.format("%Y-%m-%d %H:%M").to_string(),
+                    })
+                    .collect::<Vec<_>>(),
+                Err(e) => {
+                    tracing::warn!("Failed to list snapshots: {e}");
+                    Vec::new()
                 }
-            }
+            };
             entries.sort_by_key(|e| e.message_index);
             entries
         } else {
@@ -3764,17 +3853,12 @@ impl App {
 
         if let Ok(agent) = state.agent.try_lock() {
             let snapshot = agent.create_snapshot(None, label);
-            let key = format!(
-                "snapshot:{}:{}",
-                snapshot.source_session_id, snapshot.message_index
-            );
-            match serde_json::to_vec(&snapshot) {
-                Ok(data) => {
-                    if let Err(e) = state.store.put(&key, &data, &state.conversation_key) {
-                        tracing::warn!("Failed to save snapshot: {e}");
-                    }
-                }
-                Err(e) => tracing::warn!("Failed to serialize snapshot: {e}"),
+            if let Err(e) = aivyx_agent::session_store::save_snapshot(
+                &state.store,
+                &state.conversation_key,
+                &snapshot,
+            ) {
+                tracing::warn!("Failed to save snapshot: {e}");
             }
         }
     }
@@ -3794,12 +3878,21 @@ impl App {
         tokio::spawn(async move {
             let mut agent = agent.lock().await;
             let session_id = agent.session_id();
-            let key = format!("snapshot:{session_id}:{message_index}");
-            if let Ok(Some(data)) = store.get(&key, &conv_key)
-                && let Ok(snapshot) =
-                    serde_json::from_slice::<aivyx_agent::ConversationSnapshot>(&data)
-            {
-                let _parent_id = agent.branch_from_snapshot(&snapshot);
+            match aivyx_agent::session_store::load_snapshot(
+                &store,
+                &conv_key,
+                &session_id,
+                message_index,
+            ) {
+                Ok(Some(snapshot)) => {
+                    let _parent_id = agent.branch_from_snapshot(&snapshot);
+                }
+                Ok(None) => {
+                    tracing::warn!(
+                        "branch_from_snapshot: no snapshot at index {message_index} for session {session_id}"
+                    );
+                }
+                Err(e) => tracing::warn!("Failed to load snapshot: {e}"),
             }
         });
 
@@ -3816,8 +3909,11 @@ impl App {
 
         if let Ok(agent) = state.agent.try_lock() {
             let session_id = agent.session_id();
-            let key = format!("snapshot:{session_id}:{message_index}");
-            if let Err(e) = state.store.delete(&key) {
+            if let Err(e) = aivyx_agent::session_store::delete_snapshot(
+                &state.store,
+                &session_id,
+                message_index,
+            ) {
                 tracing::warn!("Failed to delete snapshot: {e}");
             }
         }
@@ -3909,6 +4005,8 @@ impl App {
             health_provider_detail: None,
             health_email_detail: None,
             last_refresh: std::time::Instant::now(),
+
+            chat_save_tasks: tokio::task::JoinSet::new(),
         }
     }
 }

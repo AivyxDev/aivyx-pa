@@ -29,11 +29,8 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     // Title
     let total = app.missions.len();
     let title = Line::from(vec![
-        Span::styled("Missions", theme::text_bold()),
-        Span::styled(
-            format!("  {total} missions tracked by your assistant."),
-            theme::dim(),
-        ),
+        Span::styled("[ TACTICAL MISSIONS ]", theme::text_bold()),
+        Span::styled(format!("  [ TRACKING: {total} ]"), theme::dim()),
     ]);
     buf.set_line(header.x, header.y, &title, header.width);
 
@@ -47,10 +44,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         } else {
             theme::dim()
         };
-        filter_spans.push(Span::styled(format!(" {f} "), style));
-        if i < FILTERS.len() - 1 {
-            filter_spans.push(Span::styled("│", theme::dim()));
-        }
+        filter_spans.push(Span::styled(format!("[ {} ] ", f.to_uppercase()), style));
     }
     buf.set_line(
         filter_row.x,
@@ -68,10 +62,10 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
     let list_block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(BorderType::Plain)
         .border_style(theme::border())
         .title(Line::from(Span::styled(
-            format!(" {} Missions ", missions.len()),
+            format!("[ INDEX: {} MISSIONS ]", missions.len()),
             theme::dim(),
         )));
     let list_inner = list_block.inner(list_area);
@@ -115,7 +109,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             let is_selected = i == app.mission_selected;
             let block = Block::default()
                 .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
+                .border_type(BorderType::Plain)
                 .border_style(if is_selected {
                     theme::border_active()
                 } else {
@@ -143,7 +137,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                         theme::dim()
                     },
                 ),
-                Span::styled(goal, goal_style),
+                Span::styled(format!("[ TARGET: {} ]", goal), goal_style),
             ]);
             buf.set_line(inner.x, inner.y, &goal_line, inner.width);
 
@@ -151,23 +145,27 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             if inner.height > 1 {
                 let row1 = match &meta.status {
                     TaskStatus::Failed { reason } => Line::from(vec![
-                        Span::styled("  ✗ ", Style::default().fg(theme::ERROR)),
+                        Span::styled("  [ FAILED ]  ", Style::default().fg(theme::ERROR)),
                         Span::styled(
-                            truncate(reason, inner.width.saturating_sub(6) as usize),
+                            truncate(reason, inner.width.saturating_sub(14) as usize),
                             Style::default().fg(theme::ERROR),
                         ),
                     ]),
                     _ => {
                         let elapsed = format_elapsed(meta);
-                        let step_str = format!("  {}/{}", meta.steps_completed, meta.steps_total);
+                        let step_str = format!(
+                            "  [ METRICS: {}/{} ]",
+                            meta.steps_completed, meta.steps_total
+                        );
                         Line::from(vec![
-                            Span::styled("  ", Style::default()),
+                            Span::styled("  [ STATUS: ", theme::muted()),
                             format_status(&meta.status),
+                            Span::styled(" ]", theme::muted()),
                             Span::styled(step_str, theme::dim()),
                             if elapsed.is_empty() {
                                 Span::raw("")
                             } else {
-                                Span::styled(format!("  {elapsed}"), theme::dim())
+                                Span::styled(format!("  [ ELAPSED: {} ]", elapsed), theme::dim())
                             },
                         ])
                     }
@@ -193,9 +191,9 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     // ── Detail panel ──────────────────────────────────────────
     let detail_block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(BorderType::Plain)
         .border_style(theme::border())
-        .title(Line::from(Span::styled(" Detail ", theme::dim())));
+        .title(Line::from(Span::styled("[ DETAILS ]", theme::dim())));
     let detail_inner = detail_block.inner(detail_area);
     detail_block.render(detail_area, buf);
 
@@ -216,20 +214,12 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
     // ── Help bar ──────────────────────────────────────────────
     let help = Line::from(vec![
-        Span::styled("↑↓", theme::primary()),
-        Span::styled(" navigate  ", theme::dim()),
-        Span::styled("[]", theme::primary()),
-        Span::styled(" filter  ", theme::dim()),
-        Span::styled("r", theme::primary()),
-        Span::styled(" resume  ", theme::dim()),
-        Span::styled("a", theme::primary()),
-        Span::styled("/", theme::dim()),
-        Span::styled("d", theme::primary()),
-        Span::styled(" approve/deny  ", theme::dim()),
-        Span::styled("x", theme::primary()),
-        Span::styled(" cancel  ", theme::dim()),
-        Span::styled("Tab", theme::primary()),
-        Span::styled(" sidebar", theme::dim()),
+        Span::styled("[ \u{2191}\u{2193}: NAVIGATE ]  ", theme::dim()),
+        Span::styled("[ []: FILTER ]  ", theme::dim()),
+        Span::styled("[ R: RESUME ]  ", theme::dim()),
+        Span::styled("[ A/D: APPROVE/DENY ]  ", theme::dim()),
+        Span::styled("[ X: CANCEL ]  ", theme::dim()),
+        Span::styled("[ TAB: SIDEBAR ]", theme::dim()),
     ]);
     buf.set_line(help_bar.x, help_bar.y, &help, help_bar.width);
 }
@@ -241,9 +231,9 @@ fn render_detail(mission: &aivyx_task_engine::Mission, area: Rect, buf: &mut Buf
 
     // Goal
     let goal_label = Line::from(vec![
-        Span::styled("Goal: ", theme::text_bold()),
+        Span::styled("[ CORE     ]  ", theme::muted()),
         Span::styled(
-            truncate(&mission.goal, max_w.saturating_sub(6)),
+            truncate(&mission.goal, max_w.saturating_sub(14)),
             theme::text(),
         ),
     ]);
@@ -257,9 +247,10 @@ fn render_detail(mission: &aivyx_task_engine::Mission, area: Rect, buf: &mut Buf
         "Sequential"
     };
     let agent_line = Line::from(vec![
-        Span::styled("Agent: ", theme::dim()),
+        Span::styled("[ AGENT    ]  ", theme::muted()),
         Span::styled(&mission.agent_name, theme::text()),
-        Span::styled(format!("    Mode: {mode}"), theme::dim()),
+        Span::styled("      [ MODE ]  ", theme::muted()),
+        Span::styled(mode, theme::text()),
     ]);
     buf.set_line(area.x + 1, y, &agent_line, area.width - 2);
     y += 1;
@@ -268,9 +259,12 @@ fn render_detail(mission: &aivyx_task_engine::Mission, area: Rect, buf: &mut Buf
     let completed = mission.steps_completed();
     let total = mission.steps.len();
     let status_line = Line::from(vec![
-        Span::styled("Status: ", theme::dim()),
+        Span::styled("[ STATUS   ]  ", theme::muted()),
         format_status(&mission.status),
-        Span::styled(format!("  (step {completed}/{total})"), theme::dim()),
+        Span::styled(
+            format!("      [ METRICS ]  (step {completed}/{total})"),
+            theme::dim(),
+        ),
     ]);
     buf.set_line(area.x + 1, y, &status_line, area.width - 2);
     y += 1;
@@ -279,8 +273,10 @@ fn render_detail(mission: &aivyx_task_engine::Mission, area: Rect, buf: &mut Buf
     let created = mission.created_at.format("%Y-%m-%d %H:%M").to_string();
     let updated = format_age(mission.updated_at);
     let time_line = Line::from(vec![
-        Span::styled(format!("Created: {created}"), theme::dim()),
-        Span::styled(format!("    Updated: {updated}"), theme::dim()),
+        Span::styled("[ CREATED  ]  ", theme::muted()),
+        Span::styled(created, theme::text()),
+        Span::styled("   [ UPDATED ]  ", theme::muted()),
+        Span::styled(updated, theme::text()),
     ]);
     buf.set_line(area.x + 1, y, &time_line, area.width - 2);
     y += 2; // blank line
@@ -288,7 +284,7 @@ fn render_detail(mission: &aivyx_task_engine::Mission, area: Rect, buf: &mut Buf
     // Recipe name if present
     if let Some(ref recipe) = mission.recipe_name {
         let recipe_line = Line::from(vec![
-            Span::styled("Recipe: ", theme::dim()),
+            Span::styled("[ RECIPE   ]  ", theme::muted()),
             Span::styled(recipe, theme::text()),
         ]);
         buf.set_line(area.x + 1, y, &recipe_line, area.width - 2);
@@ -297,7 +293,7 @@ fn render_detail(mission: &aivyx_task_engine::Mission, area: Rect, buf: &mut Buf
 
     // Steps header
     if y < area.y + area.height {
-        let steps_hdr = Line::from(Span::styled("Steps:", theme::text_bold()));
+        let steps_hdr = Line::from(Span::styled("[ TIMELINE ]", theme::muted()));
         buf.set_line(area.x + 1, y, &steps_hdr, area.width - 2);
         y += 1;
     }
@@ -309,29 +305,29 @@ fn render_detail(mission: &aivyx_task_engine::Mission, area: Rect, buf: &mut Buf
         }
 
         let (icon, icon_style) = match &step.status {
-            StepStatus::Completed => ("✓", Style::default().fg(theme::SAGE)),
-            StepStatus::Running => ("→", Style::default().fg(theme::PRIMARY)),
-            StepStatus::Failed { .. } => ("✗", Style::default().fg(theme::ERROR)),
-            StepStatus::Pending => ("○", theme::dim()),
-            StepStatus::Skipped => ("⊘", theme::dim()),
+            StepStatus::Completed => ("[⚙ OK]", Style::default().fg(theme::SAGE)),
+            StepStatus::Running => ("[ACTIVE]", Style::default().fg(theme::PRIMARY)),
+            StepStatus::Failed { .. } => ("[FAILED]", Style::default().fg(theme::ERROR)),
+            StepStatus::Pending => ("[ WAIT ]", theme::dim()),
+            StepStatus::Skipped => ("[ SKIP ]", theme::dim()),
         };
 
-        let desc = truncate(&step.description, max_w.saturating_sub(8));
+        let desc = truncate(&step.description, max_w.saturating_sub(20));
         let duration = match (&step.started_at, &step.completed_at) {
             (Some(start), Some(end)) => {
                 let secs = (*end - *start).num_seconds();
                 if secs >= 60 {
-                    format!(" [{:.0}m{:02}s]", secs / 60, secs % 60)
+                    format!("  [ {:.0}m{:02}s ]", secs / 60, secs % 60)
                 } else {
-                    format!(" [{secs}s]")
+                    format!("  [ {secs}s ]")
                 }
             }
-            (Some(_), None) if matches!(step.status, StepStatus::Running) => " [running]".into(),
+            (Some(_), None) if matches!(step.status, StepStatus::Running) => "  [ RUNNING ]".into(),
             _ => String::new(),
         };
 
         let step_line = Line::from(vec![
-            Span::styled(format!("  {icon} "), icon_style),
+            Span::styled(format!("  {}  ", icon), icon_style),
             Span::styled(format!("{}. {desc}", step.index + 1), theme::text()),
             Span::styled(duration, theme::dim()),
         ]);

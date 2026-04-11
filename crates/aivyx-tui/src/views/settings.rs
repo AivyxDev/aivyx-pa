@@ -26,8 +26,8 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     .areas(area);
 
     let title = Line::from(vec![
-        Span::styled("Settings", theme::text_bold()),
-        Span::styled("  Configure your personal assistant.", theme::dim()),
+        Span::styled("[ SYSTEM SETTINGS ]", theme::text_bold()),
+        Span::styled("  [ LOCAL CONFIGURATION ]", theme::dim()),
     ]);
     buf.set_line(header.x, header.y, &title, header.width);
 
@@ -59,7 +59,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             buf.set_line(body.x + 2, body.y + row, &hint, body.width - 4);
         }
         let help = Line::from(Span::styled(
-            "e open editor  r reload  Tab sidebar",
+            "[ E: OPEN EDITOR ]  [ R: RELOAD ]  [ TAB: SIDEBAR ]",
             theme::dim(),
         ));
         buf.set_line(help_bar.x + 1, help_bar.y, &help, help_bar.width - 2);
@@ -755,28 +755,28 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     let content_focused = app.focus == crate::app::Focus::Content;
     let help_text = if app.settings_popup.is_some() {
         match &app.settings_popup {
-            Some(SettingsPopup::MultiLineInput { .. }) => "Ctrl+S save  Esc cancel",
+            Some(SettingsPopup::MultiLineInput { .. }) => "[ CTRL+S: SAVE ]  [ ESC: CANCEL ]",
             Some(SettingsPopup::SkillManager { .. }) => {
-                "Enter add/done  d remove  ↑↓ select  Esc close"
+                "[ ENTER: ADD/DONE ]  [ D: REMOVE ]  [ \u{2191}\u{2193}: SELECT ]  [ ESC: CLOSE ]"
             }
             Some(SettingsPopup::IntegrationSetup { .. }) => {
-                "Tab next field  Enter save  Esc cancel"
+                "[ TAB: NEXT ]  [ ENTER: SAVE ]  [ ESC: CANCEL ]"
             }
-            Some(SettingsPopup::Confirm { .. }) => "y confirm  n/Esc cancel",
-            _ => "Enter confirm  Esc cancel",
+            Some(SettingsPopup::Confirm { .. }) => "[ Y: AFFIRMATIVE ]  [ N/ESC: ABORT ]",
+            _ => "[ ENTER: CONFIRM ]  [ ESC: CANCEL ]",
         }
     } else if !content_focused {
-        "Tab or → to edit settings cards  ↑↓ sidebar"
+        "[ TAB/\u{2192}: EDIT CARDS ]  [ \u{2191}\u{2193}: SIDEBAR ]"
     } else if ci == 5 && app.settings_item_count(5) > 0 {
-        "Enter setup  d remove  ↑↓ navigate"
+        "[ ENTER: SETUP ]  [ D: REMOVE ]  [ \u{2191}\u{2193}: NAVIGATE ]"
     } else if ci == 9 && app.settings_item_count(9) > 0 {
-        "←→ change access  ↑↓ navigate  Tab sidebar"
+        "[ \u{2190}\u{2192}: ACCESS ]  [ \u{2191}\u{2193}: NAVIGATE ]  [ TAB: SIDEBAR ]"
     } else if ci == 7 && app.settings_item_count(7) > 0 {
-        "←→ adjust  ↑↓ navigate  Tab sidebar"
+        "[ \u{2190}\u{2192}: ADJUST ]  [ \u{2191}\u{2193}: NAVIGATE ]  [ TAB: SIDEBAR ]"
     } else if app.settings_item_count(ci) > 0 {
-        "↑↓ navigate  Enter edit  Tab sidebar"
+        "[ \u{2191}\u{2193}: NAVIGATE ]  [ ENTER: EDIT ]  [ TAB: SIDEBAR ]"
     } else {
-        "↑↓ cards  Tab sidebar"
+        "[ \u{2191}\u{2193}: CARDS ]  [ TAB: SIDEBAR ]"
     };
     let help = Line::from(vec![Span::styled(help_text, theme::dim())]);
     buf.set_line(help_bar.x + 1, help_bar.y, &help, help_bar.width - 2);
@@ -879,9 +879,10 @@ fn render_popup(popup: &SettingsPopup, frame_count: u64, area: Rect, buf: &mut B
                 InputKind::String => "",
             };
             let input_line = Line::from(vec![
-                Span::styled("> ", theme::primary()),
+                Span::styled("[ ", theme::primary()),
                 Span::styled(value, theme::text_bold()),
                 Span::styled(cursor_char, theme::primary()),
+                Span::styled(" ]", theme::primary()),
                 Span::styled(hint, theme::dim()),
             ]);
             buf.set_line(inner.x + 1, inner.y + 1, &input_line, inner.width - 2);
@@ -947,10 +948,8 @@ fn render_popup(popup: &SettingsPopup, frame_count: u64, area: Rect, buf: &mut B
             let msg = Line::from(Span::styled(message, theme::text()));
             buf.set_line(inner.x + 1, inner.y, &msg, inner.width - 2);
             let hint = Line::from(vec![
-                Span::styled("[Y]", theme::primary_bold()),
-                Span::styled(" YES  ", theme::text()),
-                Span::styled("[N]", theme::primary_bold()),
-                Span::styled(" NO", theme::text()),
+                Span::styled("[ Y: AFFIRMATIVE ]  ", theme::primary_bold()),
+                Span::styled("[ N: ABORT ]", theme::primary_bold()),
             ]);
             buf.set_line(inner.x + 1, inner.y + 2, &hint, inner.width - 2);
         }
@@ -974,9 +973,11 @@ fn render_popup(popup: &SettingsPopup, frame_count: u64, area: Rect, buf: &mut B
             block.render(rect, buf);
 
             let input_line = Line::from(vec![
-                Span::styled("Add: ", theme::muted()),
+                Span::styled("[ ADD ]  ", theme::muted()),
+                Span::styled("[ ", theme::primary()),
                 Span::styled(input, theme::text_bold()),
                 Span::styled(cursor_char, theme::primary()),
+                Span::styled(" ]", theme::primary()),
             ]);
             buf.set_line(inner.x + 1, inner.y, &input_line, inner.width - 2);
 
@@ -985,15 +986,15 @@ fn render_popup(popup: &SettingsPopup, frame_count: u64, area: Rect, buf: &mut B
                     break;
                 }
                 let is_sel = *selected == i;
-                let marker = if is_sel { ">" } else { " " };
+                let marker = if is_sel { "\u{25B6} " } else { "  " };
                 let style = if is_sel {
                     theme::highlight()
                 } else {
                     theme::text()
                 };
                 let line = Line::from(vec![
-                    Span::styled(format!("{marker} "), theme::primary()),
-                    Span::styled(skill, style),
+                    Span::styled(marker, theme::primary()),
+                    Span::styled(format!("[ {} ]", skill), style),
                 ]);
                 buf.set_line(inner.x + 1, inner.y + 1 + i as u16, &line, inner.width - 2);
             }

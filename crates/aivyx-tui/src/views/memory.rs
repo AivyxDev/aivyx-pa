@@ -20,11 +20,8 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     .areas(area);
 
     let title = Line::from(vec![
-        Span::styled("Memory", theme::text_bold()),
-        Span::styled(
-            format!("  {} memories stored.", app.memory_total),
-            theme::dim(),
-        ),
+        Span::styled("[ MEMORY ARCHIVE ]", theme::text_bold()),
+        Span::styled(format!("  [ STORED: {} ]", app.memory_total), theme::dim()),
     ]);
     buf.set_line(header.x, header.y, &title, header.width);
 
@@ -118,7 +115,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         // ID — abbreviated to first 8 chars to save space
         let id_short: String = mem.id.chars().take(8).collect();
         let id_line = Line::from(vec![
-            Span::styled("ID:      ", theme::muted()),
+            Span::styled("[ IDENTIFIER ]  ", theme::muted()),
             Span::styled(format!("{id_short}…"), theme::dim()),
         ]);
         buf.set_line(detail_inner.x + 1, y, &id_line, detail_inner.width - 2);
@@ -126,7 +123,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
         // Updated timestamp
         let time_line = Line::from(vec![
-            Span::styled("Updated: ", theme::muted()),
+            Span::styled("[ UPDATED    ]  ", theme::muted()),
             Span::styled(&mem.updated_at, theme::dim()),
         ]);
         buf.set_line(detail_inner.x + 1, y, &time_line, detail_inner.width - 2);
@@ -202,10 +199,8 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
     // ── Help bar ──────────────────────────────────────────────
     let help = Line::from(vec![
-        Span::styled("↑↓", theme::primary()),
-        Span::styled(" navigate  ", theme::dim()),
-        Span::styled("Tab", theme::primary()),
-        Span::styled(" sidebar", theme::dim()),
+        Span::styled("[ \u{2191}\u{2193}: NAVIGATE ]  ", theme::dim()),
+        Span::styled("[ TAB: SIDEBAR ]", theme::dim()),
     ]);
     buf.set_line(help_bar.x, help_bar.y, &help, help_bar.width);
 }
