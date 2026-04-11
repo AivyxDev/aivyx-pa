@@ -931,7 +931,7 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                             if configured {
                                 app.settings_popup = Some(crate::app::SettingsPopup::Confirm {
                                     message: format!("Remove {label} integration?"),
-                                    action: crate::app::ConfirmAction::RemoveIntegration(kind),
+                                    action: crate::app::ConfirmAction::Integration(kind),
                                 });
                             }
                         }
@@ -969,7 +969,7 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                             let name = settings.schedules[idx].0.clone();
                             app.settings_popup = Some(crate::app::SettingsPopup::Confirm {
                                 message: format!("Delete schedule \"{}\"?", name),
-                                action: crate::app::ConfirmAction::RemoveSchedule(name),
+                                action: crate::app::ConfirmAction::Schedule(name),
                             });
                         }
                     }

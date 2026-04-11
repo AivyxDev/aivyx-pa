@@ -90,9 +90,9 @@ pub enum InputKind {
 
 /// Action to execute when a Confirm dialog is accepted.
 pub enum ConfirmAction {
-    RemoveSkill(usize),
-    RemoveIntegration(IntegrationKind),
-    RemoveSchedule(String),
+    Skill(usize),
+    Integration(IntegrationKind),
+    Schedule(String),
 }
 
 // ── Cron Builder ─────────────────────────────────────────────
@@ -192,32 +192,28 @@ impl CronBuilder {
             && parts[2] == "*"
             && parts[3] == "*"
             && parts[4] == "*"
-        {
-            if let Ok(n) = parts[0][2..].parse::<u8>() {
-                if let Some(idx) = CRON_INTERVALS.iter().position(|&v| v == n) {
+            && let Ok(n) = parts[0][2..].parse::<u8>()
+                && let Some(idx) = CRON_INTERVALS.iter().position(|&v| v == n) {
                     return Self {
                         mode: 0,
                         interval_idx: idx,
                         ..Self::default()
                     };
                 }
-            }
-        }
 
         // M * * * *  →  Hourly
-        if parts[1] == "*" && parts[2] == "*" && parts[3] == "*" && parts[4] == "*" {
-            if let Ok(m) = parts[0].parse::<u8>() {
+        if parts[1] == "*" && parts[2] == "*" && parts[3] == "*" && parts[4] == "*"
+            && let Ok(m) = parts[0].parse::<u8>() {
                 return Self {
                     mode: 1,
                     minute: m,
                     ..Self::default()
                 };
             }
-        }
 
         // M H * * 1-5  →  Weekdays
-        if parts[2] == "*" && parts[3] == "*" && parts[4] == "1-5" {
-            if let (Ok(m), Ok(h)) = (parts[0].parse::<u8>(), parts[1].parse::<u8>()) {
+        if parts[2] == "*" && parts[3] == "*" && parts[4] == "1-5"
+            && let (Ok(m), Ok(h)) = (parts[0].parse::<u8>(), parts[1].parse::<u8>()) {
                 return Self {
                     mode: 3,
                     minute: m,
@@ -225,16 +221,15 @@ impl CronBuilder {
                     ..Self::default()
                 };
             }
-        }
 
         // M H * * D  →  Weekly (single weekday)
-        if parts[2] == "*" && parts[3] == "*" && parts[4] != "*" {
-            if let (Ok(m), Ok(h), Ok(d)) = (
+        if parts[2] == "*" && parts[3] == "*" && parts[4] != "*"
+            && let (Ok(m), Ok(h), Ok(d)) = (
                 parts[0].parse::<u8>(),
                 parts[1].parse::<u8>(),
                 parts[4].parse::<u8>(),
-            ) {
-                if d <= 6 {
+            )
+                && d <= 6 {
                     return Self {
                         mode: 4,
                         minute: m,
@@ -243,17 +238,15 @@ impl CronBuilder {
                         ..Self::default()
                     };
                 }
-            }
-        }
 
         // M H D * *  →  Monthly
-        if parts[3] == "*" && parts[4] == "*" && parts[2] != "*" {
-            if let (Ok(m), Ok(h), Ok(d)) = (
+        if parts[3] == "*" && parts[4] == "*" && parts[2] != "*"
+            && let (Ok(m), Ok(h), Ok(d)) = (
                 parts[0].parse::<u8>(),
                 parts[1].parse::<u8>(),
                 parts[2].parse::<u8>(),
-            ) {
-                if (1..=28).contains(&d) {
+            )
+                && (1..=28).contains(&d) {
                     return Self {
                         mode: 5,
                         minute: m,
@@ -262,12 +255,10 @@ impl CronBuilder {
                         ..Self::default()
                     };
                 }
-            }
-        }
 
         // M H * * *  →  Daily
-        if parts[2] == "*" && parts[3] == "*" && parts[4] == "*" {
-            if let (Ok(m), Ok(h)) = (parts[0].parse::<u8>(), parts[1].parse::<u8>()) {
+        if parts[2] == "*" && parts[3] == "*" && parts[4] == "*"
+            && let (Ok(m), Ok(h)) = (parts[0].parse::<u8>(), parts[1].parse::<u8>()) {
                 return Self {
                     mode: 2,
                     minute: m,
@@ -275,7 +266,6 @@ impl CronBuilder {
                     ..Self::default()
                 };
             }
-        }
 
         Self::custom(expr)
     }
@@ -2557,7 +2547,7 @@ impl App {
                 match key.code {
                     KeyCode::Char('y') | KeyCode::Enter => {
                         match action {
-                            ConfirmAction::RemoveSkill(idx) => {
+                            ConfirmAction::Skill(idx) => {
                                 if let Some(ref s) = self.settings {
                                     let mut skills = s.agent_skills.clone();
                                     if idx < skills.len() {
@@ -2583,7 +2573,7 @@ impl App {
                                     }
                                 }
                             }
-                            ConfirmAction::RemoveIntegration(kind) => {
+                            ConfirmAction::Integration(kind) => {
                                 let _ = aivyx_pa::settings::remove_integration_config(
                                     &config_path,
                                     kind,
@@ -2613,7 +2603,7 @@ impl App {
                                     }
                                 }
                             }
-                            ConfirmAction::RemoveSchedule(name) => {
+                            ConfirmAction::Schedule(name) => {
                                 let _ = aivyx_pa::settings::remove_schedule(&config_path, &name);
                                 match aivyx_pa::settings::reload_settings_snapshot(&config_path) {
                                     Ok(s) => {
@@ -2681,7 +2671,7 @@ impl App {
                         // Put skill manager back, then overlay confirm
                         self.settings_popup = Some(SettingsPopup::Confirm {
                             message: format!("Remove skill \"{name}\"?"),
-                            action: ConfirmAction::RemoveSkill(selected),
+                            action: ConfirmAction::Skill(selected),
                         });
                     }
                     KeyCode::Up => {
@@ -3134,9 +3124,7 @@ impl App {
                                     }
                                 }
                                 KeyCode::Left => {
-                                    if prompt_cursor_col > 0 {
-                                        prompt_cursor_col -= 1;
-                                    }
+                                    prompt_cursor_col = prompt_cursor_col.saturating_sub(1);
                                 }
                                 KeyCode::Right => {
                                     if prompt_cursor_row < prompt.len()
