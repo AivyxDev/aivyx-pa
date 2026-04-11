@@ -626,7 +626,10 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                     app.chat_input_cursor += 1;
                 }
             }
-            KeyCode::Enter if key.modifiers.contains(KeyModifiers::ALT) || key.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Enter
+                if key.modifiers.contains(KeyModifiers::ALT)
+                    || key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
                 if !app.chat_streaming {
                     app.chat_input.insert(app.chat_input_cursor, '\n');
                     app.chat_input_cursor += 1;

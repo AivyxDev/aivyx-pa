@@ -152,9 +152,9 @@ pub fn allocate_free_profile_port() -> anyhow::Result<u16> {
 
     let mut candidate = config::DEFAULT_API_PORT;
     while used.contains(&candidate) {
-        candidate = candidate
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("ran out of u16 ports scanning for free profile port"))?;
+        candidate = candidate.checked_add(1).ok_or_else(|| {
+            anyhow::anyhow!("ran out of u16 ports scanning for free profile port")
+        })?;
     }
     Ok(candidate)
 }
@@ -194,7 +194,12 @@ pub fn render_profile_list() -> String {
         return out;
     }
 
-    let name_w = statuses.iter().map(|s| s.name.len()).max().unwrap_or(4).max(4);
+    let name_w = statuses
+        .iter()
+        .map(|s| s.name.len())
+        .max()
+        .unwrap_or(4)
+        .max(4);
     let persona_w = statuses
         .iter()
         .map(|s| s.persona.as_deref().unwrap_or("-").len())
@@ -260,7 +265,11 @@ pub fn render_profile_show(name: &str) -> anyhow::Result<String> {
     let _ = writeln!(out, "  keys:    {}", dirs.master_key_path().display());
     let _ = writeln!(out);
     let _ = writeln!(out, "  initialized: {}", status.initialized);
-    let _ = writeln!(out, "  persona:     {}", status.persona.as_deref().unwrap_or("-"));
+    let _ = writeln!(
+        out,
+        "  persona:     {}",
+        status.persona.as_deref().unwrap_or("-")
+    );
     let _ = writeln!(out, "  port:        {}", status.port);
     match status.running_pid {
         Some(pid) => {

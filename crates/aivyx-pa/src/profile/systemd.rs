@@ -151,11 +151,7 @@ pub fn render_systemd_unit(opts: &SystemdOpts) -> String {
     // We pass it via `--profile` so the binary knows which profile root
     // to mount. The binary path is an absolute, concrete path resolved
     // at render-time by the install command.
-    let _ = writeln!(
-        out,
-        "ExecStart={} --profile %i",
-        opts.binary_path.display()
-    );
+    let _ = writeln!(out, "ExecStart={} --profile %i", opts.binary_path.display());
     let _ = writeln!(out, "WorkingDirectory={}", opts.profile_root.display());
     // Restart on crash but NOT on clean exit. A clean exit means the
     // user explicitly stopped the service; we shouldn't fight them.
@@ -171,15 +167,8 @@ pub fn render_systemd_unit(opts: &SystemdOpts) -> String {
     // `AIVYX_PASSPHRASE_FILE` from env and opens whatever path it names.
     if opts.use_credential {
         if let Some(pass_file) = opts.passphrase_file.as_ref() {
-            let _ = writeln!(
-                out,
-                "LoadCredential=passphrase:{}",
-                pass_file.display()
-            );
-            let _ = writeln!(
-                out,
-                "Environment=AIVYX_PASSPHRASE_FILE=%d/passphrase"
-            );
+            let _ = writeln!(out, "LoadCredential=passphrase:{}", pass_file.display());
+            let _ = writeln!(out, "Environment=AIVYX_PASSPHRASE_FILE=%d/passphrase");
             let _ = writeln!(out);
         }
     }
@@ -203,11 +192,7 @@ pub fn render_systemd_unit(opts: &SystemdOpts) -> String {
     // Re-expose the profile root as read-write inside the sandbox.
     // Without this, ProtectHome=tmpfs would hide everything including
     // the config, store, and keys the binary needs to boot.
-    let _ = writeln!(
-        out,
-        "ReadWritePaths={}",
-        opts.profile_root.display()
-    );
+    let _ = writeln!(out, "ReadWritePaths={}", opts.profile_root.display());
     // Each service gets its own /tmp and /var/tmp, isolated from the
     // host and from sibling services.
     let _ = writeln!(out, "PrivateTmp=true");
@@ -223,10 +208,7 @@ pub fn render_systemd_unit(opts: &SystemdOpts) -> String {
     // Restrict the set of syscalls to the "service-safe" superset that
     // systemd maintains. This blocks things like `ptrace`, `keyctl`,
     // and raw-packet sockets without breaking normal Rust + tokio code.
-    let _ = writeln!(
-        out,
-        "SystemCallFilter=@system-service"
-    );
+    let _ = writeln!(out, "SystemCallFilter=@system-service");
     // Drop every ambient capability. aivyx runs as a plain user process
     // in the user manager instance, so it never had any caps to begin
     // with, but declaring this makes the unit's posture explicit.

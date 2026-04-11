@@ -129,10 +129,7 @@ fn enforce_startup_exclusivity(
     }
 
     let self_name = profile.unwrap_or(DEFAULT_PROFILE_NAME);
-    let declared_owner = pa_config
-        .desktop
-        .as_ref()
-        .and_then(|d| d.owner.as_deref());
+    let declared_owner = pa_config.desktop.as_ref().and_then(|d| d.owner.as_deref());
 
     // If the config explicitly names an owner that is NOT us, bail out
     // immediately: the user has told us another profile is authoritative
@@ -903,11 +900,8 @@ fn render_service_text(
             // drop-in unit directory, so this script *is* the
             // deliverable — the operator runs it from an elevated
             // prompt to register with SCM.
-            let opts = profile::windows::WindowsOpts::new(
-                binary_path,
-                dirs.root().to_path_buf(),
-                name,
-            );
+            let opts =
+                profile::windows::WindowsOpts::new(binary_path, dirs.root().to_path_buf(), name);
             profile::windows::render_windows_installer(name, &opts)
         }
         ServiceKind::Auto => {
@@ -956,11 +950,7 @@ fn render_service_text(
 /// buried in journald / the log file / Windows Event Viewer. We check
 /// and print actionable remediation instead — `chmod` on Unix,
 /// `icacls` on Windows.
-fn profile_install_service(
-    name: &str,
-    kind: ServiceKind,
-    force: bool,
-) -> anyhow::Result<()> {
+fn profile_install_service(name: &str, kind: ServiceKind, force: bool) -> anyhow::Result<()> {
     let (resolved_kind, text, dirs) = render_service_text(name, kind)?;
 
     // Resolve the canonical install path per platform via the
@@ -969,8 +959,8 @@ fn profile_install_service(
     // testable; we source the real values from `dirs::` and the
     // `AivyxDirs` here in the binary layer.
     use profile::service_install::{
-        audit_passphrase_sidecar as audit_pp, resolve_install_path, PassphraseSidecarStatus,
-        ResolvedServiceKind,
+        PassphraseSidecarStatus, ResolvedServiceKind, audit_passphrase_sidecar as audit_pp,
+        resolve_install_path,
     };
     let resolved_for_lib = match resolved_kind {
         ServiceKind::Systemd => ResolvedServiceKind::Systemd,
@@ -1024,9 +1014,8 @@ fn profile_install_service(
         })?;
     }
 
-    std::fs::write(&install_path, &text).map_err(|e| {
-        anyhow::anyhow!("failed to write unit to {}: {e}", install_path.display())
-    })?;
+    std::fs::write(&install_path, &text)
+        .map_err(|e| anyhow::anyhow!("failed to write unit to {}: {e}", install_path.display()))?;
 
     // Audit the passphrase sidecar. All three renderers default to
     // `<profile_root>/passphrase` as the AIVYX_PASSPHRASE_FILE target,
@@ -1050,7 +1039,9 @@ fn profile_install_service(
         PassphraseSidecarStatus::OkSecure => {
             if is_windows {
                 println!("  ✓ passphrase sidecar {} is present", pp_path.display());
-                println!("    (DACL not checked on Windows — verify owner-only access with `icacls`)");
+                println!(
+                    "    (DACL not checked on Windows — verify owner-only access with `icacls`)"
+                );
             } else {
                 println!(
                     "  ✓ passphrase sidecar {} is present and 0600",
@@ -1064,7 +1055,10 @@ fn profile_install_service(
             println!("    The service will fail to unlock until you create it. Run:");
             println!();
             if is_windows {
-                println!("      New-Item -ItemType File -Path \"{}\"", pp_path.display());
+                println!(
+                    "      New-Item -ItemType File -Path \"{}\"",
+                    pp_path.display()
+                );
                 println!("      notepad \"{}\"", pp_path.display());
                 println!(
                     "      icacls \"{}\" /inheritance:r /grant:r \"$env:USERNAME:(R)\"",
@@ -1171,11 +1165,7 @@ fn profile_install_service(
 ///   SCM registration (if the operator has already run the script)
 ///   must be undone separately via `sc.exe delete AivyxPA-<name>`
 ///   or `Remove-Service`. We print that command.
-fn profile_uninstall_service(
-    name: &str,
-    kind: ServiceKind,
-    force: bool,
-) -> anyhow::Result<()> {
+fn profile_uninstall_service(name: &str, kind: ServiceKind, force: bool) -> anyhow::Result<()> {
     // Validate the profile name and confirm it exists on disk. We
     // need `dirs.root()` to pass as `profile_root` for the Windows
     // branch of `resolve_install_path`, and to check the pidfile.
@@ -1202,7 +1192,7 @@ fn profile_uninstall_service(
     }
 
     let resolved_kind = kind.resolve();
-    use profile::service_install::{resolve_install_path, ResolvedServiceKind};
+    use profile::service_install::{ResolvedServiceKind, resolve_install_path};
     let resolved_for_lib = match resolved_kind {
         ServiceKind::Systemd => ResolvedServiceKind::Systemd,
         ServiceKind::Launchd => ResolvedServiceKind::Launchd,
@@ -1230,12 +1220,8 @@ fn profile_uninstall_service(
             install_path.display()
         );
     } else {
-        std::fs::remove_file(&install_path).map_err(|e| {
-            anyhow::anyhow!(
-                "failed to remove {}: {e}",
-                install_path.display()
-            )
-        })?;
+        std::fs::remove_file(&install_path)
+            .map_err(|e| anyhow::anyhow!("failed to remove {}: {e}", install_path.display()))?;
         println!(
             "  ✓ removed {} unit at {}",
             resolved_kind.display_name(),
@@ -1257,12 +1243,8 @@ fn profile_uninstall_service(
         ServiceKind::Launchd => {
             println!("  If the agent is still loaded, bootout and disable it:");
             println!();
-            println!(
-                "      launchctl bootout gui/$(id -u)/com.aivyx.{name}"
-            );
-            println!(
-                "      launchctl disable gui/$(id -u)/com.aivyx.{name}"
-            );
+            println!("      launchctl bootout gui/$(id -u)/com.aivyx.{name}");
+            println!("      launchctl disable gui/$(id -u)/com.aivyx.{name}");
         }
         ServiceKind::Windows => {
             // On Windows, removing the installer script does nothing
@@ -1306,7 +1288,10 @@ async fn profile_new(name: &str) -> anyhow::Result<()> {
 
     let port = profile::allocate_free_profile_port()?;
 
-    println!("  → creating profile \"{name}\" at {}", dirs.root().display());
+    println!(
+        "  → creating profile \"{name}\" at {}",
+        dirs.root().display()
+    );
     println!("  → assigned port {port}");
 
     let _passphrase = init::run(dirs.root()).await?;

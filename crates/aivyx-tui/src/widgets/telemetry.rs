@@ -33,20 +33,35 @@ impl Widget for TelemetrySidebar<'_> {
         let mut y = inner.y;
         let padding = 3;
         let w = inner.width.saturating_sub(6) as usize; // Double the padding for width inset
-        
+
         y += 1; // Top margin
 
         // Title
         let title = Line::from(vec![
             Span::styled("[ ", theme::dim()),
-            Span::styled("SYSTEM TELEMETRY", theme::muted().add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "SYSTEM TELEMETRY",
+                theme::muted().add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" ]", theme::dim()),
         ]);
-        buf.set_line(inner.x + padding, y, &title, inner.width.saturating_sub(padding));
+        buf.set_line(
+            inner.x + padding,
+            y,
+            &title,
+            inner.width.saturating_sub(padding),
+        );
         y += 2;
 
         // ── Provider ───────────────────────────────────────────
-        render_label_value(buf, inner.x + padding, y, w, "PROVIDER", &self.app.provider_label);
+        render_label_value(
+            buf,
+            inner.x + padding,
+            y,
+            w,
+            "PROVIDER",
+            &self.app.provider_label,
+        );
         y += 1;
         render_label_value(buf, inner.x + padding, y, w, "MODEL", &self.app.model_name);
         y += 2;
@@ -57,7 +72,12 @@ impl Widget for TelemetrySidebar<'_> {
             Span::styled("TOKEN USAGE", theme::muted().add_modifier(Modifier::BOLD)),
             Span::styled(" ]", theme::dim()),
         ]);
-        buf.set_line(inner.x + padding, y, &section, inner.width.saturating_sub(padding));
+        buf.set_line(
+            inner.x + padding,
+            y,
+            &section,
+            inner.width.saturating_sub(padding),
+        );
         y += 1;
 
         let input_str = format_tokens(self.app.chat_input_tokens);
@@ -96,13 +116,23 @@ impl Widget for TelemetrySidebar<'_> {
                 Span::styled("█".repeat(input_bars), theme::primary()),
                 Span::styled("█".repeat(output_bars), theme::secondary()),
             ]);
-            buf.set_line(inner.x + padding, y, &bar_line, inner.width.saturating_sub(padding));
+            buf.set_line(
+                inner.x + padding,
+                y,
+                &bar_line,
+                inner.width.saturating_sub(padding),
+            );
             y += 1;
             let legend = Line::from(vec![
                 Span::styled("■ IN  ", theme::primary()),
                 Span::styled("■ OUT", theme::secondary()),
             ]);
-            buf.set_line(inner.x + padding, y, &legend, inner.width.saturating_sub(padding));
+            buf.set_line(
+                inner.x + padding,
+                y,
+                &legend,
+                inner.width.saturating_sub(padding),
+            );
         }
         y += 2;
 
@@ -130,7 +160,12 @@ impl Widget for TelemetrySidebar<'_> {
                 Span::styled("LAST TURN", theme::muted().add_modifier(Modifier::BOLD)),
                 Span::styled(" ]", theme::dim()),
             ]);
-            buf.set_line(inner.x + padding, y, &section, inner.width.saturating_sub(padding));
+            buf.set_line(
+                inner.x + padding,
+                y,
+                &section,
+                inner.width.saturating_sub(padding),
+            );
             y += 1;
 
             render_label_value(
@@ -171,7 +206,12 @@ impl Widget for TelemetrySidebar<'_> {
                     entry.tool_name.clone()
                 };
                 let tool_line = Line::from(Span::styled(format!("  {icon} {name}{ms_str}"), style));
-                buf.set_line(inner.x + padding, y, &tool_line, inner.width.saturating_sub(padding));
+                buf.set_line(
+                    inner.x + padding,
+                    y,
+                    &tool_line,
+                    inner.width.saturating_sub(padding),
+                );
                 y += 1;
             }
             y += 1;
@@ -184,7 +224,12 @@ impl Widget for TelemetrySidebar<'_> {
                 Span::styled("HEARTBEAT", theme::muted().add_modifier(Modifier::BOLD)),
                 Span::styled(" ]", theme::dim()),
             ]);
-            buf.set_line(inner.x + padding, y, &section, inner.width.saturating_sub(padding));
+            buf.set_line(
+                inner.x + padding,
+                y,
+                &section,
+                inner.width.saturating_sub(padding),
+            );
             y += 1;
 
             let hb_enabled = self
@@ -203,7 +248,12 @@ impl Widget for TelemetrySidebar<'_> {
                 Span::styled(format!("{:<15}", "STATUS"), theme::muted()),
                 Span::styled(status, status_style),
             ]);
-            buf.set_line(inner.x + padding, y, &status_line, inner.width.saturating_sub(padding));
+            buf.set_line(
+                inner.x + padding,
+                y,
+                &status_line,
+                inner.width.saturating_sub(padding),
+            );
             y += 1;
 
             if hb_enabled {

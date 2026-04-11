@@ -59,7 +59,12 @@ impl Widget for Header<'_> {
             vec![
                 Span::styled("[ ", theme::dim()),
                 Span::styled("STATUS: ", theme::muted()),
-                Span::styled("STREAMING ", Style::default().fg(theme::PRIMARY).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "STREAMING ",
+                    Style::default()
+                        .fg(theme::PRIMARY)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled("]", theme::dim()),
             ]
         } else {
@@ -74,7 +79,10 @@ impl Widget for Header<'_> {
         let mut right_spans = vec![
             Span::styled("[ ", theme::dim()),
             Span::styled("AGENT: ", theme::muted()),
-            Span::styled(format!("{} ", self.app.agent_name.to_uppercase()), theme::text()),
+            Span::styled(
+                format!("{} ", self.app.agent_name.to_uppercase()),
+                theme::text(),
+            ),
             Span::styled("]  ", theme::dim()),
             Span::styled("[ ", theme::dim()),
             Span::styled("SYS: ", theme::muted()),
@@ -82,16 +90,19 @@ impl Widget for Header<'_> {
             Span::styled("]  ", theme::dim()),
             Span::styled("[ ", theme::dim()),
             Span::styled("LLM: ", theme::muted()),
-            Span::styled(format!("{} ", self.app.model_name.to_uppercase()), theme::text()),
+            Span::styled(
+                format!("{} ", self.app.model_name.to_uppercase()),
+                theme::text(),
+            ),
             Span::styled("]  ", theme::dim()),
         ];
-        
+
         right_spans.extend(status_spans);
 
         // Compute exact visual width of right side spans
         let right_width = right_spans.iter().map(|s| s.width() as u16).sum::<u16>();
         let padding_right = 2; // 2 cols padding on the right edge
-        
+
         let right_x = inner.x + inner.width.saturating_sub(right_width + padding_right);
         let rs_line = Line::from(right_spans);
         buf.set_line(

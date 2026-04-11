@@ -243,14 +243,26 @@ pub fn render_windows_installer(profile_name: &str, opts: &WindowsOpts) -> Strin
     // we recreate. `Remove-Service` was added in PS 6, so we fall
     // back to `sc.exe delete` for older Windows PowerShell 5.1 (the
     // default on Windows 10).
-    let _ = writeln!(out, "$existing = Get-Service -Name $serviceName -ErrorAction SilentlyContinue");
+    let _ = writeln!(
+        out,
+        "$existing = Get-Service -Name $serviceName -ErrorAction SilentlyContinue"
+    );
     let _ = writeln!(out, "if ($existing) {{");
-    let _ = writeln!(out, "    Write-Host \"Stopping existing service $serviceName...\"");
+    let _ = writeln!(
+        out,
+        "    Write-Host \"Stopping existing service $serviceName...\""
+    );
     let _ = writeln!(out, "    if ($existing.Status -ne 'Stopped') {{");
     let _ = writeln!(out, "        Stop-Service -Name $serviceName -Force");
     let _ = writeln!(out, "    }}");
-    let _ = writeln!(out, "    Write-Host \"Removing existing service $serviceName...\"");
-    let _ = writeln!(out, "    if (Get-Command Remove-Service -ErrorAction SilentlyContinue) {{");
+    let _ = writeln!(
+        out,
+        "    Write-Host \"Removing existing service $serviceName...\""
+    );
+    let _ = writeln!(
+        out,
+        "    if (Get-Command Remove-Service -ErrorAction SilentlyContinue) {{"
+    );
     let _ = writeln!(out, "        Remove-Service -Name $serviceName");
     let _ = writeln!(out, "    }} else {{");
     let _ = writeln!(out, "        & sc.exe delete $serviceName | Out-Null");
@@ -313,7 +325,10 @@ pub fn render_windows_installer(profile_name: &str, opts: &WindowsOpts) -> Strin
                 out,
                 "    Write-Warning \"The service will fail to unlock until you create it. After creating, lock its DACL with:\""
             );
-            let _ = writeln!(out, "    Write-Warning \"  icacls `\"$passphraseFile`\" /inheritance:r /grant:r `\"$env:USERNAME:(R)`\"\"");
+            let _ = writeln!(
+                out,
+                "    Write-Warning \"  icacls `\"$passphraseFile`\" /inheritance:r /grant:r `\"$env:USERNAME:(R)`\"\""
+            );
             let _ = writeln!(out, "}}");
             let _ = writeln!(out);
         }

@@ -62,9 +62,8 @@ where
     // Tier 2: credentials file. The aivyx service units set this via
     // systemd `LoadCredential=` or launchd `EnvironmentVariables=`.
     if let Ok(path) = std::env::var("AIVYX_PASSPHRASE_FILE") {
-        let contents = std::fs::read_to_string(&path).map_err(|e| {
-            anyhow::anyhow!("failed to read AIVYX_PASSPHRASE_FILE at {path}: {e}")
-        })?;
+        let contents = std::fs::read_to_string(&path)
+            .map_err(|e| anyhow::anyhow!("failed to read AIVYX_PASSPHRASE_FILE at {path}: {e}"))?;
         return Ok(Zeroizing::new(contents.trim_end().to_string()));
     }
 
@@ -100,7 +99,10 @@ mod tests {
                 std::env::remove_var("AIVYX_PASSPHRASE");
                 std::env::remove_var("AIVYX_PASSPHRASE_FILE");
             }
-            Self { saved_literal, saved_file }
+            Self {
+                saved_literal,
+                saved_file,
+            }
         }
     }
     impl Drop for EnvGuard {
@@ -222,10 +224,7 @@ mod tests {
         // bad path must never be read because TIER 1 short-circuits.
         unsafe {
             std::env::set_var("AIVYX_PASSPHRASE", "literal-wins");
-            std::env::set_var(
-                "AIVYX_PASSPHRASE_FILE",
-                "/nonexistent/would-error-if-read",
-            );
+            std::env::set_var("AIVYX_PASSPHRASE_FILE", "/nonexistent/would-error-if-read");
         }
         let got = resolve_passphrase(never_prompt).unwrap();
         assert_eq!(&*got, "literal-wins");

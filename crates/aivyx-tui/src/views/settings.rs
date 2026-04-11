@@ -288,11 +288,13 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     {
         let sched_count = settings.schedules.len();
         // Always show the card — even when empty, to allow creation
-        let base_rows = if sched_count == 0 { 1 } else { sched_count as u16 };
+        let base_rows = if sched_count == 0 {
+            1
+        } else {
+            sched_count as u16
+        };
         // Extra row for prompt preview if a schedule is selected
-        let has_preview = ci == 3
-            && sched_count > 0
-            && app.settings_item_index < sched_count;
+        let has_preview = ci == 3 && sched_count > 0 && app.settings_item_index < sched_count;
         let height = (base_rows + if has_preview { 1 } else { 0 } + 2).min(12);
         if ly + 4 < left_col.y + left_col.height {
             ly = render_card(
@@ -305,10 +307,8 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                 buf,
                 |inner, buf| {
                     if sched_count == 0 {
-                        let line = Line::from(Span::styled(
-                            "  (none) — press N to create",
-                            theme::dim(),
-                        ));
+                        let line =
+                            Line::from(Span::styled("  (none) — press N to create", theme::dim()));
                         buf.set_line(inner.x + 1, inner.y, &line, inner.width - 2);
                         return;
                     }
@@ -386,10 +386,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                         if preview_row < inner.height {
                             let line = Line::from(vec![
                                 Span::styled("  ▸ ", theme::primary()),
-                                Span::styled(
-                                    format!("{truncated}{suffix}"),
-                                    theme::dim(),
-                                ),
+                                Span::styled(format!("{truncated}{suffix}"), theme::dim()),
                             ]);
                             buf.set_line(
                                 inner.x + 1,
@@ -1158,7 +1155,9 @@ fn render_popup(popup: &SettingsPopup, frame_count: u64, area: Rect, buf: &mut B
             // Helper: render a single sub-field with optional arrows
             macro_rules! render_sub_field {
                 ($label:expr, $value:expr, $sub_idx:expr) => {{
-                    if row >= inner.height { return; }
+                    if row >= inner.height {
+                        return;
+                    }
                     let is_sf_focused = cron_focused && sf == $sub_idx;
                     let label_style = if is_sf_focused {
                         theme::highlight()
@@ -1199,7 +1198,11 @@ fn render_popup(popup: &SettingsPopup, frame_count: u64, area: Rect, buf: &mut B
             } else {
                 theme::muted()
             };
-            let name_suffix = if editing.is_some() { " (read-only)" } else { "" };
+            let name_suffix = if editing.is_some() {
+                " (read-only)"
+            } else {
+                ""
+            };
             let label = Line::from(Span::styled(
                 format!("  NAME{name_suffix}"),
                 name_label_style,
@@ -1278,10 +1281,7 @@ fn render_popup(popup: &SettingsPopup, frame_count: u64, area: Rect, buf: &mut B
                         };
                         let line = Line::from(vec![
                             Span::styled("  CRON    ", label_style),
-                            Span::styled(
-                                format!("[ {custom_display} ]"),
-                                theme::text_bold(),
-                            ),
+                            Span::styled(format!("[ {custom_display} ]"), theme::text_bold()),
                         ]);
                         buf.set_line(inner.x, inner.y + row, &line, inner.width);
                         row += 1;
@@ -1345,11 +1345,7 @@ fn render_popup(popup: &SettingsPopup, frame_count: u64, area: Rect, buf: &mut B
                 theme::muted()
             };
             let notify_mark = if *notify { "[\u{25a0}]" } else { "[\u{25a1}]" };
-            let notify_mark_style = if *notify {
-                theme::sage()
-            } else {
-                theme::dim()
-            };
+            let notify_mark_style = if *notify { theme::sage() } else { theme::dim() };
             let line = Line::from(vec![
                 Span::styled("  ", theme::text()),
                 Span::styled("NOTIFY  ", notify_label_style),

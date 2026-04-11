@@ -170,7 +170,7 @@ impl Widget for Sidebar<'_> {
             } else {
                 Span::styled("  ", theme::secondary())
             };
-            
+
             buf.set_line(
                 inner.x + 3,
                 footer_y + 1,
@@ -190,7 +190,7 @@ impl Widget for Sidebar<'_> {
                     .as_ref()
                     .map(|s| s.agent_persona.as_str())
                     .unwrap_or("assistant");
-                
+
                 buf.set_line(
                     inner.x + 3,
                     footer_y + 2,
@@ -200,7 +200,7 @@ impl Widget for Sidebar<'_> {
                     ]),
                     inner.width.saturating_sub(3),
                 );
-                
+
                 buf.set_line(
                     inner.x + 3,
                     footer_y + 3,

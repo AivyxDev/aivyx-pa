@@ -2388,10 +2388,7 @@ fn render_ignition(state: &GenesisState, area: Rect, f: &mut Frame) {
     lines.push(Line::from(vec![
         Span::styled("  ", theme::dim()),
         Span::styled(sidecar_mark, sidecar_mark_style),
-        Span::styled(
-            " WRITE PASSPHRASE SIDECAR (0600)",
-            sidecar_label_style,
-        ),
+        Span::styled(" WRITE PASSPHRASE SIDECAR (0600)", sidecar_label_style),
     ]));
     lines.push(Line::from(Span::styled(
         "     └─ enables unattended service start via install-service",
@@ -2525,12 +2522,9 @@ fn render_unit_for_state(
     let kind = state
         .service_kind
         .ok_or_else(|| "no supervisor available for this platform".to_string())?;
-    let profile_name = state
-        .service_profile_name
-        .as_deref()
-        .ok_or_else(|| {
-            "no profile name — onboarding the default root cannot register a service".to_string()
-        })?;
+    let profile_name = state.service_profile_name.as_deref().ok_or_else(|| {
+        "no profile name — onboarding the default root cannot register a service".to_string()
+    })?;
 
     // `current_exe()` is used verbatim — the rendered unit will start
     // whichever binary the wizard ran from, which is what the operator

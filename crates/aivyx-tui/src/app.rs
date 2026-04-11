@@ -110,7 +110,13 @@ pub const CRON_MODES: &[&str] = &[
 pub const CRON_INTERVALS: &[u8] = &[5, 10, 15, 20, 30, 45];
 
 pub const WEEKDAY_NAMES: &[&str] = &[
-    "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
 ];
 
 /// Interactive schedule builder — the user selects frequency, time, and day
@@ -146,11 +152,11 @@ impl CronBuilder {
     /// Number of sub-fields for the current mode.
     pub fn sub_field_count(&self) -> usize {
         match self.mode {
-            0 => 2, // EveryNMin: mode + interval
-            1 => 2, // Hourly: mode + minute
+            0 => 2,     // EveryNMin: mode + interval
+            1 => 2,     // Hourly: mode + minute
             2 | 3 => 3, // Daily/Weekdays: mode + hour + minute
             4 | 5 => 4, // Weekly/Monthly: mode + day + hour + minute
-            6 => 2, // Custom: mode + input
+            6 => 2,     // Custom: mode + input
             _ => 2,
         }
     }
@@ -2608,10 +2614,7 @@ impl App {
                                 }
                             }
                             ConfirmAction::RemoveSchedule(name) => {
-                                let _ = aivyx_pa::settings::remove_schedule(
-                                    &config_path,
-                                    &name,
-                                );
+                                let _ = aivyx_pa::settings::remove_schedule(&config_path, &name);
                                 match aivyx_pa::settings::reload_settings_snapshot(&config_path) {
                                     Ok(s) => {
                                         self.settings = Some(s);
@@ -2832,7 +2835,9 @@ impl App {
                 let mut error: Option<String> = None;
 
                 // Ctrl+S: save
-                let is_save = key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+                let is_save = key
+                    .modifiers
+                    .contains(crossterm::event::KeyModifiers::CONTROL)
                     && key.code == KeyCode::Char('s');
 
                 let cron = cron_builder.build_cron();
@@ -2868,9 +2873,8 @@ impl App {
                                     "cron",
                                     &format!("\"{cron}\""),
                                 );
-                                let escaped = prompt_text
-                                    .replace('\\', "\\\\")
-                                    .replace('"', "\\\"");
+                                let escaped =
+                                    prompt_text.replace('\\', "\\\\").replace('"', "\\\"");
                                 let r2 = aivyx_pa::settings::edit_schedule_field(
                                     &config_path,
                                     &name,
@@ -2891,9 +2895,8 @@ impl App {
 
                             match result {
                                 Ok(()) => {
-                                    match aivyx_pa::settings::reload_settings_snapshot(
-                                        &config_path,
-                                    ) {
+                                    match aivyx_pa::settings::reload_settings_snapshot(&config_path)
+                                    {
                                         Ok(s) => {
                                             self.settings = Some(s);
                                             self.settings_error = None;
@@ -2948,7 +2951,9 @@ impl App {
                                 } else {
                                     match key.code {
                                         KeyCode::Char(c) => name.push(c),
-                                        KeyCode::Backspace => { name.pop(); }
+                                        KeyCode::Backspace => {
+                                            name.pop();
+                                        }
                                         _ => {}
                                     }
                                 }
@@ -2969,12 +2974,17 @@ impl App {
                                         }
                                     }
                                     KeyCode::Left | KeyCode::Right => {
-                                        let delta: i8 = if key.code == KeyCode::Left { -1 } else { 1 };
+                                        let delta: i8 =
+                                            if key.code == KeyCode::Left { -1 } else { 1 };
                                         match (cron_builder.mode, sf) {
                                             // Sub-field 0: mode selector (all modes)
                                             (_, 0) => {
                                                 let total = CRON_MODES.len();
-                                                cron_builder.mode = ((cron_builder.mode as isize + delta as isize + total as isize) % total as isize) as usize;
+                                                cron_builder.mode = ((cron_builder.mode as isize
+                                                    + delta as isize
+                                                    + total as isize)
+                                                    % total as isize)
+                                                    as usize;
                                                 // Clamp sub_focus to new mode's field count
                                                 let new_count = cron_builder.sub_field_count();
                                                 if cron_builder.sub_focus >= new_count {
@@ -2984,38 +2994,79 @@ impl App {
                                             // EveryNMin: sf=1 → interval
                                             (0, 1) => {
                                                 let total = CRON_INTERVALS.len();
-                                                cron_builder.interval_idx = ((cron_builder.interval_idx as isize + delta as isize + total as isize) % total as isize) as usize;
+                                                cron_builder.interval_idx =
+                                                    ((cron_builder.interval_idx as isize
+                                                        + delta as isize
+                                                        + total as isize)
+                                                        % total as isize)
+                                                        as usize;
                                             }
                                             // Hourly: sf=1 → minute
                                             (1, 1) => {
-                                                cron_builder.minute = ((cron_builder.minute as i16 + (delta as i16 * 5) + 60) % 60) as u8;
+                                                cron_builder.minute = ((cron_builder.minute as i16
+                                                    + (delta as i16 * 5)
+                                                    + 60)
+                                                    % 60)
+                                                    as u8;
                                             }
                                             // Daily/Weekdays: sf=1 → hour, sf=2 → minute
                                             (2 | 3, 1) => {
-                                                cron_builder.hour = ((cron_builder.hour as i16 + delta as i16 + 24) % 24) as u8;
+                                                cron_builder.hour =
+                                                    ((cron_builder.hour as i16 + delta as i16 + 24)
+                                                        % 24)
+                                                        as u8;
                                             }
                                             (2 | 3, 2) => {
-                                                cron_builder.minute = ((cron_builder.minute as i16 + (delta as i16 * 5) + 60) % 60) as u8;
+                                                cron_builder.minute = ((cron_builder.minute as i16
+                                                    + (delta as i16 * 5)
+                                                    + 60)
+                                                    % 60)
+                                                    as u8;
                                             }
                                             // Weekly: sf=1 → weekday, sf=2 → hour, sf=3 → minute
                                             (4, 1) => {
-                                                cron_builder.weekday = ((cron_builder.weekday as i16 + delta as i16 + 7) % 7) as u8;
+                                                cron_builder.weekday = ((cron_builder.weekday
+                                                    as i16
+                                                    + delta as i16
+                                                    + 7)
+                                                    % 7)
+                                                    as u8;
                                             }
                                             (4, 2) => {
-                                                cron_builder.hour = ((cron_builder.hour as i16 + delta as i16 + 24) % 24) as u8;
+                                                cron_builder.hour =
+                                                    ((cron_builder.hour as i16 + delta as i16 + 24)
+                                                        % 24)
+                                                        as u8;
                                             }
                                             (4, 3) => {
-                                                cron_builder.minute = ((cron_builder.minute as i16 + (delta as i16 * 5) + 60) % 60) as u8;
+                                                cron_builder.minute = ((cron_builder.minute as i16
+                                                    + (delta as i16 * 5)
+                                                    + 60)
+                                                    % 60)
+                                                    as u8;
                                             }
                                             // Monthly: sf=1 → day, sf=2 → hour, sf=3 → minute
                                             (5, 1) => {
-                                                cron_builder.month_day = ((cron_builder.month_day as i16 - 1 + delta as i16 + 28) % 28 + 1) as u8;
+                                                cron_builder.month_day =
+                                                    ((cron_builder.month_day as i16 - 1
+                                                        + delta as i16
+                                                        + 28)
+                                                        % 28
+                                                        + 1)
+                                                        as u8;
                                             }
                                             (5, 2) => {
-                                                cron_builder.hour = ((cron_builder.hour as i16 + delta as i16 + 24) % 24) as u8;
+                                                cron_builder.hour =
+                                                    ((cron_builder.hour as i16 + delta as i16 + 24)
+                                                        % 24)
+                                                        as u8;
                                             }
                                             (5, 3) => {
-                                                cron_builder.minute = ((cron_builder.minute as i16 + (delta as i16 * 5) + 60) % 60) as u8;
+                                                cron_builder.minute = ((cron_builder.minute as i16
+                                                    + (delta as i16 * 5)
+                                                    + 60)
+                                                    % 60)
+                                                    as u8;
                                             }
                                             // Custom: no Left/Right adjustment
                                             _ => {}
@@ -3035,14 +3086,16 @@ impl App {
                             2 => match key.code {
                                 KeyCode::Char(c) => {
                                     if prompt_cursor_row < prompt.len() {
-                                        let col = prompt_cursor_col.min(prompt[prompt_cursor_row].len());
+                                        let col =
+                                            prompt_cursor_col.min(prompt[prompt_cursor_row].len());
                                         prompt[prompt_cursor_row].insert(col, c);
                                         prompt_cursor_col = col + 1;
                                     }
                                 }
                                 KeyCode::Backspace => {
                                     if prompt_cursor_col > 0 && prompt_cursor_row < prompt.len() {
-                                        let col = prompt_cursor_col.min(prompt[prompt_cursor_row].len());
+                                        let col =
+                                            prompt_cursor_col.min(prompt[prompt_cursor_row].len());
                                         if col > 0 {
                                             prompt[prompt_cursor_row].remove(col - 1);
                                             prompt_cursor_col = col - 1;
@@ -3057,7 +3110,8 @@ impl App {
                                 }
                                 KeyCode::Enter => {
                                     if prompt_cursor_row < prompt.len() {
-                                        let col = prompt_cursor_col.min(prompt[prompt_cursor_row].len());
+                                        let col =
+                                            prompt_cursor_col.min(prompt[prompt_cursor_row].len());
                                         let rest = prompt[prompt_cursor_row][col..].to_string();
                                         prompt[prompt_cursor_row].truncate(col);
                                         prompt.insert(prompt_cursor_row + 1, rest);
@@ -3068,15 +3122,15 @@ impl App {
                                 KeyCode::Up => {
                                     if prompt_cursor_row > 0 {
                                         prompt_cursor_row -= 1;
-                                        prompt_cursor_col = prompt_cursor_col
-                                            .min(prompt[prompt_cursor_row].len());
+                                        prompt_cursor_col =
+                                            prompt_cursor_col.min(prompt[prompt_cursor_row].len());
                                     }
                                 }
                                 KeyCode::Down => {
                                     if prompt_cursor_row + 1 < prompt.len() {
                                         prompt_cursor_row += 1;
-                                        prompt_cursor_col = prompt_cursor_col
-                                            .min(prompt[prompt_cursor_row].len());
+                                        prompt_cursor_col =
+                                            prompt_cursor_col.min(prompt[prompt_cursor_row].len());
                                     }
                                 }
                                 KeyCode::Left => {

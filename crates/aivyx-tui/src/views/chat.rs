@@ -572,10 +572,10 @@ fn render_input_field(app: &App, area: Rect, buf: &mut Buffer) {
         let mut lines = Vec::new();
         let chars: Vec<char> = app.chat_input.chars().collect();
         let cursor_idx = app.chat_input_cursor.min(chars.len());
-        
+
         let mut cur_line_spans = Vec::new();
         let mut cur_string = String::new();
-        
+
         for (i, &c) in chars.iter().enumerate() {
             if i == cursor_idx {
                 if !cur_string.is_empty() {
@@ -595,7 +595,7 @@ fn render_input_field(app: &App, area: Rect, buf: &mut Buffer) {
                 cur_string.push(c);
             }
         }
-        
+
         // Render final cursor if at the end of the string
         if chars.len() == cursor_idx {
             if !cur_string.is_empty() {
@@ -606,7 +606,7 @@ fn render_input_field(app: &App, area: Rect, buf: &mut Buffer) {
         } else if !cur_string.is_empty() {
             cur_line_spans.push(Span::styled(cur_string, theme::text()));
         }
-        
+
         // Push the final line if not empty or if it ends on a newline
         if !cur_line_spans.is_empty() || chars.last() == Some(&'\n') {
             lines.push(Line::from(cur_line_spans));
@@ -615,7 +615,7 @@ fn render_input_field(app: &App, area: Rect, buf: &mut Buffer) {
         let paragraph = Paragraph::new(lines)
             .wrap(Wrap { trim: false })
             .scroll((app.chat_input_scroll, 0));
-            
+
         paragraph.render(input_inner, buf);
     }
 

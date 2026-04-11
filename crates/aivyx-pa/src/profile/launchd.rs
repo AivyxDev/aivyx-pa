@@ -424,9 +424,7 @@ mod tests {
         let out = render_launchd_plist("work", &concrete_opts());
         assert!(out.contains("<key>EnvironmentVariables</key>"));
         assert!(out.contains("<key>AIVYX_PASSPHRASE_FILE</key>"));
-        assert!(out.contains(
-            "<string>/Users/alice/.aivyx/profiles/work/passphrase</string>"
-        ));
+        assert!(out.contains("<string>/Users/alice/.aivyx/profiles/work/passphrase</string>"));
     }
 
     #[test]
@@ -436,10 +434,7 @@ mod tests {
         opts.passphrase_file = None;
         let out = render_launchd_plist("work", &opts);
         assert!(!out.contains("EnvironmentVariables"), "plist was:\n{out}");
-        assert!(
-            !out.contains("AIVYX_PASSPHRASE_FILE"),
-            "plist was:\n{out}"
-        );
+        assert!(!out.contains("AIVYX_PASSPHRASE_FILE"), "plist was:\n{out}");
     }
 
     #[test]
@@ -479,10 +474,7 @@ mod tests {
         opts.profile_root = PathBuf::from("/Users/a&b/work");
         let out = render_launchd_plist("work", &opts);
         // The raw ampersand must NOT appear inside a <string>.
-        assert!(
-            out.contains("/Users/a&amp;b/work"),
-            "plist was:\n{out}"
-        );
+        assert!(out.contains("/Users/a&amp;b/work"), "plist was:\n{out}");
         // And the plist must still parse as valid XML.
         let _ = parse_plist(&out);
     }

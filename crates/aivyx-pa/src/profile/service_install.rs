@@ -221,8 +221,7 @@ mod tests {
 
     #[test]
     fn systemd_install_path_none_when_config_dir_missing() {
-        let got =
-            resolve_install_path(ResolvedServiceKind::Systemd, "work", None, None, None);
+        let got = resolve_install_path(ResolvedServiceKind::Systemd, "work", None, None, None);
         assert!(got.is_none());
     }
 
@@ -231,14 +230,9 @@ mod tests {
         // Operator who sets $XDG_CONFIG_HOME=/srv/aivyx-config expects
         // the unit to land there, not in ~/.config/.
         let xdg = PathBuf::from("/srv/aivyx-config");
-        let got = resolve_install_path(
-            ResolvedServiceKind::Systemd,
-            "work",
-            Some(&xdg),
-            None,
-            None,
-        )
-        .unwrap();
+        let got =
+            resolve_install_path(ResolvedServiceKind::Systemd, "work", Some(&xdg), None, None)
+                .unwrap();
         assert_eq!(
             got,
             PathBuf::from("/srv/aivyx-config/systemd/user/aivyx@.service")
@@ -288,8 +282,7 @@ mod tests {
 
     #[test]
     fn launchd_install_path_none_when_home_dir_missing() {
-        let got =
-            resolve_install_path(ResolvedServiceKind::Launchd, "work", None, None, None);
+        let got = resolve_install_path(ResolvedServiceKind::Launchd, "work", None, None, None);
         assert!(got.is_none());
     }
 
@@ -311,8 +304,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             got,
-            PathBuf::from("C:\\Users\\alice\\.aivyx\\profiles\\work")
-                .join("install-service.ps1")
+            PathBuf::from("C:\\Users\\alice\\.aivyx\\profiles\\work").join("install-service.ps1")
         );
     }
 
@@ -347,8 +339,7 @@ mod tests {
 
     #[test]
     fn windows_install_path_none_when_profile_root_missing() {
-        let got =
-            resolve_install_path(ResolvedServiceKind::Windows, "work", None, None, None);
+        let got = resolve_install_path(ResolvedServiceKind::Windows, "work", None, None, None);
         assert!(got.is_none());
     }
 

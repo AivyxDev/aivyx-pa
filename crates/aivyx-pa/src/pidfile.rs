@@ -185,10 +185,7 @@ mod tests {
 
     #[test]
     fn acquire_refuses_when_live_holder_exists() {
-        let dir = std::env::temp_dir().join(format!(
-            "aivyx-pidfile-live-{}",
-            unique_suffix()
-        ));
+        let dir = std::env::temp_dir().join(format!("aivyx-pidfile-live-{}", unique_suffix()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("aivyx.pid");
 
@@ -204,10 +201,7 @@ mod tests {
 
     #[test]
     fn acquire_recovers_stale_pidfile() {
-        let dir = std::env::temp_dir().join(format!(
-            "aivyx-pidfile-stale-{}",
-            unique_suffix()
-        ));
+        let dir = std::env::temp_dir().join(format!("aivyx-pidfile-stale-{}", unique_suffix()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("aivyx.pid");
 
@@ -230,19 +224,14 @@ mod tests {
 
     #[test]
     fn read_peer_returns_none_for_missing_file() {
-        let path = std::env::temp_dir().join(format!(
-            "aivyx-pidfile-absent-{}.pid",
-            unique_suffix()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("aivyx-pidfile-absent-{}.pid", unique_suffix()));
         assert!(PidFile::read_peer(&path).is_none());
     }
 
     #[test]
     fn read_peer_returns_none_for_dead_pid() {
-        let dir = std::env::temp_dir().join(format!(
-            "aivyx-pidfile-peerdead-{}",
-            unique_suffix()
-        ));
+        let dir = std::env::temp_dir().join(format!("aivyx-pidfile-peerdead-{}", unique_suffix()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("aivyx.pid");
         fs::write(&path, format!("{}\n", u32::MAX)).unwrap();
@@ -254,10 +243,7 @@ mod tests {
 
     #[test]
     fn read_peer_returns_our_pid_for_live_holder() {
-        let dir = std::env::temp_dir().join(format!(
-            "aivyx-pidfile-peerlive-{}",
-            unique_suffix()
-        ));
+        let dir = std::env::temp_dir().join(format!("aivyx-pidfile-peerlive-{}", unique_suffix()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("aivyx.pid");
 
