@@ -45,6 +45,11 @@ jobs:
           path: aivyx-factory
           token: ${{ secrets.AIVYX_CI_PAT }}
 
+      - name: Configure Cargo Auth
+        run: |
+          git config --global url."https://${{ secrets.AIVYX_CI_PAT }}@github.com/".insteadOf "https://github.com/"
+          echo "CARGO_NET_GIT_FETCH_WITH_CLI=true" >> "$GITHUB_ENV"
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
