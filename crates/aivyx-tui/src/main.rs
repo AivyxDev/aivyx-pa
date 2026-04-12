@@ -573,6 +573,10 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
         app.handle_goal_popup(key);
         return;
     }
+    if app.view == View::Missions && app.mission_popup.is_some() {
+        app.handle_mission_popup(key);
+        return;
+    }
 
     // Esc: from content → sidebar, from sidebar → Home, from Chat → sidebar
     if key.code == KeyCode::Esc {
@@ -843,6 +847,12 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                             action: crate::app::GoalAction::Complete(goal.id),
                         });
                     }
+                }
+                KeyCode::Char('n') if app.view == View::Missions => {
+                    app.mission_popup = Some(crate::app::MissionPopup {
+                        input: String::new(),
+                        cursor: 0,
+                    });
                 }
                 KeyCode::Char('x') if app.view == View::Missions => {
                     app.cancel_mission();

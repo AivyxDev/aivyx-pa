@@ -2322,7 +2322,7 @@ fn seed_nonagon_team(dirs: &AivyxDirs) -> anyhow::Result<usize> {
         description: "The Nonagon — 9 specialist sub-agents for complex multi-agent tasks"
             .to_string(),
         orchestration: aivyx_team::OrchestrationMode::LeadAgent {
-            lead: "coordinator".to_string(),
+            lead: "nonagon-coordinator".to_string(),
         },
         members,
         dialogue: aivyx_team::DialogueConfig::default(),

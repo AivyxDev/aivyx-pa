@@ -43,6 +43,9 @@ sha2.workspace = true
 aivyx-memory.workspace = true
 aivyx-llm.workspace = true
 
+# Task engine (acceptance check primitives for workflow templates)
+aivyx-task-engine.workspace = true
+
 # MCP (for plugin registry client)
 aivyx-mcp.workspace = true
 

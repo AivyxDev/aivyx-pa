@@ -3188,6 +3188,7 @@ pub async fn run_heartbeat_tick(
 // ── Tests ──────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(clippy::assertions_on_constants)]
 mod tests {
     use super::*;
 

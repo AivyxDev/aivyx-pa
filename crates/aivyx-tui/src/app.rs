@@ -95,6 +95,14 @@ pub enum ConfirmAction {
     Schedule(String),
 }
 
+// ── Mission Creator Popup ───────────────────────────────────
+
+#[derive(Clone, Debug)]
+pub struct MissionPopup {
+    pub input: String,
+    pub cursor: usize,
+}
+
 // ── Cron Builder ─────────────────────────────────────────────
 
 pub const CRON_MODES: &[&str] = &[
@@ -661,6 +669,7 @@ pub struct App {
     pub mission_selected: usize,
     pub mission_filter: usize,
     pub mission_detail: Option<Mission>,
+    pub mission_popup: Option<MissionPopup>,
 
     // ── Voice loop state ─────────────────────────────────────────
     pub voice_recording: bool,
@@ -800,6 +809,7 @@ impl App {
             mission_selected: 0,
             mission_filter: 0,
             mission_detail: None,
+            mission_popup: None,
 
             voice_recording: false,
             voice_transcribing: false,
@@ -3601,6 +3611,63 @@ impl App {
         }
     }
 
+    /// Handle keystrokes when the mission creator popup is active.
+    pub fn handle_mission_popup(&mut self, key: KeyEvent) {
+        use crossterm::event::KeyCode;
+
+        let mut popup = match self.mission_popup.take() {
+            Some(p) => p,
+            None => return,
+        };
+
+        if key.code == KeyCode::Esc {
+            return; // Dropping it clears the popup
+        }
+
+        match key.code {
+            KeyCode::Char(c) => {
+                popup.input.insert(popup.cursor, c);
+                popup.cursor += 1;
+                self.mission_popup = Some(popup);
+            }
+            KeyCode::Backspace => {
+                if popup.cursor > 0 {
+                    let mut chars: Vec<char> = popup.input.chars().collect();
+                    chars.remove(popup.cursor - 1);
+                    popup.input = chars.into_iter().collect();
+                    popup.cursor -= 1;
+                }
+                self.mission_popup = Some(popup);
+            }
+            KeyCode::Left => {
+                if popup.cursor > 0 {
+                    popup.cursor -= 1;
+                }
+                self.mission_popup = Some(popup);
+            }
+            KeyCode::Right => {
+                if popup.cursor < popup.input.chars().count() {
+                    popup.cursor += 1;
+                }
+                self.mission_popup = Some(popup);
+            }
+            KeyCode::Enter => {
+                let text = popup.input.trim().to_string();
+                if !text.is_empty() {
+                    let payload = format!("[PRIORITY: HIGH] Start a mission to: {}", text);
+                    self.chat_input = payload;
+                    self.send_chat_message();
+                    // Leave popup as None (closes it) and smoothly transition to Chat view
+                    self.go_to(View::Chat);
+                } else {
+                    self.mission_popup = Some(popup);
+                }
+            }
+            _ => {
+                self.mission_popup = Some(popup);
+            }
+        }
+    }
     pub fn priority_to_index(p: &Priority) -> usize {
         match p {
             Priority::Background => 0,
@@ -4616,6 +4683,7 @@ impl App {
             mission_selected: 0,
             mission_filter: 0,
             mission_detail: None,
+            mission_popup: None,
             voice_recording: false,
             voice_transcribing: false,
             voice_process: None,
@@ -4677,6 +4745,10 @@ pub fn audit_event_type(event: &aivyx_audit::AuditEvent) -> &'static str {
         | AuditEvent::HeartbeatCompleted { .. }
         | AuditEvent::HeartbeatSkipped { .. } => "heartbeat",
         AuditEvent::CapabilityGranted { .. } | AuditEvent::CapabilityRevoked { .. } => "security",
+        AuditEvent::TaskFailed { .. }
+        | AuditEvent::TaskResumed { .. }
+        | AuditEvent::TaskCompleted { .. }
+        | AuditEvent::TaskStepCompleted { .. } => "engine",
         _ => "other",
     }
 }
@@ -4712,6 +4784,18 @@ pub fn format_audit_event(event: &aivyx_audit::AuditEvent) -> String {
         AuditEvent::HeartbeatSkipped { reason } => format!("Heartbeat skip: {reason}"),
         AuditEvent::BriefingGenerated { item_count, .. } => {
             format!("Briefing ({item_count} items)")
+        }
+        AuditEvent::TaskFailed { step_index, error, .. } => {
+            format!("Engine: Task Failed at step {} (Reason: {})", step_index, error)
+        }
+        AuditEvent::TaskResumed { resumed_from_step, .. } => {
+            format!("Engine: Recovered & Resumed from step {}", resumed_from_step)
+        }
+        AuditEvent::TaskCompleted { steps_completed, .. } => {
+            format!("Engine: Task Completed ({} steps)", steps_completed)
+        }
+        AuditEvent::TaskStepCompleted { step_index, success, .. } => {
+            format!("Engine: Step {} {}", step_index, if *success { "OK" } else { "FAIL" })
         }
         other => {
             let debug = format!("{other:?}");

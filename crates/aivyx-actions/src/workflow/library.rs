@@ -67,36 +67,44 @@ fn morning_briefing() -> WorkflowTemplate {
         description: "Generate a morning briefing with today's schedule, unread emails, and pending reminders".into(),
         steps: vec![
             TemplateStep {
+                step_id: "fetch-calendar".into(),
                 description: "Fetch today's calendar events".into(),
                 tool: Some("list_events".into()),
                 arguments: serde_json::json!({"date": "today"}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "check-unread-email".into(),
                 description: "Check unread emails from the last 12 hours".into(),
                 tool: Some("read_email".into()),
                 arguments: serde_json::json!({"unread_only": true, "limit": 20}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "list-reminders".into(),
                 description: "List pending reminders".into(),
                 tool: Some("list_reminders".into()),
                 arguments: serde_json::json!({}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "compile-briefing".into(),
                 description: "Compile briefing summary: prioritize urgent items, flag conflicts, suggest time blocks for deep work".into(),
                 tool: None,
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![0, 1, 2],
+                acceptance: vec![],
             },
         ],
         parameters: vec![],
@@ -117,36 +125,44 @@ fn inbox_zero() -> WorkflowTemplate {
         description: "Process unread emails: categorize by urgency, draft replies for {category} emails, summarize the rest".into(),
         steps: vec![
             TemplateStep {
+                step_id: "fetch-unread".into(),
                 description: "Fetch all unread emails".into(),
                 tool: Some("read_email".into()),
                 arguments: serde_json::json!({"unread_only": true, "limit": 50}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "categorize".into(),
                 description: "Categorize emails by urgency: urgent (needs reply today), important (this week), informational (archive candidate)".into(),
                 tool: None,
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![0],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "draft-urgent-replies".into(),
                 description: "Draft replies for urgent emails — present each draft for approval before sending".into(),
                 tool: Some("send_email".into()),
                 arguments: serde_json::Value::Null,
                 requires_approval: true,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![1],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "summarize-informational".into(),
                 description: "Summarize informational emails in a brief digest".into(),
                 tool: None,
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![1],
+                acceptance: vec![],
             },
         ],
         parameters: vec![
@@ -171,22 +187,27 @@ fn expense_report() -> WorkflowTemplate {
         description: "Process expense receipt from {sender}: extract amounts, categorize, and file to {folder}".into(),
         steps: vec![
             TemplateStep {
+                step_id: "fetch-receipt".into(),
                 description: "Fetch the receipt email from {sender}".into(),
                 tool: Some("fetch_email".into()),
                 arguments: serde_json::json!({"query": "from:{sender}"}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "extract-amounts".into(),
                 description: "Extract expense amounts, vendor name, and date from the email body and attachments".into(),
                 tool: None,
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![0],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "record-transaction".into(),
                 description: "Record the transaction in the finance tracker".into(),
                 tool: Some("add_transaction".into()),
                 arguments: serde_json::json!({
@@ -196,14 +217,17 @@ fn expense_report() -> WorkflowTemplate {
                 requires_approval: true,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![1],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "file-receipt".into(),
                 description: "File the receipt document to {folder}".into(),
                 tool: Some("file_receipt".into()),
                 arguments: serde_json::json!({"folder": "{folder}"}),
                 requires_approval: false,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![2],
+                acceptance: vec![],
             },
         ],
         parameters: vec![
@@ -247,14 +271,17 @@ fn bill_pay_reminder() -> WorkflowTemplate {
             .into(),
         steps: vec![
             TemplateStep {
+                step_id: "budget-summary".into(),
                 description: "Review budget summary for bills due within {days} days".into(),
                 tool: Some("budget_summary".into()),
                 arguments: serde_json::json!({}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "list-recent-transactions".into(),
                 description: "List recent transactions to check which bills have already been paid"
                     .into(),
                 tool: Some("list_transactions".into()),
@@ -262,8 +289,10 @@ fn bill_pay_reminder() -> WorkflowTemplate {
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "identify-unpaid".into(),
                 description:
                     "Identify unpaid bills by comparing budget due dates with recent payments"
                         .into(),
@@ -272,8 +301,10 @@ fn bill_pay_reminder() -> WorkflowTemplate {
                 requires_approval: false,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![0, 1],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "set-reminders".into(),
                 description: "Set reminders for each unpaid bill with the due date and amount"
                     .into(),
                 tool: Some("set_reminder".into()),
@@ -281,6 +312,7 @@ fn bill_pay_reminder() -> WorkflowTemplate {
                 requires_approval: true,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![2],
+                acceptance: vec![],
             },
         ],
         parameters: vec![TemplateParameter {
@@ -308,52 +340,64 @@ fn weekly_review() -> WorkflowTemplate {
         description: "Conduct a weekly review: summarize accomplishments, review goals, plan next week".into(),
         steps: vec![
             TemplateStep {
+                step_id: "fetch-this-week".into(),
                 description: "Fetch this week's calendar events to review what happened".into(),
                 tool: Some("list_events".into()),
                 arguments: serde_json::json!({"range": "this_week"}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "review-sent-email".into(),
                 description: "Review sent emails from this week for context on completed work".into(),
                 tool: Some("fetch_email".into()),
                 arguments: serde_json::json!({"folder": "sent", "limit": 30}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "budget-summary".into(),
                 description: "Check budget summary for the week's financial activity".into(),
                 tool: Some("budget_summary".into()),
                 arguments: serde_json::json!({}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "compile-weekly-summary".into(),
                 description: "Compile weekly summary: key accomplishments, blockers encountered, decisions made".into(),
                 tool: None,
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![0, 1, 2],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "fetch-next-week".into(),
                 description: "Fetch next week's calendar to identify upcoming commitments and free blocks".into(),
                 tool: Some("list_events".into()),
                 arguments: serde_json::json!({"range": "next_week"}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![3],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "draft-next-week-priorities".into(),
                 description: "Draft next week's priorities and time-block suggestions based on review".into(),
                 tool: None,
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![3, 4],
+                acceptance: vec![],
             },
         ],
         parameters: vec![],
@@ -374,36 +418,44 @@ fn research_digest() -> WorkflowTemplate {
         description: "Research {topic}: search the web, read top results, compile a digest and save to {output_file}".into(),
         steps: vec![
             TemplateStep {
+                step_id: "search-web".into(),
                 description: "Search the web for recent information on {topic}".into(),
                 tool: Some("search_web".into()),
                 arguments: serde_json::json!({"query": "{topic}"}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "fetch-top-results".into(),
                 description: "Fetch and read the top 3 most relevant results".into(),
                 tool: Some("fetch_webpage".into()),
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![0],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "synthesize-digest".into(),
                 description: "Synthesize findings into a structured digest with key takeaways, sources, and open questions".into(),
                 tool: None,
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![1],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "save-digest".into(),
                 description: "Save the research digest to {output_file}".into(),
                 tool: Some("write_file".into()),
                 arguments: serde_json::json!({"path": "{output_file}"}),
                 requires_approval: true,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![2],
+                acceptance: vec![],
             },
         ],
         parameters: vec![
@@ -434,36 +486,44 @@ fn code_review_checklist() -> WorkflowTemplate {
         description: "Review PR #{pr_number}: fetch diff, check for issues, post review comments".into(),
         steps: vec![
             TemplateStep {
+                step_id: "fetch-diff".into(),
                 description: "Fetch the PR diff for #{pr_number}".into(),
                 tool: Some("get_pr_diff".into()),
                 arguments: serde_json::json!({"number": "{pr_number}", "full_diff": true}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "fetch-context".into(),
                 description: "Fetch the PR's linked issue or description for context".into(),
                 tool: Some("list_prs".into()),
                 arguments: serde_json::json!({}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "analyze-diff".into(),
                 description: "Analyze the diff for: correctness, security issues, error handling, test coverage, naming clarity, and unnecessary complexity".into(),
                 tool: None,
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![0, 1],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "post-comments".into(),
                 description: "Post review comments on the PR — one comment per finding".into(),
                 tool: Some("create_pr_comment".into()),
                 arguments: serde_json::json!({"number": "{pr_number}"}),
                 requires_approval: true,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![2],
+                acceptance: vec![],
             },
         ],
         parameters: vec![
@@ -491,44 +551,54 @@ fn meeting_prep() -> WorkflowTemplate {
         description: "Prepare for meeting about {subject}: gather context, draft agenda, set reminders".into(),
         steps: vec![
             TemplateStep {
+                step_id: "search-email-threads".into(),
                 description: "Search emails for recent threads about {subject}".into(),
                 tool: Some("fetch_email".into()),
                 arguments: serde_json::json!({"query": "{subject}", "limit": 10}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "search-vault-docs".into(),
                 description: "Check for related documents in the vault about {subject}".into(),
                 tool: Some("search_documents".into()),
                 arguments: serde_json::json!({"query": "{subject}"}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "lookup-attendees".into(),
                 description: "Look up contacts for {attendees} to understand roles and recent interactions".into(),
                 tool: Some("search_contacts".into()),
                 arguments: serde_json::json!({"query": "{attendees}"}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "draft-agenda".into(),
                 description: "Synthesize context and draft a meeting agenda with talking points and open questions".into(),
                 tool: None,
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![0, 1, 2],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "set-prep-reminder".into(),
                 description: "Set a reminder {minutes_before} minutes before the meeting".into(),
                 tool: Some("set_reminder".into()),
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![3],
+                acceptance: vec![],
             },
         ],
         parameters: vec![
@@ -565,44 +635,54 @@ fn monthly_budget_review() -> WorkflowTemplate {
         description: "Monthly financial review: analyze spending vs budget, identify trends, flag overages".into(),
         steps: vec![
             TemplateStep {
+                step_id: "budget-summary".into(),
                 description: "Pull the full budget summary for the current month".into(),
                 tool: Some("budget_summary".into()),
                 arguments: serde_json::json!({}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "list-30d-transactions".into(),
                 description: "List all transactions for the past 30 days".into(),
                 tool: Some("list_transactions".into()),
                 arguments: serde_json::json!({"days": "30"}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "analyze-by-category".into(),
                 description: "Analyze spending by category: compare actual vs budgeted amounts, calculate percentage used".into(),
                 tool: None,
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![0, 1],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "identify-anomalies".into(),
                 description: "Identify anomalies: categories over budget, unusual transactions, recurring charges that changed".into(),
                 tool: None,
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![2],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "generate-monthly-report".into(),
                 description: "Generate a concise monthly report with recommendations for next month's budget adjustments".into(),
                 tool: None,
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![3],
+                acceptance: vec![],
             },
         ],
         parameters: vec![],
@@ -623,44 +703,54 @@ fn project_status_report() -> WorkflowTemplate {
         description: "Generate a project status report: recent commits, open issues, CI health, PR activity".into(),
         steps: vec![
             TemplateStep {
+                step_id: "git-log".into(),
                 description: "Fetch recent git log for the past {days} days".into(),
                 tool: Some("git_log".into()),
                 arguments: serde_json::json!({"limit": 20}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "list-issues".into(),
                 description: "List open issues".into(),
                 tool: Some("list_issues".into()),
                 arguments: serde_json::json!({"state": "open"}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "ci-status".into(),
                 description: "Check CI pipeline status for the default branch".into(),
                 tool: Some("ci_status".into()),
                 arguments: serde_json::json!({}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "list-open-prs".into(),
                 description: "List open pull requests".into(),
                 tool: Some("list_prs".into()),
                 arguments: serde_json::json!({"state": "open"}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "compile-status-report".into(),
                 description: "Compile a project status report: development velocity, blockers, CI health, review bottlenecks".into(),
                 tool: None,
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![0, 1, 2, 3],
+                acceptance: vec![],
             },
         ],
         parameters: vec![
@@ -693,28 +783,34 @@ fn strategy_review() -> WorkflowTemplate {
         description: "Weekly strategic review: analyze all goal progress, detect patterns, suggest adjustments".into(),
         steps: vec![
             TemplateStep {
+                step_id: "list-goals".into(),
                 description: "Review all active, completed, and stalled goals from the past week".into(),
                 tool: Some("list_goals".into()),
                 arguments: serde_json::json!({"include_completed": true}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "analyze-patterns".into(),
                 description: "Analyze progress patterns: completion velocity, recurring blockers, stalled items, shifting priorities".into(),
                 tool: None,
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![0],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "generate-adjustments".into(),
                 description: "Generate strategic adjustments: reprioritize goals, flag at-risk deadlines, update domain confidence".into(),
                 tool: None,
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![1],
+                acceptance: vec![],
             },
         ],
         parameters: vec![],
@@ -739,28 +835,34 @@ fn milestone_scan() -> WorkflowTemplate {
         description: "Monthly milestone scan: detect goal anniversaries, celebrate long-term achievements".into(),
         steps: vec![
             TemplateStep {
+                step_id: "list-all-goals".into(),
                 description: "List all goals including completed ones to scan for anniversaries".into(),
                 tool: Some("list_goals".into()),
                 arguments: serde_json::json!({"include_completed": true}),
                 requires_approval: false,
                 condition: None,
                 depends_on: vec![],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "identify-anniversaries".into(),
                 description: "Identify milestone anniversaries: 1 month, 3 months, 6 months, 1 year since creation or completion".into(),
                 tool: None,
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![0],
+                acceptance: vec![],
             },
             TemplateStep {
+                step_id: "generate-celebrations".into(),
                 description: "Generate celebration messages for detected milestones — calibrate tone to persona".into(),
                 tool: None,
                 arguments: serde_json::Value::Null,
                 requires_approval: false,
                 condition: Some(StepCondition::OnSuccess),
                 depends_on: vec![1],
+                acceptance: vec![],
             },
         ],
         parameters: vec![],
@@ -1098,6 +1200,74 @@ mod tests {
     fn library_has_expected_count() {
         assert_eq!(all_templates().len(), 12, "expected 12 library templates");
         assert_eq!(library_names().len(), 12, "expected 12 library names");
+    }
+
+    #[test]
+    fn all_templates_have_non_empty_step_ids() {
+        // Slice A invariant: every library step must have an explicit,
+        // non-empty `step_id`. The load-path and instantiate-path both
+        // backfill empty IDs with positional defaults, but library
+        // templates are authored code — they should be canonical so that
+        // reviewers reading the source see a meaningful identifier
+        // rather than relying on the backfill.
+        for t in all_templates() {
+            for (i, s) in t.steps.iter().enumerate() {
+                assert!(
+                    !s.step_id.is_empty(),
+                    "template '{}' step {} ({}) has empty step_id",
+                    t.name,
+                    i,
+                    s.description,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn all_templates_have_unique_step_ids() {
+        // Slice A invariant: within a single template, step IDs must be
+        // unique. Mission plan cursors and acceptance reports reference
+        // steps by `step_id`, so duplicates would make resolution
+        // ambiguous.
+        for t in all_templates() {
+            let mut ids: Vec<&str> = t.steps.iter().map(|s| s.step_id.as_str()).collect();
+            let original = ids.len();
+            ids.sort();
+            ids.dedup();
+            assert_eq!(
+                ids.len(),
+                original,
+                "template '{}' has duplicate step_id(s)",
+                t.name,
+            );
+        }
+    }
+
+    #[test]
+    fn instantiated_steps_carry_library_step_ids() {
+        // End-to-end check: the `step_id` that the library authored on
+        // each `TemplateStep` must reach every `InstantiatedStep` after
+        // `instantiate()` runs.
+        for t in all_templates() {
+            // Build params that satisfy any required placeholders.
+            let mut params = HashMap::new();
+            for p in &t.parameters {
+                if p.default.is_none() {
+                    params.insert(p.name.clone(), format!("test_{}", p.name));
+                }
+            }
+            let inst = t
+                .instantiate(&params)
+                .unwrap_or_else(|e| panic!("template '{}' instantiate failed: {e}", t.name));
+            assert_eq!(inst.steps.len(), t.steps.len());
+            for (template_step, instantiated_step) in t.steps.iter().zip(inst.steps.iter()) {
+                assert_eq!(
+                    instantiated_step.step_id, template_step.step_id,
+                    "template '{}' dropped step_id during instantiation",
+                    t.name,
+                );
+            }
+        }
     }
 
     #[test]

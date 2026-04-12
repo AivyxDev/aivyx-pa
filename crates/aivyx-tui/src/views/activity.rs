@@ -349,14 +349,21 @@ fn render_agent_detail(app: &App, area: Rect, buf: &mut Buffer) {
             // Show error on next line if present
             if let Some(ref err) = entry.error {
                 if y < detail_inner.y + detail_inner.height {
-                    let max = (w - 4) as usize;
-                    let truncated: String = err.chars().take(max).collect();
-                    let err_line = Line::from(vec![
-                        Span::styled("    ", Style::default()),
-                        Span::styled(truncated, Style::default().fg(theme::ERROR)),
-                    ]);
-                    buf.set_line(detail_inner.x + 1, y, &err_line, w);
-                    y += 1;
+                    let max_w = (w.saturating_sub(4)) as usize;
+                    let text = format!("⚠ {}", err);
+                    
+                    for line_chars in text.chars().collect::<Vec<_>>().chunks(max_w) {
+                        if y >= detail_inner.y + detail_inner.height {
+                            break;
+                        }
+                        let chunk_str: String = line_chars.iter().collect();
+                        let err_line = Line::from(vec![
+                            Span::styled("    ", Style::default()),
+                            Span::styled(chunk_str, Style::default().fg(theme::ERROR)),
+                        ]);
+                        buf.set_line(detail_inner.x + 1, y, &err_line, w);
+                        y += 1;
+                    }
                 }
             }
         }

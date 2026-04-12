@@ -8,7 +8,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Widget},
+    widgets::{Block, BorderType, Borders, Clear, Widget},
 };
 
 use crate::app::App;
@@ -213,15 +213,18 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     }
 
     // ── Help bar ──────────────────────────────────────────────
-    let help = Line::from(vec![
-        Span::styled("[ \u{2191}\u{2193}: NAVIGATE ]  ", theme::dim()),
-        Span::styled("[ []: FILTER ]  ", theme::dim()),
-        Span::styled("[ R: RESUME ]  ", theme::dim()),
-        Span::styled("[ A/D: APPROVE/DENY ]  ", theme::dim()),
-        Span::styled("[ X: CANCEL ]  ", theme::dim()),
-        Span::styled("[ TAB: SIDEBAR ]", theme::dim()),
-    ]);
-    buf.set_line(help_bar.x, help_bar.y, &help, help_bar.width);
+    let help_text = if app.mission_popup.is_some() {
+        "[ ENTER: DISPATCH ]  [ ESC: CANCEL ]"
+    } else {
+        "[ \u{2191}\u{2193}: NAVIGATE ]  [ []: FILTER ]  [ N: NEW ]  [ R: RESUME ]  [ A/D: APPROVE/DENY ]  [ X: CANCEL ]  [ TAB: SIDEBAR ]"
+    };
+    let help = Line::from(Span::styled(help_text, theme::dim()));
+    buf.set_line(help_bar.x + 1, help_bar.y, &help, help_bar.width - 2);
+
+    // ── Popup overlay ────────────────────────────────────────
+    if let Some(ref popup) = app.mission_popup {
+        render_popup(popup, app.frame_count, area, buf);
+    }
 }
 
 /// Render the mission detail panel.
@@ -304,15 +307,27 @@ fn render_detail(mission: &aivyx_task_engine::Mission, area: Rect, buf: &mut Buf
             break;
         }
 
-        let (icon, icon_style) = match &step.status {
-            StepStatus::Completed => ("[⚙ OK]", Style::default().fg(theme::SAGE)),
-            StepStatus::Running => ("[ACTIVE]", Style::default().fg(theme::PRIMARY)),
-            StepStatus::Failed { .. } => ("[FAILED]", Style::default().fg(theme::ERROR)),
-            StepStatus::Pending => ("[ WAIT ]", theme::dim()),
-            StepStatus::Skipped => ("[ SKIP ]", theme::dim()),
+        let mut icon_str = match &step.status {
+            StepStatus::Completed => "[⚙ OK]".to_string(),
+            StepStatus::Running => "[ACTIVE]".to_string(),
+            StepStatus::Failed { .. } => "[FAILED]".to_string(),
+            StepStatus::Pending => "[ WAIT ]".to_string(),
+            StepStatus::Skipped => "[ SKIP ]".to_string(),
         };
 
-        let desc = truncate(&step.description, max_w.saturating_sub(20));
+        // Append retry counter if active/failed
+        if step.retries > 0 && matches!(step.status, StepStatus::Running | StepStatus::Failed { .. }) {
+            icon_str = format!("{} (Attempt {})]", icon_str.strip_suffix(']').unwrap_or(&icon_str), step.retries + 1);
+        }
+
+        let icon_style = match &step.status {
+            StepStatus::Completed => Style::default().fg(theme::SAGE),
+            StepStatus::Running => Style::default().fg(theme::PRIMARY),
+            StepStatus::Failed { .. } => Style::default().fg(theme::ERROR),
+            StepStatus::Pending | StepStatus::Skipped => theme::dim(),
+        };
+
+        let desc = truncate(&step.description, max_w.saturating_sub(40));
         let duration = match (&step.started_at, &step.completed_at) {
             (Some(start), Some(end)) => {
                 let secs = (*end - *start).num_seconds();
@@ -326,11 +341,21 @@ fn render_detail(mission: &aivyx_task_engine::Mission, area: Rect, buf: &mut Buf
             _ => String::new(),
         };
 
-        let step_line = Line::from(vec![
-            Span::styled(format!("  {}  ", icon), icon_style),
+        let mut step_spans = vec![
+            Span::styled(format!("  {icon_str}  "), icon_style),
             Span::styled(format!("{}. {desc}", step.index + 1), theme::text()),
             Span::styled(duration, theme::dim()),
-        ]);
+        ];
+
+        // Indicate if the step passes through an acceptance contract gate
+        if !step.acceptance.is_empty() {
+            step_spans.push(Span::styled(
+                format!("  [ CONTRACT CHECK: {} ]", step.acceptance.len()),
+                theme::dim(),
+            ));
+        }
+
+        let step_line = Line::from(step_spans);
         buf.set_line(area.x + 1, y, &step_line, area.width - 2);
         y += 1;
 
@@ -445,6 +470,41 @@ fn truncate(s: &str, max: usize) -> String {
     } else {
         String::new()
     }
+}
+
+/// Centered popup rect within the given area.
+fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
+    let x = area.x + area.width.saturating_sub(width) / 2;
+    let y = area.y + area.height.saturating_sub(height) / 2;
+    Rect::new(x, y, width.min(area.width), height.min(area.height))
+}
+
+/// Render the mission creator popup overlay.
+fn render_popup(popup: &crate::app::MissionPopup, frame_count: u64, area: Rect, buf: &mut Buffer) {
+    let cursor_char = if frame_count % 60 < 30 { "█" } else { " " };
+
+    let rect = centered_rect(60, 5, area);
+    Clear.render(rect, buf);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Plain)
+        .border_style(theme::primary())
+        .title(Line::from(Span::styled(
+            "[ CREATE MISSION ]",
+            theme::primary_bold(),
+        )));
+    let inner = block.inner(rect);
+    block.render(rect, buf);
+
+    let y = inner.y + 1;
+
+    let input_line = Line::from(vec![
+        Span::styled("[ ", theme::primary()),
+        Span::styled(&popup.input, theme::text_bold()),
+        Span::styled(cursor_char, theme::primary()),
+        Span::styled(" ]", theme::primary()),
+    ]);
+    buf.set_line(inner.x + 1, y, &input_line, inner.width - 2);
 }
 
 #[cfg(test)]

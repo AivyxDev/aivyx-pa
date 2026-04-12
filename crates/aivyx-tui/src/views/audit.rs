@@ -97,6 +97,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                 "tool" => theme::secondary(),
                 "heartbeat" => theme::sage(),
                 "security" => theme::warning(),
+                "engine" => theme::primary(),
                 _ => theme::dim(),
             };
 
@@ -109,6 +110,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
                 "tool" => Span::styled(" [TOOL] ", type_style),
                 "heartbeat" => Span::styled(" [HB] ", type_style),
                 "security" => Span::styled(" [SEC] ", type_style),
+                "engine" => Span::styled(" [ENG] ", type_style),
                 _ => Span::styled(" [EVENT] ", type_style),
             };
 

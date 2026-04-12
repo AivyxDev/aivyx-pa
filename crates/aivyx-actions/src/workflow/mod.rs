@@ -45,6 +45,17 @@ pub struct WorkflowTemplate {
 /// replaced during instantiation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TemplateStep {
+    /// Stable identifier for this step, used by acceptance reports and
+    /// mission plan cursors to reference the step unambiguously across
+    /// reorderings.
+    ///
+    /// Defaults to an empty string during deserialization of legacy
+    /// templates; the loader ([`load_template`]) and template constructor
+    /// ([`WorkflowTemplate::instantiate`]) backfill empty IDs with
+    /// `s{NN}` based on positional index. New templates written in code
+    /// should always set this explicitly.
+    #[serde(default)]
+    pub step_id: String,
     /// What this step does (supports `{param}` placeholders).
     pub description: String,
     /// Optional tool hint — if set, the agent should prefer this tool.
@@ -63,6 +74,33 @@ pub struct TemplateStep {
     /// Step indices this step depends on (for DAG execution).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub depends_on: Vec<usize>,
+    /// Acceptance checks this step must satisfy before it can be marked
+    /// complete. An empty vec means the step has no structured contract
+    /// and is treated as "vacuously passing" by the executor (see
+    /// [`AcceptanceReport::overall_or_vacuous`]). Declared checks are
+    /// evaluated against the `StepEvidence` collected at runtime by the
+    /// pure evaluator in [`workflow::acceptance`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub acceptance: Vec<AcceptanceCheck>,
+}
+
+/// Generate a default positional step id for a step at the given index.
+///
+/// Used by the deserialization backfill path to assign stable IDs to
+/// legacy templates that were saved before `step_id` existed.
+pub(crate) fn default_step_id(index: usize) -> String {
+    format!("s{index:02}")
+}
+
+/// Backfill empty `step_id` fields on a template's steps with positional
+/// defaults. Idempotent — steps that already have a non-empty id are left
+/// untouched.
+fn backfill_step_ids(steps: &mut [TemplateStep]) {
+    for (i, step) in steps.iter_mut().enumerate() {
+        if step.step_id.is_empty() {
+            step.step_id = default_step_id(i);
+        }
+    }
 }
 
 /// A declared parameter for a workflow template.
@@ -124,6 +162,20 @@ impl StepCondition {
     }
 }
 
+// ── Acceptance Checks (re-exported from aivyx-task-engine) ────
+//
+// The canonical types live in `aivyx_task_engine::acceptance` so the
+// mission executor can evaluate them without depending on this crate.
+// We re-export here so existing `aivyx_actions::workflow::AcceptanceCheck`
+// imports and `TemplateStep.acceptance: Vec<AcceptanceCheck>` continue to
+// resolve transparently.
+pub use aivyx_task_engine::acceptance::{
+    AcceptanceCheck, AcceptanceReport, CheckKind, CheckOutcome, MemoryHit, SelfAssertionEvidence,
+    StepEvidence, ToolExpectation, ToolOutcome, evaluate as evaluate_acceptance,
+};
+
+// ── Workflow Triggers ─────────────────────────────────────────
+
 /// Events that can trigger automatic workflow instantiation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -171,10 +223,18 @@ pub struct InstantiatedWorkflow {
 /// A step ready for execution (all placeholders resolved).
 #[derive(Debug, Clone)]
 pub struct InstantiatedStep {
+    /// Stable step identifier carried over from the source `TemplateStep`.
+    /// Used by acceptance reports and mission plan cursors to reference
+    /// this step unambiguously.
+    pub step_id: String,
     pub description: String,
     pub tool_hints: Vec<String>,
     pub requires_approval: bool,
     pub depends_on: Vec<usize>,
+    /// Acceptance checks carried over from the source `TemplateStep`.
+    /// The mission executor evaluates these against the step's
+    /// `StepEvidence` to decide whether the step may advance.
+    pub acceptance: Vec<AcceptanceCheck>,
 }
 
 impl WorkflowTemplate {
@@ -213,20 +273,32 @@ impl WorkflowTemplate {
 
         let goal = replace(&self.description);
 
+        // Propagate step IDs, falling back to positional defaults for any
+        // steps that were constructed in code without an explicit id. This
+        // mirrors the `load_template` backfill so every `InstantiatedStep`
+        // has a non-empty, stable `step_id` regardless of its origin.
         let steps = self
             .steps
             .iter()
-            .map(|ts| {
+            .enumerate()
+            .map(|(i, ts)| {
                 let tool_hints = ts
                     .tool
                     .as_ref()
                     .map(|t| vec![replace(t)])
                     .unwrap_or_default();
+                let step_id = if ts.step_id.is_empty() {
+                    default_step_id(i)
+                } else {
+                    ts.step_id.clone()
+                };
                 InstantiatedStep {
+                    step_id,
                     description: replace(&ts.description),
                     tool_hints,
                     requires_approval: ts.requires_approval,
                     depends_on: ts.depends_on.clone(),
+                    acceptance: ts.acceptance.clone(),
                 }
             })
             .collect();
@@ -257,6 +329,12 @@ pub fn save_template(
 }
 
 /// Load a workflow template by name from the encrypted store.
+///
+/// Deserialized templates are passed through [`backfill_step_ids`] so that
+/// legacy records written before `step_id` existed receive stable
+/// positional IDs (`s00`, `s01`, ...). The backfill is idempotent — templates
+/// that already carry explicit ids are left untouched — and it runs in memory
+/// only, so the stored blob is not rewritten until the next `save_template`.
 pub fn load_template(
     store: &EncryptedStore,
     key: &MasterKey,
@@ -265,9 +343,11 @@ pub fn load_template(
     let storage_key = format!("{KEY_PREFIX}{name}");
     match store.get(&storage_key, key)? {
         Some(bytes) => {
-            let template: WorkflowTemplate = serde_json::from_slice(&bytes).map_err(|e| {
-                aivyx_core::AivyxError::Other(format!("deserialize template '{name}': {e}"))
-            })?;
+            let mut template: WorkflowTemplate =
+                serde_json::from_slice(&bytes).map_err(|e| {
+                    aivyx_core::AivyxError::Other(format!("deserialize template '{name}': {e}"))
+                })?;
+            backfill_step_ids(&mut template.steps);
             Ok(Some(template))
         }
         None => Ok(None),
@@ -356,11 +436,20 @@ impl crate::Action for CreateWorkflowAction {
                         "type": "object",
                         "required": ["description"],
                         "properties": {
+                            "step_id": {
+                                "type": "string",
+                                "description": "Stable step identifier (used by acceptance reports and mission plan cursors). If omitted, a positional default like 's00' is assigned at load time."
+                            },
                             "description": { "type": "string" },
                             "tool": { "type": "string" },
                             "arguments": {},
                             "requires_approval": { "type": "boolean" },
-                            "depends_on": { "type": "array", "items": { "type": "integer" } }
+                            "depends_on": { "type": "array", "items": { "type": "integer" } },
+                            "acceptance": {
+                                "type": "array",
+                                "description": "Acceptance checks this step must satisfy. Each check is one of: {\"type\":\"ToolCall\",\"tool\":\"...\",\"expect\":{\"kind\":\"Ok\"|\"JsonEquals\"|\"JsonPresent\",...}}, {\"type\":\"MemoryExists\",\"kind\":\"...\",\"query\":\"...\"}, or {\"type\":\"SelfAssertion\",\"criterion\":\"...\",\"dimension\":\"...\"}. Empty or omitted means the step has no structured contract.",
+                                "items": { "type": "object" }
+                            }
                         }
                     }
                 },
@@ -399,8 +488,12 @@ impl crate::Action for CreateWorkflowAction {
             .get("steps")
             .ok_or_else(|| aivyx_core::AivyxError::Other("missing 'steps'".into()))?;
 
-        let steps: Vec<TemplateStep> = serde_json::from_value(steps_val.clone())
+        let mut steps: Vec<TemplateStep> = serde_json::from_value(steps_val.clone())
             .map_err(|e| aivyx_core::AivyxError::Other(format!("invalid steps: {e}")))?;
+        // Assign positional IDs to any step the agent submitted without
+        // an explicit `step_id`. Keeps the saved blob canonical so future
+        // loads don't rely on the load-path backfill.
+        backfill_step_ids(&mut steps);
 
         let parameters: Vec<TemplateParameter> = input
             .get("parameters")
@@ -590,6 +683,7 @@ impl crate::Action for RunWorkflowAction {
             "steps": instantiated.steps.iter().enumerate().map(|(i, s)| {
                 serde_json::json!({
                     "index": i,
+                    "step_id": s.step_id,
                     "description": s.description,
                     "tool_hints": s.tool_hints,
                     "requires_approval": s.requires_approval,
@@ -647,6 +741,7 @@ impl crate::Action for WorkflowStatusAction {
             "steps": template.steps.iter().enumerate().map(|(i, s)| {
                 serde_json::json!({
                     "index": i,
+                    "step_id": s.step_id,
                     "description": s.description,
                     "tool": s.tool,
                     "requires_approval": s.requires_approval,
@@ -681,28 +776,34 @@ mod tests {
             description: "Process expense report for {employee}".into(),
             steps: vec![
                 TemplateStep {
+                    step_id: "fetch".into(),
                     description: "Fetch email from {employee}".into(),
                     tool: Some("fetch_email".into()),
                     arguments: serde_json::json!({"query": "from:{employee}"}),
                     requires_approval: false,
                     condition: None,
                     depends_on: vec![],
+                    acceptance: vec![],
                 },
                 TemplateStep {
+                    step_id: "extract".into(),
                     description: "Extract expense amounts".into(),
                     tool: None,
                     arguments: serde_json::Value::Null,
                     requires_approval: false,
                     condition: Some(StepCondition::OnSuccess),
                     depends_on: vec![0],
+                    acceptance: vec![],
                 },
                 TemplateStep {
+                    step_id: "file".into(),
                     description: "File receipt to {folder}".into(),
                     tool: Some("file_receipt".into()),
                     arguments: serde_json::json!({"folder": "{folder}"}),
                     requires_approval: true,
                     condition: Some(StepCondition::OnSuccess),
                     depends_on: vec![1],
+                    acceptance: vec![],
                 },
             ],
             parameters: vec![
@@ -898,5 +999,162 @@ mod tests {
         assert!(result.steps[0].depends_on.is_empty());
         assert_eq!(result.steps[1].depends_on, vec![0]);
         assert_eq!(result.steps[2].depends_on, vec![1]);
+    }
+
+    // ── step_id propagation (Slice A) ──────────────────────────
+
+    #[test]
+    fn instantiate_preserves_explicit_step_ids() {
+        let template = sample_template();
+        let mut params = HashMap::new();
+        params.insert("employee".into(), "x@y.com".into());
+
+        let result = template.instantiate(&params).unwrap();
+        assert_eq!(result.steps[0].step_id, "fetch");
+        assert_eq!(result.steps[1].step_id, "extract");
+        assert_eq!(result.steps[2].step_id, "file");
+    }
+
+    #[test]
+    fn instantiate_backfills_empty_step_ids_positionally() {
+        // A template constructed in code without explicit step IDs —
+        // e.g. by an early caller we haven't migrated yet — should still
+        // emit instantiated steps with stable positional IDs.
+        let now = Utc::now();
+        let template = WorkflowTemplate {
+            name: "anon".into(),
+            description: "anon".into(),
+            steps: vec![
+                TemplateStep {
+                    step_id: String::new(),
+                    description: "first".into(),
+                    tool: None,
+                    arguments: serde_json::Value::Null,
+                    requires_approval: false,
+                    condition: None,
+                    depends_on: vec![],
+                    acceptance: vec![],
+                },
+                TemplateStep {
+                    step_id: String::new(),
+                    description: "second".into(),
+                    tool: None,
+                    arguments: serde_json::Value::Null,
+                    requires_approval: false,
+                    condition: None,
+                    depends_on: vec![],
+                    acceptance: vec![],
+                },
+            ],
+            parameters: vec![],
+            triggers: vec![WorkflowTrigger::Manual],
+            created_at: now,
+            updated_at: now,
+        };
+
+        let result = template.instantiate(&HashMap::new()).unwrap();
+        assert_eq!(result.steps[0].step_id, "s00");
+        assert_eq!(result.steps[1].step_id, "s01");
+    }
+
+    #[test]
+    fn legacy_json_without_step_id_backfills_on_load() {
+        // Hand-crafted legacy JSON: no `step_id` field at all on the step
+        // object. This simulates a template that was saved to the encrypted
+        // store before Slice A landed. After passing through the same
+        // backfill that `load_template` applies, the steps must have
+        // stable positional IDs.
+        let legacy_json = serde_json::json!({
+            "name": "legacy",
+            "description": "old template",
+            "steps": [
+                {
+                    "description": "step one",
+                    "depends_on": []
+                },
+                {
+                    "description": "step two",
+                    "depends_on": [0]
+                },
+                {
+                    "description": "step three",
+                    "depends_on": [1]
+                }
+            ],
+            "parameters": [],
+            "triggers": [{ "type": "Manual" }],
+            "created_at": Utc::now().to_rfc3339(),
+            "updated_at": Utc::now().to_rfc3339(),
+        });
+
+        let mut template: WorkflowTemplate =
+            serde_json::from_value(legacy_json).expect("legacy JSON should deserialize");
+        // Pre-backfill: all step IDs empty (serde default).
+        assert!(template.steps.iter().all(|s| s.step_id.is_empty()));
+
+        // Exercise the same helper `load_template` uses.
+        backfill_step_ids(&mut template.steps);
+
+        assert_eq!(template.steps[0].step_id, "s00");
+        assert_eq!(template.steps[1].step_id, "s01");
+        assert_eq!(template.steps[2].step_id, "s02");
+    }
+
+    #[test]
+    fn backfill_is_idempotent_and_leaves_explicit_ids_alone() {
+        let mut steps = vec![
+            TemplateStep {
+                step_id: "alpha".into(),
+                description: "a".into(),
+                tool: None,
+                arguments: serde_json::Value::Null,
+                requires_approval: false,
+                condition: None,
+                depends_on: vec![],
+                acceptance: vec![],
+            },
+            TemplateStep {
+                // mixed: this one is empty and should be backfilled
+                step_id: String::new(),
+                description: "b".into(),
+                tool: None,
+                arguments: serde_json::Value::Null,
+                requires_approval: false,
+                condition: None,
+                depends_on: vec![],
+                acceptance: vec![],
+            },
+            TemplateStep {
+                step_id: "gamma".into(),
+                description: "c".into(),
+                tool: None,
+                arguments: serde_json::Value::Null,
+                requires_approval: false,
+                condition: None,
+                depends_on: vec![],
+                acceptance: vec![],
+            },
+        ];
+
+        backfill_step_ids(&mut steps);
+        assert_eq!(steps[0].step_id, "alpha");
+        assert_eq!(steps[1].step_id, "s01"); // positional, not s00
+        assert_eq!(steps[2].step_id, "gamma");
+
+        // Idempotent: running again changes nothing.
+        backfill_step_ids(&mut steps);
+        assert_eq!(steps[0].step_id, "alpha");
+        assert_eq!(steps[1].step_id, "s01");
+        assert_eq!(steps[2].step_id, "gamma");
+    }
+
+    #[test]
+    fn template_roundtrip_preserves_explicit_step_ids() {
+        let template = sample_template();
+        let json = serde_json::to_string(&template).unwrap();
+        let parsed: WorkflowTemplate = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.steps[0].step_id, "fetch");
+        assert_eq!(parsed.steps[1].step_id, "extract");
+        assert_eq!(parsed.steps[2].step_id, "file");
     }
 }

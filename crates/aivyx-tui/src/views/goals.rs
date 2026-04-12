@@ -145,7 +145,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
             );
             let bar_style = match goal.status {
                 aivyx_brain::GoalStatus::Completed => theme::sage(),
-                aivyx_brain::GoalStatus::Abandoned => theme::dim(),
+                aivyx_brain::GoalStatus::Abandoned => theme::error(),
                 _ => theme::primary(),
             };
             buf.set_line(
@@ -197,10 +197,15 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
 
         // Status + Priority
         let status_str = format!("{:?}", goal.status).to_uppercase();
+        let status_style = match goal.status {
+            aivyx_brain::GoalStatus::Completed => theme::sage(),
+            aivyx_brain::GoalStatus::Abandoned => theme::error(),
+            _ => theme::text(),
+        };
         let priority_str = format!("{:?}", goal.priority).to_uppercase();
         let meta_line = Line::from(vec![
             Span::styled("[ STATUS   ]  ", theme::muted()),
-            Span::styled(&status_str, theme::text()),
+            Span::styled(&status_str, status_style),
             Span::styled("      [ PRIORITY ]  ", theme::muted()),
             Span::styled(&priority_str, theme::text()),
         ]);
