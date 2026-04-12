@@ -4785,17 +4785,37 @@ pub fn format_audit_event(event: &aivyx_audit::AuditEvent) -> String {
         AuditEvent::BriefingGenerated { item_count, .. } => {
             format!("Briefing ({item_count} items)")
         }
-        AuditEvent::TaskFailed { step_index, error, .. } => {
-            format!("Engine: Task Failed at step {} (Reason: {})", step_index, error)
+        AuditEvent::TaskFailed {
+            step_index, error, ..
+        } => {
+            format!(
+                "Engine: Task Failed at step {} (Reason: {})",
+                step_index, error
+            )
         }
-        AuditEvent::TaskResumed { resumed_from_step, .. } => {
-            format!("Engine: Recovered & Resumed from step {}", resumed_from_step)
+        AuditEvent::TaskResumed {
+            resumed_from_step, ..
+        } => {
+            format!(
+                "Engine: Recovered & Resumed from step {}",
+                resumed_from_step
+            )
         }
-        AuditEvent::TaskCompleted { steps_completed, .. } => {
+        AuditEvent::TaskCompleted {
+            steps_completed, ..
+        } => {
             format!("Engine: Task Completed ({} steps)", steps_completed)
         }
-        AuditEvent::TaskStepCompleted { step_index, success, .. } => {
-            format!("Engine: Step {} {}", step_index, if *success { "OK" } else { "FAIL" })
+        AuditEvent::TaskStepCompleted {
+            step_index,
+            success,
+            ..
+        } => {
+            format!(
+                "Engine: Step {} {}",
+                step_index,
+                if *success { "OK" } else { "FAIL" }
+            )
         }
         other => {
             let debug = format!("{other:?}");

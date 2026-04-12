@@ -343,10 +343,9 @@ pub fn load_template(
     let storage_key = format!("{KEY_PREFIX}{name}");
     match store.get(&storage_key, key)? {
         Some(bytes) => {
-            let mut template: WorkflowTemplate =
-                serde_json::from_slice(&bytes).map_err(|e| {
-                    aivyx_core::AivyxError::Other(format!("deserialize template '{name}': {e}"))
-                })?;
+            let mut template: WorkflowTemplate = serde_json::from_slice(&bytes).map_err(|e| {
+                aivyx_core::AivyxError::Other(format!("deserialize template '{name}': {e}"))
+            })?;
             backfill_step_ids(&mut template.steps);
             Ok(Some(template))
         }

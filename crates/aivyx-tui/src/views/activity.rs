@@ -351,7 +351,7 @@ fn render_agent_detail(app: &App, area: Rect, buf: &mut Buffer) {
                 if y < detail_inner.y + detail_inner.height {
                     let max_w = (w.saturating_sub(4)) as usize;
                     let text = format!("⚠ {}", err);
-                    
+
                     for line_chars in text.chars().collect::<Vec<_>>().chunks(max_w) {
                         if y >= detail_inner.y + detail_inner.height {
                             break;

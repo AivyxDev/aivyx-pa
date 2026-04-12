@@ -316,8 +316,14 @@ fn render_detail(mission: &aivyx_task_engine::Mission, area: Rect, buf: &mut Buf
         };
 
         // Append retry counter if active/failed
-        if step.retries > 0 && matches!(step.status, StepStatus::Running | StepStatus::Failed { .. }) {
-            icon_str = format!("{} (Attempt {})]", icon_str.strip_suffix(']').unwrap_or(&icon_str), step.retries + 1);
+        if step.retries > 0
+            && matches!(step.status, StepStatus::Running | StepStatus::Failed { .. })
+        {
+            icon_str = format!(
+                "{} (Attempt {})]",
+                icon_str.strip_suffix(']').unwrap_or(&icon_str),
+                step.retries + 1
+            );
         }
 
         let icon_style = match &step.status {
