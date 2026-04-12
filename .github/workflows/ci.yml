@@ -35,6 +35,7 @@ jobs:
           token: ${{ secrets.AIVYX_CI_PAT }}
 
       - name: Configure Cargo Auth
+        shell: bash
         run: |
           git config --global url."https://${{ secrets.AIVYX_CI_PAT }}@github.com/".insteadOf "https://github.com/"
           echo "CARGO_NET_GIT_FETCH_WITH_CLI=true" >> "$GITHUB_ENV"
@@ -71,6 +72,7 @@ jobs:
           path: aivyx-pa
 
       - name: Configure Cargo Auth
+        shell: bash
         run: |
           git config --global url."https://${{ secrets.AIVYX_CI_PAT }}@github.com/".insteadOf "https://github.com/"
           echo "CARGO_NET_GIT_FETCH_WITH_CLI=true" >> "$GITHUB_ENV"
